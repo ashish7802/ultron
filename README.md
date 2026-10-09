@@ -2,13 +2,24 @@
 
 An Iron Man–inspired holographic orb built with **Next.js**, **Three.js**, and **MediaPipe** hand tracking — control it with your bare hands through your webcam.
 
-> 🔮 This repository contains the open-source interface for **ULTRON** — a real-time AI assistant built and maintained by **Ashish (@ashish7802)**.
+> 🔮 This repository contains the open-source interface for **ULTRON**, a real-time AI assistant and control system built and maintained by **Ashish (@ashish7802)**.
+>
+> 🧑‍💻 GitHub: [@ashish7802](https://github.com/ashish7802)
 >
 > 📱 **[Watch the demo on Instagram](https://www.instagram.com/p/DayJ17OTwvx/)**
 
 ![ULTRON orb UI](docs/screenshot.png)
 
 https://github.com/user-attachments/assets/91578a83-9a27-44e8-84b0-96defcfd7366
+
+## About this project
+
+ULTRON Orb UI is a futuristic holographic interface inspired by sci-fi HUD design. It combines:
+
+- a 3D orb environment built with **Three.js**
+- gesture control via **MediaPipe** hand tracking
+- browser-based voice interaction and local AI orchestration
+- a cinematic, immersive dashboard experience
 
 ## Getting started
 
