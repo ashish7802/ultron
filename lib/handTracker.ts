@@ -15,14 +15,14 @@ const THUMB_TIP = 4;
 const INDEX_TIP = 8;
 const MIDDLE_MCP = 9;
 
-// Pinch hysteresis: thumb–index distance relative to hand size
-const PINCH_ON = 0.32;
-const PINCH_OFF = 0.45;
+// Pinch hysteresis: thumb–index distance relative to hand size (relaxed for easier gestures)
+const PINCH_ON = 0.48;
+const PINCH_OFF = 0.65;
 
 // How strongly hand movement rotates the orb (radians per normalized unit)
-const ROTATE_SPEED = 5.0;
+const ROTATE_SPEED = 6.5;
 // Smoothing factor for grab-point tracking (0..1, higher = snappier)
-const SMOOTHING = 0.4;
+const SMOOTHING = 0.5;
 
 export type GestureMode = "idle" | "spin" | "zoom";
 
@@ -89,9 +89,9 @@ export class HandTracker {
       baseOptions: { modelAssetPath: MODEL_URL, delegate: "GPU" as const },
       runningMode: "VIDEO" as const,
       numHands: 2,
-      minHandDetectionConfidence: 0.6,
-      minHandPresenceConfidence: 0.6,
-      minTrackingConfidence: 0.6,
+      minHandDetectionConfidence: 0.4,
+      minHandPresenceConfidence: 0.4,
+      minTrackingConfidence: 0.4,
     };
     try {
       this.landmarker = await HandLandmarker.createFromOptions(fileset, options);

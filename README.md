@@ -42,8 +42,29 @@ Click **GESTURES OFF** (or press `G`) and allow camera access, then:
 | Key | Action |
 | --- | --- |
 | `G` | Toggle hand gestures |
+| `V` | Toggle voice chat |
+| `T` | Open the text prompt |
 | `R` | Reset the view |
 | `+` / `−` | Zoom in / out |
+
+### Voice chat setup
+
+Voice chat uses the browser's speech playback, the Windows default microphone,
+local Whisper transcription, and Ollama. Allow microphone access when prompted.
+If ULTRON does not hear you, select the intended input under **Windows Settings
+→ System → Sound → Input**; a virtual audio device can be selected as the
+system default instead of the built-in microphone or headset.
+
+Install the local requirements once:
+
+```bash
+py -m pip install faster-whisper pywebview
+ollama pull qwen2.5:0.5b
+```
+
+`ULTRON.bat` starts the local services and desktop window. When running the UI
+with `npm run dev`, start `python stt_server.py` and make sure Ollama is
+running separately.
 
 ## How it works
 
@@ -55,6 +76,7 @@ Click **GESTURES OFF** (or press `G`) and allow camera access, then:
   pinched hands zoom by spreading apart or together.
 - **`components/JarvisOrb.tsx`** — the HUD and glue between the scene, the
   tracker, and your inputs.
+- **`stt_server.py`** — local Whisper transcription service used by voice chat.
 
 ## License
 
