@@ -20,10 +20,10 @@ function limitConversation(messages: ChatMessage[]): ChatMessage[] {
   return recentMessages;
 }
 
-const SPEECH_START_LEVEL = 0.008;
-const SPEECH_END_LEVEL = 0.009;
-const BARGE_IN_LEVEL = 0.013;
-const SILENCE_END_MS = 500;
+const SPEECH_START_LEVEL = 0.010;
+const SPEECH_END_LEVEL = 0.008;
+const BARGE_IN_LEVEL = 0.015;
+const SILENCE_END_MS = 650;
 const MAX_RECORDING_MS = 8_000;
 const MIN_RECORDING_MS = 350;
 const MAX_CONVERSATION_MESSAGES = 20;
@@ -123,7 +123,7 @@ export default function JarvisOrb() {
     if (speechQueueRef.current.length === 0) {
       isPlayingQueueRef.current = false;
       isSpeakingRef.current = false;
-      speechCooldownUntilRef.current = performance.now() + 500;
+      speechCooldownUntilRef.current = performance.now() + 450;
       updateVisualState(voiceActiveRef.current ? "listening" : "idle");
       setVoiceLabel(voiceActiveRef.current ? "LISTENING…" : "VOICE OFF");
       if (subtitleTimerRef.current) clearTimeout(subtitleTimerRef.current);
@@ -138,7 +138,7 @@ export default function JarvisOrb() {
     isPlayingQueueRef.current = true;
     isSpeakingRef.current = true;
     pauseVoiceRecorder();
-    updateVisualState("speaking", { audioLevel: 0.65 });
+    updateVisualState("speaking", { audioLevel: 0.7 });
     setVoiceLabel("SPEAKING…");
 
     const utterance = new SpeechSynthesisUtterance(sentence);
@@ -146,25 +146,51 @@ export default function JarvisOrb() {
     utterance.pitch = 1.0;
 
     const voices = window.speechSynthesis.getVoices();
-    const preferredVoice = voices.find(
-      (v) => v.lang.includes("en-IN") || v.lang.includes("en-US") || v.lang.includes("hi"),
-    );
+    const preferredVoice =
+      voices.find((v) => v.lang === "en-IN" || v.lang.includes("en-IN")) ||
+      voices.find((v) => v.name.toLowerCase().includes("ravi") || v.name.toLowerCase().includes("neerja") || v.name.toLowerCase().includes("david")) ||
+      voices.find((v) => v.lang.startsWith("en-US") || v.lang.startsWith("en-GB")) ||
+      voices.find((v) => v.lang.startsWith("hi"));
     if (preferredVoice) utterance.voice = preferredVoice;
 
+    let finished = false;
+    // Watchdog timer: prevents speech synthesis from permanently freezing on Chromium
+    const watchdogDuration = Math.max(3000, sentence.length * 110);
+    const watchdog = setTimeout(() => {
+      if (!finished && isSpeakingRef.current) {
+        console.warn("[ULTRON TTS] Watchdog fired for speech chunk, moving to next.");
+        finished = true;
+        playNextSentence();
+      }
+    }, watchdogDuration);
+
     utterance.onend = () => {
-      playNextSentence();
+      if (!finished) {
+        finished = true;
+        clearTimeout(watchdog);
+        playNextSentence();
+      }
     };
 
     utterance.onerror = (e) => {
-      if (e.error !== "canceled" && e.error !== "interrupted") {
-        console.warn("Speech playback error:", e.error);
+      if (!finished) {
+        finished = true;
+        clearTimeout(watchdog);
+        if (e.error !== "canceled" && e.error !== "interrupted") {
+          console.warn("Speech playback error:", e.error);
+        }
+        playNextSentence();
       }
-      playNextSentence();
     };
 
     try {
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
       window.speechSynthesis.speak(utterance);
     } catch {
+      finished = true;
+      clearTimeout(watchdog);
       playNextSentence();
     }
   }, [updateVisualState]);
@@ -226,6 +252,10 @@ export default function JarvisOrb() {
       const transcript = data.text?.trim() ?? "";
       if (!transcript) {
         console.debug("[ULTRON STT] No speech detected in the captured audio.");
+        if (voiceActiveRef.current && sessionId === voiceSessionRef.current) {
+          setVoiceLabel("LISTENING…");
+          updateVisualState("listening");
+        }
         return;
       }
 
@@ -240,6 +270,10 @@ export default function JarvisOrb() {
         normalizedTranscript === "status report.";
       if (isKnownHallucination) {
         console.debug("[ULTRON STT] Ignored a known Whisper false positive.");
+        if (voiceActiveRef.current && sessionId === voiceSessionRef.current) {
+          setVoiceLabel("LISTENING…");
+          updateVisualState("listening");
+        }
         return;
       }
 
@@ -253,6 +287,7 @@ export default function JarvisOrb() {
       console.error("STT process error:", err);
       setError(`TRANSCRIPTION FAILED: ${message}`);
       setVoiceLabel("LISTENING…");
+      updateVisualState("listening");
     } finally {
       if (processingSessionRef.current === sessionId) {
         processingSessionRef.current = null;
@@ -261,9 +296,11 @@ export default function JarvisOrb() {
       if (
         voiceActiveRef.current &&
         sessionId === voiceSessionRef.current &&
-        !isSpeakingRef.current
+        !isSpeakingRef.current &&
+        !isChatBusyRef.current
       ) {
         setVoiceLabel("LISTENING…");
+        updateVisualState("listening");
       }
     }
   };
@@ -436,9 +473,13 @@ export default function JarvisOrb() {
                 silenceWaitMs,
                 bytes: blob.size,
               });
+              // Instant zero-delay feedback: Switch to thinking state immediately upon speech completion
+              setVoiceLabel("THINKING…");
+              updateVisualState("thinking");
               void processAudioBlob(blob, sessionId);
             } else if (voiceActiveRef.current) {
               setVoiceLabel("LISTENING…");
+              updateVisualState("listening");
             }
           };
           recorder.start();
@@ -465,11 +506,20 @@ export default function JarvisOrb() {
           sumSquares += normalized * normalized;
         }
         const rms = Math.sqrt(sumSquares / samples.length);
-        if (now - lastLevelUpdate > 250) {
+        if (now - lastLevelUpdate > 80) {
           const level = Math.min(100, Math.round(rms * 2500));
           setMicLevel(level);
-          console.debug("[ULTRON MIC LEVEL]", level);
           lastLevelUpdate = now;
+        }
+
+        // Live voice reaction on the 3D Orb while user speaks
+        if (
+          !isSpeakingRef.current &&
+          !isProcessingRef.current &&
+          !isChatBusyRef.current &&
+          voiceActiveRef.current
+        ) {
+          sceneRef.current?.setAssistantState("listening", { audioLevel: rms * 15 });
         }
 
         // 1. Full-Duplex Barge-In: user voice interrupts assistant speech immediately
@@ -489,6 +539,10 @@ export default function JarvisOrb() {
           now >= speechCooldownUntilRef.current
         ) {
           if (mediaRecorderRef.current?.state === "recording") {
+            if (rms >= SPEECH_START_LEVEL) {
+              setVoiceLabel("HEARING…");
+            }
+
             if (rms < SPEECH_END_LEVEL) {
               silenceStartedAtRef.current ??= now;
               const recordingStartedAt = recordingStartedAtRef.current ?? now;
@@ -515,6 +569,7 @@ export default function JarvisOrb() {
       };
       animFrameRef.current = requestAnimationFrame(monitorAudio);
       setVoiceLabel("LISTENING…");
+      updateVisualState("listening");
     } catch (err) {
       console.error("Mic access error:", err);
       const errorName = err instanceof DOMException ? err.name : "";
@@ -634,9 +689,10 @@ export default function JarvisOrb() {
                 setSubtitle(finalReply);
                 setVoiceLabel("STREAMING…");
 
-                // Sentence-by-sentence streaming speech execution
+                // Low-latency streaming speech execution: speaks early on complete clauses or punctuation
                 const sMatch =
-                  sentenceBuffer.match(/^([^\n.?!]+[.?!]\s*)(.*)$/s) ||
+                  sentenceBuffer.match(/^([^\n.?!]{8,}[.?!]\s*)(.*)$/s) ||
+                  sentenceBuffer.match(/^([^\n,;:]{28,}[,;:]\s*)(.*)$/s) ||
                   sentenceBuffer.match(/^([^\n]+\n+)(.*)$/s);
                 if (sMatch && (voiceActiveRef.current || isSpeakingRef.current)) {
                   const readySentence = sMatch[1].trim();
@@ -736,6 +792,7 @@ export default function JarvisOrb() {
       setVoiceActive(false);
       setVoiceLabel("VOICE OFF");
       setMicLevel(0);
+      updateVisualState("idle");
       stopVoiceStream();
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
         try {
@@ -748,6 +805,8 @@ export default function JarvisOrb() {
       isProcessingRef.current = false;
       isChatBusyRef.current = false;
       setVoiceActive(true);
+      setVoiceLabel("LISTENING…");
+      updateVisualState("listening");
       startVoiceSystem();
     }
   };

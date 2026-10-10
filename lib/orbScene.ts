@@ -823,26 +823,41 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
 
     // Apply Assistant State Modulations
     if (currentAssistantState === "listening") {
-      const pulse = 1.0 + Math.sin(t * 3.5) * 0.05;
+      const audioBoost = Math.min(1.0, stateAudioLevel * 4.5);
+      const pulse = 1.0 + Math.sin(t * 3.5) * 0.04 + audioBoost * 0.12;
       orbGroup.scale.setScalar(pulse);
-      bloom.strength = 1.9 + Math.sin(t * 3.5) * 0.4;
+      coreSphere.scale.setScalar(1.0 + audioBoost * 0.28);
+      glowSphere.scale.setScalar(1.1 + audioBoost * 0.45);
+      glowSphereMat.opacity = Math.min(0.75, 0.12 + audioBoost * 0.45);
+      bloom.strength = 1.9 + Math.sin(t * 3.5) * 0.35 + audioBoost * 0.9;
     } else if (currentAssistantState === "thinking") {
-      innerCore.rotation.z += 0.035;
-      innerCore.rotation.y -= 0.03;
-      icoWire.rotation.x += 0.025;
-      orbGroup.scale.setScalar(1.0 + Math.sin(t * 6.0) * 0.02);
-      bloom.strength = 2.2 + Math.sin(t * 4.0) * 0.4;
+      innerCore.rotation.z += 0.06;
+      innerCore.rotation.y -= 0.05;
+      icoWire.rotation.x += 0.04;
+      icoWire.rotation.z += 0.03;
+      const thPulse = 1.0 + Math.sin(t * 7.5) * 0.04;
+      orbGroup.scale.setScalar(thPulse);
+      coreSphere.scale.setScalar(1.08 + Math.sin(t * 9.0) * 0.06);
+      glowSphere.scale.setScalar(1.22 + Math.sin(t * 11.0) * 0.12);
+      glowSphereMat.opacity = 0.25 + Math.sin(t * 8.0) * 0.18;
+      bloom.strength = 2.4 + Math.sin(t * 6.0) * 0.6;
     } else if (currentAssistantState === "executing") {
-      innerCore.rotation.z += 0.05;
-      icoWire.rotation.y += 0.035;
-      coreSphere.scale.setScalar(1.1 + Math.sin(t * 7.0) * 0.08);
-      bloom.strength = 2.3;
+      innerCore.rotation.z += 0.07;
+      icoWire.rotation.y += 0.045;
+      const progFactor = Math.max(0.2, stateProgress);
+      coreSphere.scale.setScalar(1.1 + Math.sin(t * 8.0) * (0.06 * progFactor));
+      bloom.strength = 2.2 + progFactor * 0.5;
     } else if (currentAssistantState === "speaking") {
-      const audioBoost = Math.min(1.0, stateAudioLevel * 5.0);
-      coreSphere.scale.setScalar(1.0 + audioBoost * 0.45 + Math.sin(t * 9) * 0.04);
-      glowSphere.scale.setScalar(1.15 + audioBoost * 0.7);
-      glowSphereMat.opacity = Math.min(0.8, 0.15 + audioBoost * 0.5);
-      bloom.strength = 1.8 + audioBoost * 1.4;
+      // Dynamic speech formant modulation combining real audioLevel and speech cadence
+      const cadence = Math.sin(t * 15.0) * 0.25 + Math.sin(t * 23.0) * 0.18 + 0.35;
+      const effectiveAudio = stateAudioLevel > 0.05 ? stateAudioLevel : cadence;
+      const audioBoost = Math.min(1.0, effectiveAudio * 3.2);
+      coreSphere.scale.setScalar(1.0 + audioBoost * 0.38 + Math.sin(t * 10) * 0.03);
+      glowSphere.scale.setScalar(1.15 + audioBoost * 0.55);
+      glowSphereMat.opacity = Math.min(0.85, 0.2 + audioBoost * 0.5);
+      bloom.strength = 1.9 + audioBoost * 1.3;
+      innerCore.rotation.z += 0.03;
+      icoWire.rotation.y += 0.02;
     } else if (currentAssistantState === "error") {
       const errPulse = 1.0 + Math.sin(t * 7.0) * 0.07;
       orbGroup.scale.setScalar(errPulse);

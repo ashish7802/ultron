@@ -351,22 +351,24 @@ export async function POST(req: Request) {
     }
   }
 
-  // 6. Neural Brain Router with Memory Context Injection
+  // 6. Neural Brain Router with Memory Context Injection (fast 250ms bounded lookup)
   let memoryContext = "";
-  try {
-    const memRes = await fetch(`${BACKEND_URL}/memory/search`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: userText, limit: 3 }),
-      signal: AbortSignal.timeout(1000),
-    });
-    if (memRes.ok) {
-      const memData = await memRes.json();
-      if (memData.facts && memData.facts.length > 0) {
-        memoryContext = memData.facts.map((f: any) => `- ${f.fact_key}: ${f.fact_value}`).join("\n");
+  if (routeDecision.intent === "COMPLEX_REASONING" || routeDecision.intent === "TOOL_CALL") {
+    try {
+      const memRes = await fetch(`${BACKEND_URL}/memory/search`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: userText, limit: 3 }),
+        signal: AbortSignal.timeout(250),
+      });
+      if (memRes.ok) {
+        const memData = await memRes.json();
+        if (memData.facts && memData.facts.length > 0) {
+          memoryContext = memData.facts.map((f: any) => `- ${f.fact_key}: ${f.fact_value}`).join("\n");
+        }
       }
-    }
-  } catch {}
+    } catch {}
+  }
 
   const chosenModel = routeDecision.targetModel || (routeDecision.intent === "FAST_CHAT" ? FAST_MODEL : DEFAULT_MODEL);
   const systemPrompt = getSystemPrompt(routeDecision, memoryContext);
