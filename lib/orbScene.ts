@@ -5,6 +5,15 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 
+export type AssistantVisualState =
+  | "idle"
+  | "listening"
+  | "thinking"
+  | "executing"
+  | "speaking"
+  | "error"
+  | "gesture";
+
 export interface OrbSceneApi {
   /** Rotate the camera around the orb by the given angles (radians). */
   rotateBy(deltaTheta: number, deltaPhi: number): void;
@@ -13,6 +22,7 @@ export interface OrbSceneApi {
   zoomIn(): void;
   zoomOut(): void;
   resetView(): void;
+  setAssistantState(state: AssistantVisualState, data?: { audioLevel?: number; progress?: number }): void;
   dispose(): void;
 }
 
@@ -697,6 +707,9 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
   let flickerTimer = 0;
   let rafId = 0;
   let disposed = false;
+  let currentAssistantState: AssistantVisualState = "idle";
+  let stateAudioLevel = 0;
+  let stateProgress = 0;
 
   function animate() {
     if (disposed) return;
@@ -808,6 +821,41 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
     // Update chromatic aberration time
     chromaticPass.uniforms.uTime.value = t;
 
+    // Apply Assistant State Modulations
+    if (currentAssistantState === "listening") {
+      const pulse = 1.0 + Math.sin(t * 3.5) * 0.05;
+      orbGroup.scale.setScalar(pulse);
+      bloom.strength = 1.9 + Math.sin(t * 3.5) * 0.4;
+    } else if (currentAssistantState === "thinking") {
+      innerCore.rotation.z += 0.035;
+      innerCore.rotation.y -= 0.03;
+      icoWire.rotation.x += 0.025;
+      orbGroup.scale.setScalar(1.0 + Math.sin(t * 6.0) * 0.02);
+      bloom.strength = 2.2 + Math.sin(t * 4.0) * 0.4;
+    } else if (currentAssistantState === "executing") {
+      innerCore.rotation.z += 0.05;
+      icoWire.rotation.y += 0.035;
+      coreSphere.scale.setScalar(1.1 + Math.sin(t * 7.0) * 0.08);
+      bloom.strength = 2.3;
+    } else if (currentAssistantState === "speaking") {
+      const audioBoost = Math.min(1.0, stateAudioLevel * 5.0);
+      coreSphere.scale.setScalar(1.0 + audioBoost * 0.45 + Math.sin(t * 9) * 0.04);
+      glowSphere.scale.setScalar(1.15 + audioBoost * 0.7);
+      glowSphereMat.opacity = Math.min(0.8, 0.15 + audioBoost * 0.5);
+      bloom.strength = 1.8 + audioBoost * 1.4;
+    } else if (currentAssistantState === "error") {
+      const errPulse = 1.0 + Math.sin(t * 7.0) * 0.07;
+      orbGroup.scale.setScalar(errPulse);
+      bloom.strength = 2.6 + Math.sin(t * 7.0) * 0.6;
+      chromaticPass.uniforms.uIntensity.value = 0.007;
+    } else if (currentAssistantState === "gesture") {
+      orbGroup.scale.setScalar(1.02);
+      bloom.strength = 1.9;
+    } else {
+      orbGroup.scale.setScalar(1.0);
+      chromaticPass.uniforms.uIntensity.value = 0.003;
+    }
+
     controls.update();
     composer.render();
   }
@@ -853,6 +901,11 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
     zoomIn: () => zoomBy(0.65),
     zoomOut: () => zoomBy(1.55),
     resetView,
+    setAssistantState: (st, data) => {
+      currentAssistantState = st;
+      if (data?.audioLevel !== undefined) stateAudioLevel = data.audioLevel;
+      if (data?.progress !== undefined) stateProgress = data.progress;
+    },
     dispose,
   };
 }

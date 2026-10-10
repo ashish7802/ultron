@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createOrbScene, type OrbSceneApi } from "@/lib/orbScene";
+import { createOrbScene, type OrbSceneApi, type AssistantVisualState } from "@/lib/orbScene";
 import { HandTracker, type TrackerStatus } from "@/lib/handTracker";
 
 type CameraState = "off" | "starting" | "on" | "error";
@@ -22,6 +22,7 @@ function limitConversation(messages: ChatMessage[]): ChatMessage[] {
 
 const SPEECH_START_LEVEL = 0.008;
 const SPEECH_END_LEVEL = 0.009;
+const BARGE_IN_LEVEL = 0.013;
 const SILENCE_END_MS = 500;
 const MAX_RECORDING_MS = 8_000;
 const MIN_RECORDING_MS = 350;
@@ -44,6 +45,8 @@ export default function JarvisOrb() {
   const [camera, setCamera] = useState<CameraState>("off");
   const [status, setStatus] = useState<TrackerStatus>({ hands: 0, mode: "idle" });
   const [error, setError] = useState<string | null>(null);
+  const [assistantState, setAssistantState] = useState<AssistantVisualState>("idle");
+  const [activePlan, setActivePlan] = useState<{ goal: string; passed: number; total: number; status: string } | null>(null);
 
   // Voice & Chat State
   const [voiceActive, setVoiceActive] = useState(false);
@@ -55,6 +58,8 @@ export default function JarvisOrb() {
   const [subtitle, setSubtitle] = useState<string | null>(null);
   const subtitleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const speechQueueRef = useRef<string[]>([]);
+  const isPlayingQueueRef = useRef(false);
   const voiceActiveRef = useRef(false);
   const isSpeakingRef = useRef(false);
   const isProcessingRef = useRef(false);
@@ -90,77 +95,103 @@ export default function JarvisOrb() {
     };
   }, []);
 
-  const speakLocal = (text: string) => {
-    console.info("[ULTRON TTS]", text);
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-      setError("SPEECH PLAYBACK IS NOT AVAILABLE IN THIS BROWSER");
-      setVoiceLabel("VOICE OFF");
-      return;
+  const updateVisualState = useCallback(
+    (st: AssistantVisualState, data?: { audioLevel?: number; progress?: number }) => {
+      setAssistantState(st);
+      sceneRef.current?.setAssistantState(st, data);
+    },
+    [],
+  );
+
+  const cancelOngoingAction = useCallback(() => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
     }
+    speechQueueRef.current = [];
+    isPlayingQueueRef.current = false;
+    isSpeakingRef.current = false;
+    isChatBusyRef.current = false;
+    chatRequestRef.current += 1;
+    setActivePlan(null);
+    speechCooldownUntilRef.current = performance.now() + 400;
+    updateVisualState(voiceActiveRef.current ? "listening" : "idle");
+    setVoiceLabel(voiceActiveRef.current ? "LISTENING…" : "VOICE OFF");
+  }, [updateVisualState]);
 
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1;
-    utterance.pitch = 1;
-
-    const voices = window.speechSynthesis.getVoices();
-    const preferredVoice = voices.find(
-      (voice) =>
-        voice.lang.includes("en-IN") ||
-        voice.lang.includes("en-US") ||
-        voice.lang.includes("hi"),
-    );
-    if (preferredVoice) utterance.voice = preferredVoice;
-
-    let handled = false;
-    let watchdog: ReturnType<typeof setTimeout> | null = null;
-    const finishSpeech = () => {
-      if (handled) return;
-      handled = true;
-      if (watchdog) clearTimeout(watchdog);
+  const playNextSentence = useCallback(() => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    if (speechQueueRef.current.length === 0) {
+      isPlayingQueueRef.current = false;
       isSpeakingRef.current = false;
       speechCooldownUntilRef.current = performance.now() + 500;
-      if (voiceActiveRef.current) {
-        setVoiceLabel("LISTENING…");
-      } else {
-        setVoiceLabel("VOICE OFF");
-      }
+      updateVisualState(voiceActiveRef.current ? "listening" : "idle");
+      setVoiceLabel(voiceActiveRef.current ? "LISTENING…" : "VOICE OFF");
       if (subtitleTimerRef.current) clearTimeout(subtitleTimerRef.current);
       subtitleTimerRef.current = setTimeout(() => {
         setSubtitle(null);
         setBrainTag(null);
       }, 7000);
-    };
-
-    utterance.onend = finishSpeech;
-    utterance.onerror = (event) => {
-      if (event.error !== "canceled" && event.error !== "interrupted") {
-        setError(`SPEECH PLAYBACK FAILED: ${event.error}`);
-      }
-      finishSpeech();
-    };
-
-    isSpeakingRef.current = true;
-    pauseVoiceRecorder();
-    setVoiceLabel("SPEAKING…");
-
-    try {
-      window.speechSynthesis.speak(utterance);
-    } catch (err) {
-      console.error("SpeechSynthesis error:", err);
-      setError("SPEECH PLAYBACK COULD NOT START");
-      finishSpeech();
       return;
     }
 
-    watchdog = setTimeout(() => {
-      if (!handled) {
-        window.speechSynthesis.cancel();
-        setError("SPEECH PLAYBACK TIMED OUT");
-        finishSpeech();
+    const sentence = speechQueueRef.current.shift()!;
+    isPlayingQueueRef.current = true;
+    isSpeakingRef.current = true;
+    pauseVoiceRecorder();
+    updateVisualState("speaking", { audioLevel: 0.65 });
+    setVoiceLabel("SPEAKING…");
+
+    const utterance = new SpeechSynthesisUtterance(sentence);
+    utterance.rate = 1.05;
+    utterance.pitch = 1.0;
+
+    const voices = window.speechSynthesis.getVoices();
+    const preferredVoice = voices.find(
+      (v) => v.lang.includes("en-IN") || v.lang.includes("en-US") || v.lang.includes("hi"),
+    );
+    if (preferredVoice) utterance.voice = preferredVoice;
+
+    utterance.onend = () => {
+      playNextSentence();
+    };
+
+    utterance.onerror = (e) => {
+      if (e.error !== "canceled" && e.error !== "interrupted") {
+        console.warn("Speech playback error:", e.error);
       }
-    }, Math.min(120_000, Math.max(15_000, text.length * 250)));
-  };
+      playNextSentence();
+    };
+
+    try {
+      window.speechSynthesis.speak(utterance);
+    } catch {
+      playNextSentence();
+    }
+  }, [updateVisualState]);
+
+  const queueSpeechChunk = useCallback(
+    (text: string) => {
+      const clean = text.trim();
+      if (!clean) return;
+      speechQueueRef.current.push(clean);
+      if (!isPlayingQueueRef.current) {
+        playNextSentence();
+      }
+    },
+    [playNextSentence],
+  );
+
+  const speakLocal = useCallback(
+    (text: string) => {
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+      speechQueueRef.current = [];
+      isPlayingQueueRef.current = false;
+      queueSpeechChunk(text);
+    },
+    [queueSpeechChunk],
+  );
 
   const processAudioBlob = async (blob: Blob, sessionId: number) => {
     if (
@@ -441,6 +472,16 @@ export default function JarvisOrb() {
           lastLevelUpdate = now;
         }
 
+        // 1. Full-Duplex Barge-In: user voice interrupts assistant speech immediately
+        if (isSpeakingRef.current && rms >= BARGE_IN_LEVEL) {
+          console.info("[ULTRON BARGE-IN] Detected user voice during speech playback.");
+          cancelOngoingAction();
+          startRecording();
+          animFrameRef.current = requestAnimationFrame(monitorAudio);
+          return;
+        }
+
+        // 2. Normal recording and silence detection
         if (
           !isSpeakingRef.current &&
           !isProcessingRef.current &&
@@ -500,6 +541,7 @@ export default function JarvisOrb() {
     isChatBusyRef.current = true;
     pauseVoiceRecorder();
     setVoiceLabel("THINKING…");
+    updateVisualState("thinking");
     if (subtitleTimerRef.current) clearTimeout(subtitleTimerRef.current);
     setSubtitle(null);
 
@@ -546,11 +588,14 @@ export default function JarvisOrb() {
 
       let finalReply = "";
       const contentType = res.headers.get("content-type") || "";
+      let streamedTokens = false;
 
       if (contentType.includes("text/event-stream") && res.body) {
+        streamedTokens = true;
         const reader = res.body.getReader();
         const decoder = new TextDecoder("utf-8");
         let buffer = "";
+        let sentenceBuffer = "";
 
         while (true) {
           const { done, value } = await reader.read();
@@ -576,24 +621,61 @@ export default function JarvisOrb() {
                   setBrainTag("SMART BRAIN [1.5B]");
                 } else if (intent === "TOOL_CALL") {
                   setBrainTag("TOOL CORE [1.5B]");
+                  updateVisualState("executing", { progress: 0.5 });
+                } else if (intent === "AGENT_PLAN") {
+                  setBrainTag("AGENT PLANNER [1.5B]");
+                  updateVisualState("executing", { progress: 0.2 });
+                } else if (intent === "MEMORY_OP") {
+                  setBrainTag("SQLITE MEMORY [0ms]");
                 }
               } else if (event.type === "token") {
                 finalReply += event.content;
+                sentenceBuffer += event.content;
                 setSubtitle(finalReply);
                 setVoiceLabel("STREAMING…");
+
+                // Sentence-by-sentence streaming speech execution
+                const sMatch =
+                  sentenceBuffer.match(/^([^\n.?!]+[.?!]\s*)(.*)$/s) ||
+                  sentenceBuffer.match(/^([^\n]+\n+)(.*)$/s);
+                if (sMatch && (voiceActiveRef.current || isSpeakingRef.current)) {
+                  const readySentence = sMatch[1].trim();
+                  sentenceBuffer = sMatch[2];
+                  if (readySentence) {
+                    queueSpeechChunk(readySentence);
+                  }
+                }
               } else if (event.type === "done") {
                 if (event.reply) finalReply = event.reply;
               }
             } catch {}
           }
         }
+
+        if (sentenceBuffer.trim() && (voiceActiveRef.current || isSpeakingRef.current)) {
+          queueSpeechChunk(sentenceBuffer.trim());
+        }
       } else {
         const data = await res.json();
         finalReply = data.reply || "";
+        if (data.planReport) {
+          setActivePlan({
+            goal: data.route?.planGoal || userText,
+            passed: data.planReport.passed_steps,
+            total: data.planReport.total_steps,
+            status: data.planReport.overall_status,
+          });
+          updateVisualState("executing", { progress: 1.0 });
+          setTimeout(() => setActivePlan(null), 8000);
+        }
         if (data.route?.intent === "SYSTEM_LOCAL") {
           setBrainTag("LOCAL KERNEL [0ms]");
         } else if (data.route?.intent === "FAST_CHAT") {
           setBrainTag("FAST BRAIN [0.5B]");
+        } else if (data.route?.intent === "AGENT_PLAN") {
+          setBrainTag("AGENT PLANNER [1.5B]");
+        } else if (data.route?.intent === "MEMORY_OP") {
+          setBrainTag("SQLITE MEMORY [0ms]");
         } else {
           setBrainTag("SMART BRAIN [1.5B]");
         }
@@ -618,7 +700,9 @@ export default function JarvisOrb() {
         assistantMessage,
       ]);
       setError(null);
-      speakLocal(finalReply);
+      if (!streamedTokens) {
+        speakLocal(finalReply);
+      }
     } catch (err) {
       if (
         requestId !== chatRequestRef.current ||
@@ -773,6 +857,45 @@ export default function JarvisOrb() {
       <div className="hud hud-title">U.L.T.R.O.N.</div>
       {brainTag && <div className="hud hud-brain-tag">{brainTag}</div>}
 
+      {/* INTELLIGENT ASSISTANT STATE BADGE */}
+      <div
+        className={`hud-state-badge ${assistantState}`}
+        style={{ position: "fixed", top: 20, right: 24, zIndex: 30 }}
+      >
+        <span
+          style={{
+            display: "inline-block",
+            width: 6,
+            height: 6,
+            borderRadius: "50%",
+            background: "currentColor",
+          }}
+        />
+        {assistantState.toUpperCase()}
+      </div>
+
+      {activePlan && (
+        <div
+          className="hud-progress-container"
+          style={{ position: "fixed", top: 56, right: 24, width: 280, zIndex: 30 }}
+        >
+          <div style={{ fontSize: "10px", color: "#38bdf8", letterSpacing: "0.08em" }}>
+            TASK: {activePlan.goal.slice(0, 32)}
+          </div>
+          <div className="hud-progress-bar">
+            <div
+              className="hud-progress-fill"
+              style={{
+                width: `${(activePlan.passed / Math.max(1, activePlan.total)) * 100}%`,
+              }}
+            />
+          </div>
+          <div style={{ fontSize: "9px", color: "#ffaa30", marginTop: 4, letterSpacing: "0.05em" }}>
+            PLAN: {activePlan.status} ({activePlan.passed}/{activePlan.total} STEPS)
+          </div>
+        </div>
+      )}
+
       {subtitle && (
         <div className="hud hud-subtitles">
           <span className="hud-subtitles-prefix">&gt; ULTRON:</span>
@@ -829,6 +952,19 @@ export default function JarvisOrb() {
         )}
 
         <div className="hud-row">
+          {(assistantState === "speaking" ||
+            assistantState === "thinking" ||
+            assistantState === "executing") && (
+            <button
+              type="button"
+              className="hud-btn hud-cancel-btn"
+              onClick={cancelOngoingAction}
+              title="Stop speech or cancel current action"
+            >
+              STOP
+            </button>
+          )}
+
           <button
             type="button"
             className="hud-btn"

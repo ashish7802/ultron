@@ -286,3 +286,98 @@ body {
     display: none;
   }
 }
+
+/* ——— Intelligent Assistant States & HUD ——— */
+.hud-state-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  font-weight: 600;
+  border-radius: 4px;
+  background: rgba(10, 5, 0, 0.75);
+  border: 1px solid rgba(255, 170, 48, 0.4);
+  color: #ffaa30;
+  text-shadow: 0 0 6px rgba(255, 170, 48, 0.5);
+  transition: all 200ms ease;
+}
+
+.hud-state-badge.listening {
+  border-color: #00ffaa;
+  color: #00ffaa;
+  text-shadow: 0 0 8px rgba(0, 255, 170, 0.6);
+  animation: pulseGreen 1.5s infinite;
+}
+
+.hud-state-badge.thinking {
+  border-color: #ffcc00;
+  color: #ffcc00;
+  text-shadow: 0 0 8px rgba(255, 204, 0, 0.6);
+}
+
+.hud-state-badge.executing {
+  border-color: #38bdf8;
+  color: #38bdf8;
+  text-shadow: 0 0 8px rgba(56, 189, 248, 0.6);
+}
+
+.hud-state-badge.speaking {
+  border-color: #f59e0b;
+  color: #fbbf24;
+  text-shadow: 0 0 10px rgba(245, 158, 11, 0.8);
+  animation: pulseAmber 1s infinite;
+}
+
+.hud-state-badge.error {
+  border-color: #ef4444;
+  color: #ef4444;
+  text-shadow: 0 0 10px rgba(239, 68, 68, 0.8);
+}
+
+.hud-cancel-btn {
+  border-color: rgba(239, 68, 68, 0.6) !important;
+  color: #ef4444 !important;
+  background: rgba(40, 10, 10, 0.6) !important;
+}
+
+.hud-cancel-btn:hover {
+  background: rgba(80, 20, 20, 0.8) !important;
+  border-color: #ef4444 !important;
+}
+
+.hud-progress-container {
+  width: 100%;
+  background: rgba(20, 10, 0, 0.5);
+  border: 1px solid rgba(255, 170, 48, 0.3);
+  padding: 6px 10px;
+  border-radius: 4px;
+  margin-top: 4px;
+}
+
+.hud-progress-bar {
+  height: 4px;
+  background: rgba(255, 170, 48, 0.2);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.hud-progress-fill {
+  height: 100%;
+  background: #38bdf8;
+  box-shadow: 0 0 8px #38bdf8;
+  transition: width 300ms ease;
+}
+
+@keyframes pulseGreen {
+  0%, 100% { box-shadow: 0 0 4px rgba(0, 255, 170, 0.2); }
+  50% { box-shadow: 0 0 12px rgba(0, 255, 170, 0.6); }
+}
+
+@keyframes pulseAmber {
+  0%, 100% { box-shadow: 0 0 4px rgba(245, 158, 11, 0.2); }
+  50% { box-shadow: 0 0 14px rgba(245, 158, 11, 0.7); }
+}
+

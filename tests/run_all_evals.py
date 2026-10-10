@@ -1,9 +1,12 @@
 """
 Master Evaluation & Benchmark Runner for ULTRON.
-Executes:
-1. Intent & Routing Accuracy Tests
-2. Anti-Hallucination & Factual Precision Tests
-3. Tool-Calling & JSON Schema Accuracy Tests
+Executes comprehensive evaluation across all 7 core pillars:
+1. Hybrid Intent & Brain Router
+2. SQLite Permanent Memory & Semantic FTS5
+3. Real Computer Control & Safety Confirmation Gates
+4. Controlled Agent Planning Loop (Understand -> Plan -> Execute -> Verify -> Report)
+5. Tool Calling & Schema Compliance
+6. Anti-Hallucination & Factual Accuracy
 """
 
 import sys
@@ -24,14 +27,17 @@ def run_suite(name: str, script_name: str, args: list = None) -> bool:
 def main():
     start_time = time.time()
     print("=" * 70)
-    print("      ULTRON INTELLIGENCE & ACCURACY EVALUATION SUITE")
+    print("      ULTRON FULL REVOLUTION EVALUATION & VERIFICATION SUITE")
     print("=" * 70)
 
     results = {}
 
-    results["Router Test"] = run_suite("Hybrid Intent Router", "tests/test_router.py")
-    results["Tool Calling (Smart Brain 1.5B)"] = run_suite("Tool Calling Accuracy", "tests/test_tool_calling.py", ["qwen2.5:1.5b"])
-    results["Anti-Hallucination Test"] = run_suite("Anti-Hallucination & Factual Verification", "tests/test_hallucination.py")
+    results["1. Hybrid Intent Router"] = run_suite("Hybrid Intent Router", "tests/test_router.py")
+    results["2. Permanent Memory (SQLite + FTS5)"] = run_suite("Permanent Memory System", "tests/test_memory_system.py")
+    results["3. Real Computer Control & Safety"] = run_suite("Computer Control & Safety Gates", "tests/test_computer_control.py")
+    results["4. Autonomous Agent Planner"] = run_suite("Agent Planner Loop", "tests/test_agent_planner.py")
+    results["5. Tool Calling (Smart Brain 1.5B)"] = run_suite("Tool Calling Accuracy", "tests/test_tool_calling.py", ["qwen2.5:1.5b"])
+    results["6. Anti-Hallucination & Factual Verification"] = run_suite("Anti-Hallucination & Verification", "tests/test_hallucination.py")
 
     total_time = time.time() - start_time
     print("\n" + "=" * 70)
@@ -40,17 +46,16 @@ def main():
     all_passed = True
     for suite, ok in results.items():
         status = "PASSED [OK]" if ok else "FAILED [X]"
-        print(f"  {suite:<40} : {status}")
+        print(f"  {suite:<45} : {status}")
         if not ok:
             all_passed = False
 
     print("-" * 70)
     print(f"Total Execution Time: {total_time:.2f}s")
-    print(f"Final Status: {'ALL SUITES PASSED' if all_passed else 'SOME SUITES FAILED'}")
+    print(f"Final Status: {'ALL SUITES PASSED' if all_passed else 'SOME SUITES REPORTED ISSUES'}")
     print("=" * 70)
 
     return 0 if all_passed else 1
 
 if __name__ == "__main__":
     sys.exit(main())
-
