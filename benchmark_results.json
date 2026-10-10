@@ -1,0 +1,124 @@
+{
+  "qwen2.5:0.5b": {
+    "cases": [
+      {
+        "category": "speed_ping",
+        "description": "Simple latency ping",
+        "status": "PASS [OK]",
+        "elapsed": 0.64,
+        "tps": 24.0,
+        "content": "Yes, I am online."
+      },
+      {
+        "category": "reasoning_math",
+        "description": "Multi-step logic: Bat and ball",
+        "status": "PASS [OK]",
+        "elapsed": 3.31,
+        "tps": 22.5,
+        "content": "The ball costs 50 cents. This is because if the ball costs 50 cents, then the bat, which costs $1.00 more than the ball, would cost $1.50, making the total $1.10."
+      },
+      {
+        "category": "reasoning_riddle",
+        "description": "Deductive reasoning riddle",
+        "status": "FAIL [X]",
+        "elapsed": 0.67,
+        "tps": 32.9,
+        "content": "Yes."
+      },
+      {
+        "category": "factual_australia",
+        "description": "Anti-hallucination: Capital of Australia",
+        "status": "FAIL [X]",
+        "elapsed": 0.44,
+        "tps": 34.1,
+        "content": "Sydney"
+      },
+      {
+        "category": "false_premise",
+        "description": "Resistance to false premise: 1650 US President",
+        "status": "FAIL [X]",
+        "elapsed": 3.08,
+        "tps": 17.8,
+        "content": "I'm sorry, but I can't answer this question. This might be a political issue, and I won't comment on or express opinions about political issues. If you have other questions that need help, you can continue to ask."
+      },
+      {
+        "category": "tool_calling",
+        "description": "Structured JSON tool-calling schema",
+        "status": "PASS [OK]",
+        "elapsed": 2.58,
+        "tps": 18.6,
+        "content": "{\"tool\": \"set_volume\", \"parameters\": {\"level\": 75}}"
+      }
+    ],
+    "streaming": {
+      "ttft_sec": 0.43,
+      "total_sec": 1.74,
+      "first_token": "Gravity",
+      "stream_sample": "Gravity is the force that attracts two objects with mass tow"
+    },
+    "total_score": 3,
+    "avg_tps": 25.0,
+    "tests_run": 5
+  },
+  "qwen2.5:1.5b": {
+    "cases": [
+      {
+        "category": "speed_ping",
+        "description": "Simple latency ping",
+        "status": "PASS [OK]",
+        "elapsed": 1.42,
+        "tps": 9.1,
+        "content": "I'm online, thank you."
+      },
+      {
+        "category": "reasoning_math",
+        "description": "Multi-step logic: Bat and ball",
+        "status": "PASS [OK]",
+        "elapsed": 1.72,
+        "tps": 14.3,
+        "content": "The ball costs 5 cents."
+      },
+      {
+        "category": "reasoning_riddle",
+        "description": "Deductive reasoning riddle",
+        "status": "FAIL [X]",
+        "elapsed": 6.45,
+        "tps": 9.9,
+        "content": "Yes.\n\nExplanation: If all roses are flowers, then all roses are part of the set of flowers. If some flowers fade quickly, then there is at least one flower that fades quickly. Since roses are a subset of flowers, it follows that some roses must fade quickly."
+      },
+      {
+        "category": "factual_australia",
+        "description": "Anti-hallucination: Capital of Australia",
+        "status": "PASS [OK]",
+        "elapsed": 0.84,
+        "tps": 13.6,
+        "content": "Canberra"
+      },
+      {
+        "category": "false_premise",
+        "description": "Resistance to false premise: 1650 US President",
+        "status": "PASS [OK]",
+        "elapsed": 4.75,
+        "tps": 11.8,
+        "content": "The year 1650 is significantly earlier than the founding of the United States, which was in 1776. Therefore, there was no president of the United States in 1650. The United States did"
+      },
+      {
+        "category": "tool_calling",
+        "description": "Structured JSON tool-calling schema",
+        "status": "PASS [OK]",
+        "elapsed": 3.6,
+        "tps": 12.2,
+        "content": "{\"tool\": \"set_volume\", \"parameters\": {\"level\": 75}}"
+      }
+    ],
+    "streaming": {
+      "ttft_sec": 19.086,
+      "total_sec": 22.2,
+      "first_token": "Gravity",
+      "stream_sample": "Gravity is the force that attracts two masses towards each o"
+    },
+    "total_score": 5,
+    "avg_tps": 11.8,
+    "tests_run": 5
+  }
+}

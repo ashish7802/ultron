@@ -51,6 +51,9 @@ export default function JarvisOrb() {
   const [micLevel, setMicLevel] = useState(0);
   const [textPromptOpen, setTextPromptOpen] = useState(false);
   const [textInput, setTextInput] = useState("");
+  const [brainTag, setBrainTag] = useState<string | null>(null);
+  const [subtitle, setSubtitle] = useState<string | null>(null);
+  const subtitleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const voiceActiveRef = useRef(false);
   const isSpeakingRef = useRef(false);
@@ -122,6 +125,11 @@ export default function JarvisOrb() {
       } else {
         setVoiceLabel("VOICE OFF");
       }
+      if (subtitleTimerRef.current) clearTimeout(subtitleTimerRef.current);
+      subtitleTimerRef.current = setTimeout(() => {
+        setSubtitle(null);
+        setBrainTag(null);
+      }, 7000);
     };
 
     utterance.onend = finishSpeech;
@@ -492,6 +500,19 @@ export default function JarvisOrb() {
     isChatBusyRef.current = true;
     pauseVoiceRecorder();
     setVoiceLabel("THINKING…");
+    if (subtitleTimerRef.current) clearTimeout(subtitleTimerRef.current);
+    setSubtitle(null);
+
+    // Direct local actions for instant responsiveness
+    const lowerText = userText.toLowerCase().trim();
+    if (lowerText.includes("reset view") || lowerText.includes("reset orb")) {
+      sceneRef.current?.resetView();
+    } else if (lowerText.includes("zoom in")) {
+      sceneRef.current?.zoomIn();
+    } else if (lowerText.includes("zoom out")) {
+      sceneRef.current?.zoomOut();
+    }
+
     const userMessage: ChatMessage = { role: "user", content: userText.trim() };
     const nextMessages = limitConversation([
       ...conversationRef.current,
@@ -503,14 +524,9 @@ export default function JarvisOrb() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: nextMessages }),
+        body: JSON.stringify({ messages: nextMessages, stream: true }),
       });
 
-      const data: { reply?: string; error?: string } = await res.json();
-      console.info("[ULTRON TIMING] response", {
-        elapsedMs: Math.round(performance.now() - responseStarted),
-        replyCharacters: data.reply?.length ?? 0,
-      });
       if (
         requestId !== chatRequestRef.current ||
         (voiceSessionId !== undefined &&
@@ -518,23 +534,91 @@ export default function JarvisOrb() {
       ) {
         return;
       }
+
       if (!res.ok) {
-        throw new Error(data.error || `AI service returned ${res.status}`);
+        let errMessage = `AI service returned ${res.status}`;
+        try {
+          const errData = await res.json();
+          if (errData.error) errMessage = errData.error;
+        } catch {}
+        throw new Error(errMessage);
       }
-      if (data.reply) {
-        const assistantMessage: ChatMessage = {
-          role: "assistant",
-          content: data.reply,
-        };
-        conversationRef.current = limitConversation([
-          ...nextMessages,
-          assistantMessage,
-        ]);
-        setError(null);
-        speakLocal(data.reply);
+
+      let finalReply = "";
+      const contentType = res.headers.get("content-type") || "";
+
+      if (contentType.includes("text/event-stream") && res.body) {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith("data:")) continue;
+            const dataStr = trimmed.replace(/^data:\s*/, "");
+            try {
+              const event = JSON.parse(dataStr);
+              if (event.type === "route") {
+                const intent = event.decision?.intent || "";
+                if (intent === "SYSTEM_LOCAL") {
+                  setBrainTag("LOCAL KERNEL [0ms]");
+                } else if (intent === "FAST_CHAT") {
+                  setBrainTag("FAST BRAIN [0.5B]");
+                } else if (intent === "COMPLEX_REASONING") {
+                  setBrainTag("SMART BRAIN [1.5B]");
+                } else if (intent === "TOOL_CALL") {
+                  setBrainTag("TOOL CORE [1.5B]");
+                }
+              } else if (event.type === "token") {
+                finalReply += event.content;
+                setSubtitle(finalReply);
+                setVoiceLabel("STREAMING…");
+              } else if (event.type === "done") {
+                if (event.reply) finalReply = event.reply;
+              }
+            } catch {}
+          }
+        }
       } else {
+        const data = await res.json();
+        finalReply = data.reply || "";
+        if (data.route?.intent === "SYSTEM_LOCAL") {
+          setBrainTag("LOCAL KERNEL [0ms]");
+        } else if (data.route?.intent === "FAST_CHAT") {
+          setBrainTag("FAST BRAIN [0.5B]");
+        } else {
+          setBrainTag("SMART BRAIN [1.5B]");
+        }
+        setSubtitle(finalReply);
+      }
+
+      console.info("[ULTRON TIMING] response", {
+        elapsedMs: Math.round(performance.now() - responseStarted),
+        replyCharacters: finalReply.length,
+      });
+
+      if (!finalReply) {
         throw new Error("AI service returned an empty reply");
       }
+
+      const assistantMessage: ChatMessage = {
+        role: "assistant",
+        content: finalReply,
+      };
+      conversationRef.current = limitConversation([
+        ...nextMessages,
+        assistantMessage,
+      ]);
+      setError(null);
+      speakLocal(finalReply);
     } catch (err) {
       if (
         requestId !== chatRequestRef.current ||
@@ -687,6 +771,14 @@ export default function JarvisOrb() {
 
       {/* ORIGINAL TOP-LEFT TITLE (100% Original HUD) */}
       <div className="hud hud-title">U.L.T.R.O.N.</div>
+      {brainTag && <div className="hud hud-brain-tag">{brainTag}</div>}
+
+      {subtitle && (
+        <div className="hud hud-subtitles">
+          <span className="hud-subtitles-prefix">&gt; ULTRON:</span>
+          {subtitle}
+        </div>
+      )}
 
       <div className="hud hud-hint">
         <div>

@@ -179,6 +179,59 @@ body {
   text-shadow: 0 0 8px rgba(255, 60, 30, 0.7);
 }
 
+.hud-brain-tag {
+  top: 50px;
+  left: 24px;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: #00ffaa;
+  text-shadow: 0 0 6px rgba(0, 255, 170, 0.7);
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.hud-subtitles {
+  bottom: 80px;
+  left: 24px;
+  max-width: 440px;
+  font-size: 12px;
+  line-height: 1.5;
+  letter-spacing: 0.05em;
+  color: #ffcc66;
+  background: rgba(15, 8, 0, 0.8);
+  border: 1px solid rgba(255, 170, 48, 0.45);
+  border-radius: 4px;
+  padding: 8px 12px;
+  box-shadow: 0 0 16px rgba(255, 140, 20, 0.15);
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+}
+
+.hud-subtitles-prefix {
+  color: #00ffaa;
+  font-weight: bold;
+  margin-right: 6px;
+}
+
+.hud-chat-input {
+  width: 100%;
+  padding: 8px 12px;
+  background: rgba(10, 5, 0, 0.85);
+  border: 1px solid rgba(255, 170, 48, 0.6);
+  border-radius: 4px;
+  color: #ffaa30;
+  font-family: "Courier New", monospace;
+  font-size: 13px;
+  outline: none;
+  box-shadow: 0 0 10px rgba(255, 140, 20, 0.2) inset;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.hud-chat-input:focus {
+  border-color: #00ffaa;
+  box-shadow: 0 0 12px rgba(0, 255, 170, 0.3);
+}
+
 /* ——— Camera preview panel ——— */
 .camera-panel {
   position: relative;

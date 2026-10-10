@@ -61,8 +61,15 @@ must provide a SignTool-compatible certificate/key provider for this build
 flow; otherwise, provider-specific signing integration is required.
 
 Voice chat uses the Windows default microphone, local Whisper transcription,
-and Ollama with the `qwen2.5:0.5b` model. Install Ollama and run
-`ollama pull qwen2.5:0.5b` before using voice chat.
+and Ollama with dual-brain intelligent routing:
+- **Smart Brain (`qwen2.5:1.5b`)**: Complex reasoning, multi-step problem solving, math logic, tool calling, and anti-hallucination.
+- **Fast Router / Local Kernel**: Instant (0ms) system actions (time/date, orb reset, diagnostics) and low-latency greetings (`qwen2.5:0.5b`).
+
+Pull both models before starting:
+```bash
+ollama pull qwen2.5:1.5b
+ollama pull qwen2.5:0.5b
+```
 
 ## Controls
 
@@ -108,7 +115,14 @@ Install the local requirements once:
 
 ```bash
 py -m pip install faster-whisper pywebview
+ollama pull qwen2.5:1.5b
 ollama pull qwen2.5:0.5b
+```
+
+Run test and benchmark suites:
+```bash
+python benchmark_models.py
+python tests/run_all_evals.py
 ```
 
 `ULTRON.bat` starts the local services and desktop window from the source
@@ -117,6 +131,7 @@ and make sure Ollama is running separately.
 
 ## How it works
 
+- **`lib/intentRouter.ts`** — smart dual-brain router directing instant commands to local kernel, greetings to fast 0.5B, and complex logic/tools to 1.5B smart brain.
 - **`lib/orbScene.ts`** — the Three.js scene: layered wireframe shells, a spiral
   inner core, floating code-text sprites, orbiting debris, dust particles, scan
   rings, and a bloom + chromatic-aberration post-processing stack.
@@ -124,7 +139,7 @@ and make sure Ollama is running separately.
   feed. Pinch detection with hysteresis: one pinched hand spins the orb, two
   pinched hands zoom by spreading apart or together.
 - **`components/JarvisOrb.tsx`** — the HUD and glue between the scene, the
-  tracker, and your inputs.
+  tracker, and your inputs with live token streaming and HUD subtitles.
 - **`stt_server.py`** — local Whisper transcription service used by voice chat.
 
 ## License

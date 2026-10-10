@@ -25,7 +25,8 @@ LOG_DIR = LOCAL_APP_DATA / "ULTRON" / "logs"
 STT_HEALTH_URL = "http://127.0.0.1:5001/health"
 OLLAMA_TAGS_URL = "http://127.0.0.1:11434/api/tags"
 OLLAMA_CHAT_URL = "http://127.0.0.1:11434/api/chat"
-OLLAMA_MODEL = "qwen2.5:0.5b"
+OLLAMA_MODEL = "qwen2.5:1.5b"
+OLLAMA_MODELS_TO_WARM = ["qwen2.5:1.5b", "qwen2.5:0.5b"]
 STARTUP_TIMEOUT_SECONDS = 60
 owned_processes: list[subprocess.Popen[bytes]] = []
 logger = logging.getLogger("ultron")
@@ -130,24 +131,27 @@ def warm_ollama() -> None:
         logger.warning("Ollama did not become ready; voice chat may be unavailable.")
         return
 
-    request = urllib.request.Request(
-        OLLAMA_CHAT_URL,
-        data=json.dumps(
-            {
-                "model": OLLAMA_MODEL,
-                "messages": [{"role": "user", "content": "hi"}],
-                "keep_alive": "24h",
-                "options": {"num_predict": 1, "temperature": 0},
-                "stream": False,
-            }
-        ).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=180):
-            logger.info("Ollama model is warm and ready.")
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        logger.warning("Ollama model warm-up failed: %s", exc)
+    for model_name in OLLAMA_MODELS_TO_WARM:
+        if model_name not in available_models:
+            continue
+        req = urllib.request.Request(
+            OLLAMA_CHAT_URL,
+            data=json.dumps(
+                {
+                    "model": model_name,
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "keep_alive": "24h",
+                    "options": {"num_predict": 1, "temperature": 0},
+                    "stream": False,
+                }
+            ).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=180):
+                logger.info("Ollama model %s is warm and ready.", model_name)
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            logger.warning("Ollama model %s warm-up failed: %s", model_name, exc)
 
 
 def ensure_stt() -> None:
