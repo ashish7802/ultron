@@ -77,10 +77,63 @@ export class HandTracker {
   }
 
   async start(): Promise<void> {
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: 640, height: 480, facingMode: "user" },
-      audio: false,
-    });
+    let initialStream: MediaStream | null = null;
+    let selectedDeviceId: string | null = null;
+
+    try {
+      // 1. Initial getUserMedia to ensure permission is granted and device labels are unlocked
+      initialStream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: false,
+      });
+
+      // 2. Enumerate all cameras with now-unlocked device labels
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter((d) => d.kind === "videoinput");
+
+      const isVirtualOrPhone = (label: string) =>
+        /virtual|phone|link|droid|iriun|camo|epoccam|obs virtual|vcam/i.test(label);
+
+      const isLaptopHardware = (label: string) =>
+        /hp|integrated|internal|built-in|front|laptop|webcam|chicony|sunplus|realtek/i.test(label) &&
+        !isVirtualOrPhone(label);
+
+      // Priority 1: Physical laptop integrated camera (e.g. "HP HD Camera")
+      const laptopCam = videoDevices.find((d) => isLaptopHardware(d.label));
+      // Priority 2: Any non-virtual camera
+      const nonVirtualCam = videoDevices.find((d) => !isVirtualOrPhone(d.label));
+
+      const bestCam = laptopCam || nonVirtualCam;
+
+      // If the currently granted camera track isn't our preferred laptop camera, switch to it
+      const currentTrack = initialStream.getVideoTracks()[0];
+      const currentLabel = currentTrack?.label || "";
+
+      if (bestCam && bestCam.deviceId) {
+        if (isVirtualOrPhone(currentLabel) || (laptopCam && bestCam.deviceId !== currentTrack?.getSettings()?.deviceId)) {
+          selectedDeviceId = bestCam.deviceId;
+          // Stop initial track before opening targeted track
+          initialStream.getTracks().forEach((t) => t.stop());
+          initialStream = null;
+        }
+      }
+    } catch {
+      // If enumerate or permission fails, proceed to standard request
+    }
+
+    if (!initialStream) {
+      const constraints: MediaTrackConstraints = selectedDeviceId
+        ? { deviceId: { exact: selectedDeviceId }, width: 640, height: 480 }
+        : { width: 640, height: 480, facingMode: "user" };
+
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        video: constraints,
+        audio: false,
+      });
+    } else {
+      this.stream = initialStream;
+    }
+
     this.video.srcObject = this.stream;
     await this.video.play();
 

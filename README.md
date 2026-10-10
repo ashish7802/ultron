@@ -30,6 +30,40 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
+### Windows desktop app
+
+Run `npm run build:desktop` to create `installer/output/ULTRON-Setup.exe`.
+The installer creates Start Menu and desktop shortcuts and pins ULTRON to the
+taskbar. The desktop app opens in its own window; it does not require a browser
+window. It uses the laptop's front-facing webcam for hand gestures and requires
+the Microsoft Edge WebView2 Runtime, which is included with current Windows
+installations.
+
+Building the Windows setup requires an unexpired, trusted Authenticode Code
+Signing certificate with an accessible private key and SignTool from the Windows
+in the `CurrentUser\My` certificate store. Set `ULTRON_SIGN_CERT_SHA1` to its
+40-character thumbprint, and optionally set `ULTRON_SIGNTOOL` to `signtool.exe`
+and `ULTRON_TIMESTAMP_URL` to a trusted RFC 3161 timestamp service:
+
+```powershell
+$env:ULTRON_SIGN_CERT_SHA1 = "<40-character-thumbprint>"
+$env:ULTRON_SIGNTOOL = "C:\path\to\signtool.exe" # optional if already on PATH
+npm run build:desktop
+```
+
+The build signs all unsigned executable and DLL payloads and the
+setup/uninstaller, timestamps and verifies each signature, and only replaces
+the installer after verification. Self-signed certificates are rejected and do
+not satisfy Smart App Control. Microsoft recommends Artifact Signing for Smart
+App Control compliance; a publicly trusted code-signing certificate is not a
+guarantee of Smart App Control's reputation decision. Cloud signing services
+must provide a SignTool-compatible certificate/key provider for this build
+flow; otherwise, provider-specific signing integration is required.
+
+Voice chat uses the Windows default microphone, local Whisper transcription,
+and Ollama with the `qwen2.5:0.5b` model. Install Ollama and run
+`ollama pull qwen2.5:0.5b` before using voice chat.
+
 ## Controls
 
 ### Mouse / touch
@@ -64,7 +98,11 @@ Voice chat uses the browser's speech playback, the Windows default microphone,
 local Whisper transcription, and Ollama. Allow microphone access when prompted.
 If ULTRON does not hear you, select the intended input under **Windows Settings
 → System → Sound → Input**; a virtual audio device can be selected as the
-system default instead of the built-in microphone or headset.
+system default instead of the built-in microphone or headset. When voice mode
+is enabled, speak and watch the MIC meter; if it stays at 0%, check that input
+with **Windows Settings → System → Sound → Input → Start test**. Calling apps
+can override the Windows default, so select **Microphone Array (Intel Smart
+Sound Technology)** (or the mic you actually use) in each app's audio settings.
 
 Install the local requirements once:
 
@@ -73,9 +111,9 @@ py -m pip install faster-whisper pywebview
 ollama pull qwen2.5:0.5b
 ```
 
-`ULTRON.bat` starts the local services and desktop window. When running the UI
-with `npm run dev`, start `python stt_server.py` and make sure Ollama is
-running separately.
+`ULTRON.bat` starts the local services and desktop window from the source
+folder. When running the UI with `npm run dev`, start `python stt_server.py`
+and make sure Ollama is running separately.
 
 ## How it works
 

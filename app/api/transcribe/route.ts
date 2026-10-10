@@ -4,6 +4,7 @@ const STT_URL = "http://127.0.0.1:5001/transcribe";
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 
 export async function POST(req: Request) {
+  const requestStarted = performance.now();
   const contentLength = Number(req.headers.get("content-length") || 0);
   if (contentLength > MAX_AUDIO_BYTES) {
     return NextResponse.json(
@@ -46,6 +47,9 @@ export async function POST(req: Request) {
       );
     }
 
+    console.info(
+      `[ULTRON TIMING] transcription API ${Math.round(performance.now() - requestStarted)}ms`,
+    );
     return NextResponse.json({ text: data.text });
   } catch (error) {
     console.error("Transcribe API error:", error);

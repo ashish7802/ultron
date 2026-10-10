@@ -21,9 +21,9 @@ function limitConversation(messages: ChatMessage[]): ChatMessage[] {
 }
 
 const SPEECH_START_LEVEL = 0.008;
-const SPEECH_END_LEVEL = 0.005;
-const SILENCE_END_MS = 750;
-const MAX_RECORDING_MS = 12_000;
+const SPEECH_END_LEVEL = 0.009;
+const SILENCE_END_MS = 500;
+const MAX_RECORDING_MS = 8_000;
 const MIN_RECORDING_MS = 350;
 const MAX_CONVERSATION_MESSAGES = 20;
 const MAX_CONVERSATION_CHARACTERS = 12_000;
@@ -48,6 +48,7 @@ export default function JarvisOrb() {
   // Voice & Chat State
   const [voiceActive, setVoiceActive] = useState(false);
   const [voiceLabel, setVoiceLabel] = useState<string>("VOICE OFF");
+  const [micLevel, setMicLevel] = useState(0);
   const [textPromptOpen, setTextPromptOpen] = useState(false);
   const [textInput, setTextInput] = useState("");
 
@@ -167,12 +168,17 @@ export default function JarvisOrb() {
     isProcessingRef.current = true;
     processingSessionRef.current = sessionId;
     try {
+      const transcriptionStarted = performance.now();
       const res = await fetch("/api/transcribe", {
         method: "POST",
         headers: { "Content-Type": blob.type || "audio/webm" },
         body: blob,
       });
       const data: { text?: string; error?: string } = await res.json();
+      console.info("[ULTRON TIMING] transcription", {
+        elapsedMs: Math.round(performance.now() - transcriptionStarted),
+        audioBytes: blob.size,
+      });
       if (!res.ok) {
         throw new Error(data.error || `Transcription service returned ${res.status}`);
       }
@@ -260,15 +266,49 @@ export default function JarvisOrb() {
       if (!navigator.mediaDevices?.getUserMedia || !("MediaRecorder" in window)) {
         throw new Error("MICROPHONE RECORDING IS NOT SUPPORTED IN THIS BROWSER");
       };
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          autoGainControl: true,
-          echoCancellation: true,
-          noiseSuppression: true,
-        },
+      const audioConstraints: MediaTrackConstraints = {
+        autoGainControl: true,
+        echoCancellation: true,
+        noiseSuppression: true,
+      };
+
+      let stream = await navigator.mediaDevices.getUserMedia({
+        audio: audioConstraints,
       });
       if (!voiceActiveRef.current || sessionId !== voiceSessionRef.current) {
         stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      audioStreamRef.current = stream;
+
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const realMic = devices.find(
+        (device) =>
+          device.kind === "audioinput" &&
+          device.deviceId &&
+          !device.label.toLowerCase().includes("voice changer") &&
+          !device.label.toLowerCase().includes("virtual") &&
+          (device.label.toLowerCase().includes("intel") ||
+            device.label.toLowerCase().includes("realtek") ||
+            device.label.toLowerCase().includes("array") ||
+            device.label.toLowerCase().includes("headset") ||
+            device.label.toLowerCase().includes("microphone")),
+      );
+      const currentDeviceId = stream.getAudioTracks()[0]?.getSettings().deviceId;
+      if (realMic && realMic.deviceId !== currentDeviceId) {
+        stream.getTracks().forEach((track) => track.stop());
+        audioStreamRef.current = null;
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            ...audioConstraints,
+            deviceId: { exact: realMic.deviceId },
+          },
+        });
+        audioStreamRef.current = stream;
+      }
+      if (!voiceActiveRef.current || sessionId !== voiceSessionRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        if (audioStreamRef.current === stream) audioStreamRef.current = null;
         return;
       }
       audioStreamRef.current = stream;
@@ -335,6 +375,9 @@ export default function JarvisOrb() {
             const duration = recordingStartedAtRef.current === null
               ? 0
               : performance.now() - recordingStartedAtRef.current;
+            const silenceWaitMs = silenceStartedAtRef.current === null
+              ? null
+              : Math.round(performance.now() - silenceStartedAtRef.current);
             const blob = new Blob(audioChunksRef.current, {
               type: recorder.mimeType || mimeType || "audio/webm",
             });
@@ -349,6 +392,11 @@ export default function JarvisOrb() {
               !isChatBusyRef.current &&
               !isSpeakingRef.current
             ) {
+              console.info("[ULTRON TIMING] captured audio", {
+                durationMs: Math.round(duration),
+                silenceWaitMs,
+                bytes: blob.size,
+              });
               void processAudioBlob(blob, sessionId);
             } else if (voiceActiveRef.current) {
               setVoiceLabel("LISTENING…");
@@ -378,8 +426,10 @@ export default function JarvisOrb() {
           sumSquares += normalized * normalized;
         }
         const rms = Math.sqrt(sumSquares / samples.length);
-        if (now - lastLevelUpdate > 1_000) {
-          console.debug("[ULTRON MIC LEVEL]", Math.round(rms * 2500));
+        if (now - lastLevelUpdate > 250) {
+          const level = Math.min(100, Math.round(rms * 2500));
+          setMicLevel(level);
+          console.debug("[ULTRON MIC LEVEL]", level);
           lastLevelUpdate = now;
         }
 
@@ -429,6 +479,7 @@ export default function JarvisOrb() {
             : `MICROPHONE SETUP FAILED: ${message}`;
       setError(userMessage);
       setVoiceLabel("MIC DENIED");
+      setMicLevel(0);
       setVoiceActive(false);
       voiceActiveRef.current = false;
       stopVoiceStream();
@@ -448,6 +499,7 @@ export default function JarvisOrb() {
     ]);
 
     try {
+      const responseStarted = performance.now();
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -455,6 +507,10 @@ export default function JarvisOrb() {
       });
 
       const data: { reply?: string; error?: string } = await res.json();
+      console.info("[ULTRON TIMING] response", {
+        elapsedMs: Math.round(performance.now() - responseStarted),
+        replyCharacters: data.reply?.length ?? 0,
+      });
       if (
         requestId !== chatRequestRef.current ||
         (voiceSessionId !== undefined &&
@@ -511,6 +567,7 @@ export default function JarvisOrb() {
       voiceSessionRef.current += 1;
       setVoiceActive(false);
       setVoiceLabel("VOICE OFF");
+      setMicLevel(0);
       stopVoiceStream();
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
         try {
@@ -711,6 +768,41 @@ export default function JarvisOrb() {
             {camera === "starting" ? "INITIALIZING…" : cameraOn ? "GESTURES ON" : "GESTURES OFF"}
           </button>
         </div>
+        {voiceActive && (
+          <div
+            className="hud-row"
+            style={{ alignItems: "center", gap: 8, width: "100%" }}
+          >
+            <span style={{ fontSize: "0.65rem", letterSpacing: "0.08em" }}>
+              MIC
+            </span>
+            <div
+              role="meter"
+              aria-label="Microphone input level"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={micLevel}
+              style={{
+                flex: 1,
+                height: 4,
+                overflow: "hidden",
+                background: "rgba(0, 255, 170, 0.18)",
+              }}
+            >
+              <div
+                style={{
+                  width: `${micLevel}%`,
+                  height: "100%",
+                  background: micLevel >= 20 ? "#00ffaa" : "#ffc857",
+                  transition: "width 120ms linear",
+                }}
+              />
+            </div>
+            <span style={{ minWidth: 32, textAlign: "right", fontSize: "0.65rem" }}>
+              {micLevel}%
+            </span>
+          </div>
+        )}
         <div className="hud-row">
           <button type="button" className="hud-btn" onClick={() => sceneRef.current?.zoomIn()} aria-label="Zoom in">
             +

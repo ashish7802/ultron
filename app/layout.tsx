@@ -4,6 +4,11 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "ULTRON Orb UI",
   description: "An Iron Man-inspired holographic orb built with Three.js and Next.js",
+  icons: {
+    icon: "/favicon.ico",
+    shortcut: "/favicon.ico",
+    apple: "/ultron_logo.png",
+  },
 };
 
 export const viewport: Viewport = {

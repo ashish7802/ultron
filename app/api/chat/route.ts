@@ -23,6 +23,7 @@ function isChatMessage(value: unknown): value is ChatMessage {
 }
 
 export async function POST(req: Request) {
+  const requestStarted = performance.now();
   let body: unknown;
   try {
     body = await req.json();
@@ -75,7 +76,7 @@ export async function POST(req: Request) {
         messages: fullMessages,
         keep_alive: "24h",
         options: {
-          num_predict: 50,
+          num_predict: 32,
           temperature: 0.6,
         },
         stream: false,
@@ -92,7 +93,14 @@ export async function POST(req: Request) {
       );
     }
 
-    const data: { message?: { content?: unknown } } = await res.json();
+    const data: {
+      message?: { content?: unknown };
+      total_duration?: number;
+      load_duration?: number;
+      prompt_eval_duration?: number;
+      eval_duration?: number;
+      eval_count?: number;
+    } = await res.json();
     const reply = typeof data.message?.content === "string"
       ? data.message.content.trim()
       : "";
@@ -104,6 +112,22 @@ export async function POST(req: Request) {
       );
     }
 
+    console.info("[ULTRON TIMING] chat", {
+      elapsedMs: Math.round(performance.now() - requestStarted),
+      ollamaTotalMs: data.total_duration
+        ? Math.round(data.total_duration / 1_000_000)
+        : undefined,
+      modelLoadMs: data.load_duration
+        ? Math.round(data.load_duration / 1_000_000)
+        : undefined,
+      promptEvalMs: data.prompt_eval_duration
+        ? Math.round(data.prompt_eval_duration / 1_000_000)
+        : undefined,
+      generationMs: data.eval_duration
+        ? Math.round(data.eval_duration / 1_000_000)
+        : undefined,
+      generatedTokens: data.eval_count,
+    });
     return NextResponse.json({ reply, model: MODEL });
   } catch (error) {
     console.error("Ollama chat request failed:", error);

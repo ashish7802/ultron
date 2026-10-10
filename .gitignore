@@ -7,6 +7,10 @@
 
 # production
 /build
+/installer/payload/
+/installer/output/
+/installer/.build/
+/__pycache__/
 
 # misc
 .DS_Store
