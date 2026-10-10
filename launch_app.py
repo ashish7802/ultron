@@ -10,7 +10,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, Optional
 
@@ -41,7 +41,7 @@ _named_mutex_handle = None
 def log_event(service: str, event: str, level: str = "INFO", details: Optional[Dict[str, Any]] = None) -> None:
     """Emits structured JSONL logs for production observability."""
     entry = {
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "level": level,
         "service": service,
         "event": event,
