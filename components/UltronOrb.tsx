@@ -84,23 +84,6 @@ export default function UltronOrb() {
   const [subtitle, setSubtitle] = useState<string | null>(null);
   const subtitleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Direct User Access State (Fingerprint authentication disabled per user request)
-  const [biometricStatus, setBiometricStatus] = useState<{
-    supported: boolean;
-    deviceName?: string;
-    isEnrolled?: boolean;
-    authenticated: boolean;
-    verifying: boolean;
-    isChallengeMode?: boolean;
-    challengeMessage?: string;
-    enrolledCreds?: Array<{ id: string; algorithm: number; transports?: string[] }>;
-  }>({
-    supported: false,
-    authenticated: true,
-    verifying: false,
-    isChallengeMode: false,
-    enrolledCreds: [],
-  });
 
   // Autonomous Quantum Web & Browser Research State
   const [activeResearch, setActiveResearch] = useState<{
@@ -174,74 +157,7 @@ export default function UltronOrb() {
     };
   }, []);
 
-  useEffect(() => {
-    // Check Windows Hello & physical biometric hardware availability
-    fetch("/api/auth/biometric?action=check-hardware")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.supported) {
-          setBiometricStatus((prev) => ({
-            ...prev,
-            supported: true,
-            deviceName: data.deviceName,
-            isEnrolled: !!data.isEnrolled,
-            enrolledCreds: data.enrolledCredentials || [],
-          }));
-        }
-      })
-      .catch(() => {});
-
-    // Direct access active: Auto-lock timer removed per user request
-    return () => {};
-  }, []);
-
-  /**
-   * Invokes native Windows Hello platform biometric verification.
-   * Completely removes passkeys, registration prompts, and synced credentials.
-   * Prompts the native OS Windows Hello fingerprint dialog on the laptop.
-   */
-  const authenticateWithWindowsHello = useCallback(async () => {
-    try {
-      setBiometricStatus((prev) => ({
-        ...prev,
-        verifying: true,
-        challengeMessage: "Touch your fingerprint sensor when the Windows Hello prompt appears...",
-      }));
-
-      const res = await fetch("/api/auth/biometric?action=verify-native", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-      });
-
-      const data = await res.json();
-      if (res.ok && data.authenticated && data.token) {
-        sessionStorage.setItem("ultron_zero_trust_token", data.token);
-        setBiometricStatus((prev) => ({
-          ...prev,
-          authenticated: true,
-          verifying: false,
-          isChallengeMode: false,
-          challengeMessage: "",
-        }));
-        setBrainTag("FINGERPRINT VERIFIED - ACCESS GRANTED");
-      } else {
-        throw new Error(data.message || data.error || "Biometric verification failed");
-      }
-    } catch (authErr: any) {
-      console.warn("[NATIVE WINDOWS HELLO FAILED / CANCELLED]", authErr);
-      sessionStorage.removeItem("ultron_zero_trust_token");
-
-      setBiometricStatus((prev) => ({
-        ...prev,
-        authenticated: false,
-        verifying: false,
-        isChallengeMode: true,
-        challengeMessage:
-          "FAILED BIOMETRIC ATTEMPT: Intruder defense triggered. All active sessions revoked. Touch the fingerprint sensor to resolve challenge.",
-      }));
-    }
-  }, []);
+  // Direct Access: No biometric check or background auth polling required
 
   const updateVisualState = useCallback(
     (st: AssistantVisualState, data?: { audioLevel?: number; progress?: number }) => {
@@ -950,9 +866,7 @@ export default function UltronOrb() {
       });
 
       if (res.status === 401) {
-        setBiometricStatus((prev) => ({ ...prev, authenticated: false }));
-        sessionStorage.removeItem("ultron_zero_trust_token");
-        setError("BIOMETRIC AUTH REQUIRED: Touch fingerprint sensor to unlock ULTRON.");
+        setError("AI service unauthorized. Please verify system settings.");
         updateVisualState("idle");
         return;
       }
