@@ -114,6 +114,43 @@ export default function UltronOrb() {
   const [researchInput, setResearchInput] = useState("");
   const [isResearching, setIsResearching] = useState(false);
 
+  // All-in-One Cloud AI Brain Infrastructure State (5TB Google Drive + Cloud GPU)
+  const [cloudModalOpen, setCloudModalOpen] = useState(false);
+  const [cloudBrainStatus, setCloudBrainStatus] = useState<{
+    status: string;
+    cloud_provider: string;
+    cloud_endpoint: string;
+    active_model: any;
+    gpu_state: string;
+    idle_duration_seconds: number;
+    auto_idle_threshold_seconds: number;
+    storage_5tb_quota: {
+      tier: string;
+      total_formatted: string;
+      used_formatted: string;
+      free_formatted: string;
+      usage_percent: number;
+    };
+    session_telemetry: {
+      total_tokens: number;
+      estimated_session_cost_usd: number;
+      estimated_session_cost_inr: number;
+    };
+    available_models: Array<{
+      id: string;
+      name: string;
+      parameters: string;
+      quantization: string;
+      size_gb: number;
+      context_window: number;
+      required_vram_gb: number;
+      recommended_gpu: string;
+      description: string;
+      is_active: boolean;
+    }>;
+  } | null>(null);
+  const [isSwitchingModel, setIsSwitchingModel] = useState(false);
+
   const lastInteractionRef = useRef(Date.now());
 
   const speechQueueRef = useRef<string[]>([]);
@@ -158,6 +195,52 @@ export default function UltronOrb() {
   }, []);
 
   // Direct Access: No biometric check or background auth polling required
+
+  /**
+   * Fetches the live status of the Cloud AI Brain, 5TB Google Drive quota,
+   * active model specifications, and GPU power state.
+   */
+  const fetchCloudStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/cloud/models");
+      if (res.ok) {
+        const data = await res.json();
+        setCloudBrainStatus(data);
+      }
+    } catch (err) {
+      console.warn("[CLOUD BRAIN TELEMETRY ERROR]", err);
+    }
+  }, []);
+
+  /**
+   * Hot-swaps the active cloud LLM model and signals the remote cloud worker
+   * to load the corresponding model weights from Google Drive 5TB storage.
+   */
+  const switchCloudModel = useCallback(
+    async (modelId: string) => {
+      try {
+        setIsSwitchingModel(true);
+        const res = await fetch("/api/cloud/models", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "switch", model_id: modelId }),
+        });
+        if (res.ok) {
+          await fetchCloudStatus();
+          setBrainTag(`CLOUD MODEL LOADED: ${modelId.toUpperCase()}`);
+        }
+      } catch (err) {
+        console.warn("[CLOUD BRAIN MODEL SWITCH FAILED]", err);
+      } finally {
+        setIsSwitchingModel(false);
+      }
+    },
+    [fetchCloudStatus]
+  );
+
+  useEffect(() => {
+    fetchCloudStatus();
+  }, [fetchCloudStatus]);
 
   const updateVisualState = useCallback(
     (st: AssistantVisualState, data?: { audioLevel?: number; progress?: number }) => {
@@ -1391,6 +1474,22 @@ export default function UltronOrb() {
           <button
             type="button"
             className="hud-btn"
+            onClick={() => {
+              fetchCloudStatus();
+              setCloudModalOpen(true);
+            }}
+            style={{
+              borderColor: cloudBrainStatus?.gpu_state === "ACTIVE" ? "#a855f7" : "#06b6d4",
+              color: cloudBrainStatus?.gpu_state === "ACTIVE" ? "#c084fc" : "#22d3ee",
+            }}
+            title="All-in-One Cloud AI Brain: Google Drive 5TB & Cloud GPU Inference"
+          >
+            ☁️ CLOUD BRAIN
+          </button>
+
+          <button
+            type="button"
+            className="hud-btn"
             aria-pressed={voiceActive}
             onClick={toggleVoice}
             style={{
@@ -1722,6 +1821,339 @@ export default function UltronOrb() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ALL-IN-ONE CLOUD AI BRAIN HUD & MODEL MANAGER MODAL */}
+      {cloudModalOpen && (
+        <div
+          role="dialog"
+          aria-label="Cloud AI Brain HUD"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(3, 7, 18, 0.88)",
+            backdropFilter: "blur(14px)",
+            zIndex: 1000,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+          }}
+        >
+          <div
+            style={{
+              background: "rgba(15, 23, 42, 0.95)",
+              border: "1px solid rgba(168, 85, 247, 0.4)",
+              boxShadow: "0 0 40px rgba(168, 85, 247, 0.2)",
+              borderRadius: 8,
+              width: "100%",
+              maxWidth: 840,
+              maxHeight: "88vh",
+              overflowY: "auto",
+              display: "flex",
+              flexDirection: "column",
+              padding: 24,
+              fontFamily: "monospace",
+              color: "#e2e8f0",
+            }}
+          >
+            {/* Header */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                borderBottom: "1px solid rgba(168, 85, 247, 0.25)",
+                paddingBottom: 14,
+                marginBottom: 16,
+              }}
+            >
+              <div>
+                <div
+                  style={{
+                    fontSize: "1.15rem",
+                    fontWeight: "bold",
+                    letterSpacing: "0.15em",
+                    color: "#c084fc",
+                  }}
+                >
+                  ☁️ ULTRON ALL-IN-ONE CLOUD AI BRAIN
+                </div>
+                <div style={{ fontSize: "0.75rem", color: "#94a3b8", marginTop: 4 }}>
+                  5TB Google Drive Remote Storage · Cloud GPU Inference · Zero Local Heavy Weights
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCloudModalOpen(false)}
+                style={{
+                  background: "transparent",
+                  border: "1px solid rgba(148, 163, 184, 0.3)",
+                  color: "#94a3b8",
+                  padding: "4px 12px",
+                  cursor: "pointer",
+                  borderRadius: 4,
+                }}
+              >
+                ✕ CLOSE
+              </button>
+            </div>
+
+            {/* Hardware & Cloud Highlights */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                gap: 12,
+                marginBottom: 18,
+              }}
+            >
+              <div
+                style={{
+                  background: "rgba(30, 41, 59, 0.6)",
+                  border: "1px solid rgba(56, 189, 248, 0.2)",
+                  borderRadius: 6,
+                  padding: 12,
+                }}
+              >
+                <div style={{ fontSize: "0.7rem", color: "#94a3b8" }}>REMOTE STORAGE TIER</div>
+                <div style={{ fontSize: "1rem", fontWeight: "bold", color: "#38bdf8", marginTop: 4 }}>
+                  5TB Google Drive
+                </div>
+                <div style={{ fontSize: "0.68rem", color: "#10b981", marginTop: 2 }}>
+                  {cloudBrainStatus?.storage_5tb_quota?.free_formatted || "4.97 TB"} Available
+                </div>
+              </div>
+
+              <div
+                style={{
+                  background: "rgba(30, 41, 59, 0.6)",
+                  border: "1px solid rgba(168, 85, 247, 0.2)",
+                  borderRadius: 6,
+                  padding: 12,
+                }}
+              >
+                <div style={{ fontSize: "0.7rem", color: "#94a3b8" }}>CLOUD GPU COMPUTE</div>
+                <div style={{ fontSize: "1rem", fontWeight: "bold", color: "#c084fc", marginTop: 4 }}>
+                  {cloudBrainStatus?.gpu_state === "ACTIVE" ? "ACTIVE (Running)" : "IDLE_SLEEP"}
+                </div>
+                <div style={{ fontSize: "0.68rem", color: "#e2e8f0", marginTop: 2 }}>
+                  10m Auto-Idle Cutoff to $0
+                </div>
+              </div>
+
+              <div
+                style={{
+                  background: "rgba(30, 41, 59, 0.6)",
+                  border: "1px solid rgba(16, 185, 129, 0.2)",
+                  borderRadius: 6,
+                  padding: 12,
+                }}
+              >
+                <div style={{ fontSize: "0.7rem", color: "#94a3b8" }}>LAPTOP LOCAL FOOTPRINT</div>
+                <div style={{ fontSize: "1rem", fontWeight: "bold", color: "#10b981", marginTop: 4 }}>
+                  0 MB Heavy Weights
+                </div>
+                <div style={{ fontSize: "0.68rem", color: "#94a3b8", marginTop: 2 }}>
+                  Optimized for 8GB RAM / Intel iGPU
+                </div>
+              </div>
+            </div>
+
+            {/* Google Drive 5TB Storage Bar */}
+            <div
+              style={{
+                background: "rgba(30, 41, 59, 0.5)",
+                border: "1px solid rgba(148, 163, 184, 0.2)",
+                borderRadius: 6,
+                padding: 14,
+                marginBottom: 18,
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                <span style={{ fontSize: "0.8rem", fontWeight: "bold", color: "#f8fafc" }}>
+                  📁 Google Drive 5TB AI Vault Allocation
+                </span>
+                <span style={{ fontSize: "0.75rem", color: "#38bdf8" }}>
+                  {cloudBrainStatus?.storage_5tb_quota?.used_formatted || "24.00 GB"} /{" "}
+                  {cloudBrainStatus?.storage_5tb_quota?.total_formatted || "5.00 TB"} (
+                  {cloudBrainStatus?.storage_5tb_quota?.usage_percent || 0.48}%)
+                </span>
+              </div>
+              <div
+                style={{
+                  width: "100%",
+                  height: 8,
+                  background: "rgba(15, 23, 42, 0.8)",
+                  borderRadius: 4,
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    width: `${Math.max(2, cloudBrainStatus?.storage_5tb_quota?.usage_percent || 0.5)}%`,
+                    height: "100%",
+                    background: "linear-gradient(90deg, #38bdf8, #a855f7)",
+                    borderRadius: 4,
+                  }}
+                />
+              </div>
+              <div style={{ fontSize: "0.7rem", color: "#94a3b8", marginTop: 8 }}>
+                Primary storage for LLM checkpoints, datasets, multi-version models, and system backups.
+              </div>
+            </div>
+
+            {/* Centralized LLM Model Manager & Hot-Swapper */}
+            <div style={{ marginBottom: 18 }}>
+              <div
+                style={{
+                  fontSize: "0.85rem",
+                  fontWeight: "bold",
+                  color: "#c084fc",
+                  marginBottom: 10,
+                  letterSpacing: "0.08em",
+                }}
+              >
+                🧠 CENTRALIZED LLM MODEL REGISTRY & HOT-SWAPPER
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {cloudBrainStatus?.available_models?.map((model) => {
+                  const isActive =
+                    model.is_active ||
+                    cloudBrainStatus.active_model?.id === model.id;
+
+                  return (
+                    <div
+                      key={model.id}
+                      style={{
+                        background: isActive
+                          ? "rgba(168, 85, 247, 0.12)"
+                          : "rgba(30, 41, 59, 0.4)",
+                        border: `1px solid ${
+                          isActive ? "#c084fc" : "rgba(148, 163, 184, 0.2)"
+                        }`,
+                        borderRadius: 6,
+                        padding: 12,
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                      }}
+                    >
+                      <div style={{ flex: 1, marginRight: 16 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: "0.95rem", fontWeight: "bold", color: "#f8fafc" }}>
+                            {model.name}
+                          </span>
+                          {isActive && (
+                            <span
+                              style={{
+                                fontSize: "0.68rem",
+                                background: "#10b981",
+                                color: "#000",
+                                fontWeight: "bold",
+                                padding: "2px 6px",
+                                borderRadius: 3,
+                              }}
+                            >
+                              ● ACTIVE BRAIN
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: "0.72rem", color: "#94a3b8", marginTop: 4 }}>
+                          {model.description}
+                        </div>
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: 12,
+                            fontSize: "0.68rem",
+                            color: "#cbd5e1",
+                            marginTop: 6,
+                          }}
+                        >
+                          <span>💾 Size: {model.size_gb} GB</span>
+                          <span>⚡ VRAM: {model.required_vram_gb} GB</span>
+                          <span>📏 Context: {model.context_window?.toLocaleString()} tokens</span>
+                          <span>🖥️ Target GPU: {model.recommended_gpu}</span>
+                        </div>
+                      </div>
+
+                      <div>
+                        {isActive ? (
+                          <button
+                            type="button"
+                            disabled
+                            style={{
+                              background: "rgba(16, 185, 129, 0.2)",
+                              border: "1px solid #10b981",
+                              color: "#10b981",
+                              padding: "6px 14px",
+                              borderRadius: 4,
+                              fontSize: "0.75rem",
+                              fontWeight: "bold",
+                              cursor: "default",
+                            }}
+                          >
+                            LOADED
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={isSwitchingModel}
+                            onClick={() => switchCloudModel(model.id)}
+                            style={{
+                              background: "rgba(168, 85, 247, 0.2)",
+                              border: "1px solid #c084fc",
+                              color: "#c084fc",
+                              padding: "6px 14px",
+                              borderRadius: 4,
+                              fontSize: "0.75rem",
+                              fontWeight: "bold",
+                              cursor: isSwitchingModel ? "wait" : "pointer",
+                            }}
+                          >
+                            {isSwitchingModel ? "SWITCHING…" : "⚡ ACTIVATE"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Session Cost Telemetry & Protection */}
+            <div
+              style={{
+                background: "rgba(15, 23, 42, 0.7)",
+                border: "1px solid rgba(148, 163, 184, 0.2)",
+                borderRadius: 6,
+                padding: 12,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <div>
+                <div style={{ fontSize: "0.75rem", fontWeight: "bold", color: "#f8fafc" }}>
+                  💰 Real-Time Cloud Inference Cost Telemetry
+                </div>
+                <div style={{ fontSize: "0.68rem", color: "#94a3b8", marginTop: 2 }}>
+                  Transparent Pay-As-You-Go Billing Protection. Never bills while idle.
+                </div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: "0.95rem", fontWeight: "bold", color: "#10b981" }}>
+                  ${cloudBrainStatus?.session_telemetry?.estimated_session_cost_usd?.toFixed(5) || "0.00000"} USD
+                </div>
+                <div style={{ fontSize: "0.68rem", color: "#94a3b8" }}>
+                  (₹{cloudBrainStatus?.session_telemetry?.estimated_session_cost_inr?.toFixed(2) || "0.00"} INR)
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

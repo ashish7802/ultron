@@ -1,0 +1,44 @@
+{
+  "active_model_id": "qwen2.5-7b",
+  "models": {
+    "qwen2.5-7b": {
+      "id": "qwen2.5-7b",
+      "name": "Qwen 2.5 7B Instruct",
+      "file_name": "Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+      "parameters": "7.6B",
+      "quantization": "Q4_K_M",
+      "size_gb": 4.36,
+      "context_window": 32768,
+      "required_vram_gb": 6.5,
+      "recommended_gpu": "RTX 3060 (12GB) / RTX 4090",
+      "description": "Lightning-fast general conversational assistant with coding and multilingual intelligence.",
+      "status": "ready"
+    },
+    "llama3.3-70b": {
+      "id": "llama3.3-70b",
+      "name": "Llama 3.3 70B Instruct",
+      "file_name": "Llama-3.3-70B-Instruct-Q4_K_M.gguf",
+      "parameters": "70.6B",
+      "quantization": "Q4_K_M",
+      "size_gb": 39.58,
+      "context_window": 131072,
+      "required_vram_gb": 42.0,
+      "recommended_gpu": "A100 (80GB) / 2x RTX 4090 (48GB)",
+      "description": "State-of-the-art open-weights reasoning powerhouse for complex research and planning.",
+      "status": "ready"
+    },
+    "deepseek-r1-14b": {
+      "id": "deepseek-r1-14b",
+      "name": "DeepSeek R1 Distill Qwen 14B",
+      "file_name": "DeepSeek-R1-Distill-Qwen-14B-Q4_K_M.gguf",
+      "parameters": "14.7B",
+      "quantization": "Q4_K_M",
+      "size_gb": 8.36,
+      "context_window": 65536,
+      "required_vram_gb": 10.5,
+      "recommended_gpu": "RTX 4090 (24GB) / A5000",
+      "description": "Deep mathematical, logical, and chain-of-thought reasoning specialist.",
+      "status": "ready"
+    }
+  }
+}

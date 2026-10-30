@@ -1,0 +1,8 @@
+{
+  "storage_provider": "google_drive",
+  "drive_root_folder_name": "ULTRON_BRAIN",
+  "active_model_name": "Qwen2.5-7B-Instruct-Cloud",
+  "cloud_gpu_endpoint": "https://api.runpod.ai/v2/ultron-brain/run",
+  "auto_shutdown_idle_minutes": 15,
+  "simulated_mirror_mode": true
+}
