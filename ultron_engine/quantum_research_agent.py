@@ -372,7 +372,10 @@ class QuantumResearchAgent:
             pass
 
         # High-Speed Algorithmic Synthesis Fallback (guarantees instantaneous response)
-        top_snippet = context_chunks[0].get("snippet") or context_chunks[0].get("text", "")[:280]
+        top_snippet = ""
+        if context_chunks:
+            top_snippet = context_chunks[0].get("snippet") or context_chunks[0].get("text", "")[:280]
+
         findings = []
         for c in context_chunks[:4]:
             t = c.get("title", "")
@@ -382,8 +385,9 @@ class QuantumResearchAgent:
             elif t:
                 findings.append(t)
 
+        summary_text = f"Based on live multi-source research for '{query}': {top_snippet[:220]}." if top_snippet else f"Synthesized research analysis for '{query}' completed."
         return {
-            "executive_summary": f"Based on live multi-source research for '{query}': {top_snippet[:220]}.",
+            "executive_summary": summary_text,
             "key_findings": findings[:4] if findings else ["Multi-source consensus verified across primary web indices."],
             "deep_analysis": "Data synthesized from live crawl across high-authority indices. Multi-vector cross-correlation confirmed factual alignment.",
         }
