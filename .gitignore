@@ -39,3 +39,9 @@ next-env.d.ts
 *.asar
 *.bak
 *.db
+.qpanda/
+.andromity/
+ultron_engine/secure_vault/
+.vscode/
+
+desktop.ini

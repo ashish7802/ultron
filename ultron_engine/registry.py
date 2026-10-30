@@ -1,4 +1,14 @@
-"""ULTRON engine registry: builds orchestrator with all engines registered."""
+"""ULTRON engine registry: builds orchestrator with all engines registered.
+
+Key Responsibilities:
+- Dynamically imports and registers all engine modules.
+- Constructs the OrchestratorEngine with EventBus and SharedState.
+- Adds routing rules that map intent categories to specific engines.
+
+Architectural Role:
+- Central wiring point — every engine is discovered and instantiated here.
+- Called once at startup by tests_core.py or the main server entry point.
+"""
 import importlib
 from .core import EventBus, SharedState
 from .engines.orchestrator import OrchestratorEngine
@@ -10,10 +20,15 @@ ALL_MODULES = [
  "knowledge_research","verification","anti_hallucination","self_correction",
  "security","privacy_governance","human_loop","alerting_emergency",
  "learning","proactive","resource_optimization","reliability","offline_fallback",
- "observability","testing_evaluation",
+ "observability","testing_evaluation","ollama_llm",
 ]
 
 def build_orchestrator():
+    """Build the full orchestrator with every engine registered.
+
+    Returns:
+        tuple: (OrchestratorEngine, EventBus, SharedState)
+    """
     bus = EventBus()
     state = SharedState()
     orch = OrchestratorEngine(bus, state)

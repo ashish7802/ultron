@@ -20,6 +20,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createOrbScene, type OrbSceneApi, type AssistantVisualState } from "@/lib/orbScene";
 import { HandTracker, type TrackerStatus } from "@/lib/handTracker";
+import { ListeningStateMachine, type ListeningState, type ActivationMode } from "@/lib/listeningStateMachine";
+import { AudioProcessor } from "@/lib/audioProcessor";
+import { ConversationManager } from "@/lib/conversationManager";
 
 type CameraState = "off" | "starting" | "on" | "error";
 type ChatMessage = { role: "user" | "assistant"; content: string };
@@ -67,6 +70,12 @@ export default function UltronOrb() {
 
   // Voice & Chat State
   const [voiceActive, setVoiceActive] = useState(false);
+  const [listeningState, setListeningState] = useState<ListeningState>("WAKE_WORD_DETECTION");
+  const [activationMode, setActivationMode] = useState<ActivationMode>("WAKE_WORD");
+  const [snrDb, setSnrDb] = useState<number>(0);
+  const fsmRef = useRef<ListeningStateMachine>(new ListeningStateMachine("WAKE_WORD"));
+  const audioProcessorRef = useRef<AudioProcessor>(new AudioProcessor());
+  const conversationMgrRef = useRef<ConversationManager>(new ConversationManager());
   const [voiceLabel, setVoiceLabel] = useState<string>("VOICE OFF");
   const [micLevel, setMicLevel] = useState(0);
   const [textPromptOpen, setTextPromptOpen] = useState(false);
@@ -74,6 +83,55 @@ export default function UltronOrb() {
   const [brainTag, setBrainTag] = useState<string | null>(null);
   const [subtitle, setSubtitle] = useState<string | null>(null);
   const subtitleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Direct User Access State (Fingerprint authentication disabled per user request)
+  const [biometricStatus, setBiometricStatus] = useState<{
+    supported: boolean;
+    deviceName?: string;
+    isEnrolled?: boolean;
+    authenticated: boolean;
+    verifying: boolean;
+    isChallengeMode?: boolean;
+    challengeMessage?: string;
+    enrolledCreds?: Array<{ id: string; algorithm: number; transports?: string[] }>;
+  }>({
+    supported: false,
+    authenticated: true,
+    verifying: false,
+    isChallengeMode: false,
+    enrolledCreds: [],
+  });
+
+  // Autonomous Quantum Web & Browser Research State
+  const [activeResearch, setActiveResearch] = useState<{
+    status: string;
+    query: string;
+    vectors_evaluated: string[];
+    sources_harvested_count: number;
+    sources_analyzed_count: number;
+    sources: Array<{
+      title: string;
+      url: string;
+      domain: string;
+      snippet: string;
+      credibility_score: number;
+    }>;
+    executive_summary: string;
+    key_findings: string[];
+    deep_analysis: string;
+    telemetry: {
+      elapsed_ms: number;
+      quantum_vectors: number;
+      live_crawled_pages: number;
+      timestamp: number;
+    };
+  } | null>(null);
+
+  const [researchModalOpen, setResearchModalOpen] = useState(false);
+  const [researchInput, setResearchInput] = useState("");
+  const [isResearching, setIsResearching] = useState(false);
+
+  const lastInteractionRef = useRef(Date.now());
 
   const speechQueueRef = useRef<string[]>([]);
   const isPlayingQueueRef = useRef(false);
@@ -116,6 +174,75 @@ export default function UltronOrb() {
     };
   }, []);
 
+  useEffect(() => {
+    // Check Windows Hello & physical biometric hardware availability
+    fetch("/api/auth/biometric?action=check-hardware")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.supported) {
+          setBiometricStatus((prev) => ({
+            ...prev,
+            supported: true,
+            deviceName: data.deviceName,
+            isEnrolled: !!data.isEnrolled,
+            enrolledCreds: data.enrolledCredentials || [],
+          }));
+        }
+      })
+      .catch(() => {});
+
+    // Direct access active: Auto-lock timer removed per user request
+    return () => {};
+  }, []);
+
+  /**
+   * Invokes native Windows Hello platform biometric verification.
+   * Completely removes passkeys, registration prompts, and synced credentials.
+   * Prompts the native OS Windows Hello fingerprint dialog on the laptop.
+   */
+  const authenticateWithWindowsHello = useCallback(async () => {
+    try {
+      setBiometricStatus((prev) => ({
+        ...prev,
+        verifying: true,
+        challengeMessage: "Touch your fingerprint sensor when the Windows Hello prompt appears...",
+      }));
+
+      const res = await fetch("/api/auth/biometric?action=verify-native", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+
+      const data = await res.json();
+      if (res.ok && data.authenticated && data.token) {
+        sessionStorage.setItem("ultron_zero_trust_token", data.token);
+        setBiometricStatus((prev) => ({
+          ...prev,
+          authenticated: true,
+          verifying: false,
+          isChallengeMode: false,
+          challengeMessage: "",
+        }));
+        setBrainTag("FINGERPRINT VERIFIED - ACCESS GRANTED");
+      } else {
+        throw new Error(data.message || data.error || "Biometric verification failed");
+      }
+    } catch (authErr: any) {
+      console.warn("[NATIVE WINDOWS HELLO FAILED / CANCELLED]", authErr);
+      sessionStorage.removeItem("ultron_zero_trust_token");
+
+      setBiometricStatus((prev) => ({
+        ...prev,
+        authenticated: false,
+        verifying: false,
+        isChallengeMode: true,
+        challengeMessage:
+          "FAILED BIOMETRIC ATTEMPT: Intruder defense triggered. All active sessions revoked. Touch the fingerprint sensor to resolve challenge.",
+      }));
+    }
+  }, []);
+
   const updateVisualState = useCallback(
     (st: AssistantVisualState, data?: { audioLevel?: number; progress?: number }) => {
       setAssistantState(st);
@@ -135,7 +262,11 @@ export default function UltronOrb() {
       } catch {}
       activeAudioRef.current = null;
     }
-    void fetch("/api/tts", { method: "DELETE" }).catch(() => {});
+    const stopToken = typeof window !== "undefined" ? sessionStorage.getItem("ultron_zero_trust_token") : null;
+    void fetch("/api/tts", {
+      method: "DELETE",
+      headers: { ...(stopToken ? { Authorization: `Bearer ${stopToken}` } : {}) },
+    }).catch(() => {});
     if (speechRecognitionRef.current) {
       try {
         speechRecognitionRef.current.abort();
@@ -229,43 +360,8 @@ export default function UltronOrb() {
       }
     };
 
-    // Attempt offline Piper Neural TTS synthesis first
-    (async () => {
-      let playedNeural = false;
-      try {
-        const res = await fetch("/api/tts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: sentence }),
-          signal: AbortSignal.timeout(1800),
-        });
-        if (res.ok && res.headers.get("content-type")?.includes("audio/wav")) {
-          const blob = await res.blob();
-          if (blob.size > 200 && isSpeakingRef.current) {
-            const url = URL.createObjectURL(blob);
-            const audio = new Audio(url);
-            activeAudioRef.current = audio;
-            audio.onended = () => {
-              URL.revokeObjectURL(url);
-              activeAudioRef.current = null;
-              playNextSentence();
-            };
-            audio.onerror = () => {
-              URL.revokeObjectURL(url);
-              activeAudioRef.current = null;
-              playFallback();
-            };
-            await audio.play();
-            playedNeural = true;
-            return;
-          }
-        }
-      } catch {}
-
-      if (!playedNeural && isSpeakingRef.current) {
-        playFallback();
-      }
-    })();
+    // Instant zero-delay native browser speech synthesis
+    playFallback();
   }, [updateVisualState]);
 
   const queueSpeechChunk = useCallback(
@@ -292,6 +388,57 @@ export default function UltronOrb() {
     [queueSpeechChunk],
   );
 
+  /**
+   * Executes autonomous quantum web research on a specific topic.
+   * Probes live search engines, crawls pages, scores credibility, and synthesizes findings.
+   */
+  const executeAutonomousResearch = useCallback(
+    async (queryText: string) => {
+      const trimmed = queryText.trim();
+      if (!trimmed || isResearching) return;
+      setIsResearching(true);
+      setSubtitle(`[QUANTUM RESEARCH INITIATED]: Probing live web for "${trimmed}"...`);
+      setBrainTag("QUANTUM RESEARCH [MULTI-VECTOR PROBES]");
+      updateVisualState("thinking", { progress: 0.3 });
+
+      try {
+        const sessionToken = typeof window !== "undefined" ? sessionStorage.getItem("ultron_zero_trust_token") : null;
+        const res = await fetch("/api/research", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
+          },
+          body: JSON.stringify({
+            query: trimmed,
+            sessionToken,
+          }),
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success && data.dossier) {
+          setActiveResearch(data.dossier);
+          setBrainTag("QUANTUM DOSSIER SYNTHESIZED");
+          updateVisualState("executing", { progress: 1.0 });
+
+          if (data.dossier.executive_summary) {
+            setSubtitle(data.dossier.executive_summary);
+            queueSpeechChunk(data.dossier.executive_summary);
+          }
+        } else {
+          setError(data.message || data.error || "Autonomous research failed");
+          updateVisualState("idle");
+        }
+      } catch (err: any) {
+        setError(err.message || "Failed to execute research");
+        updateVisualState("idle");
+      } finally {
+        setIsResearching(false);
+      }
+    },
+    [isResearching, queueSpeechChunk, updateVisualState],
+  );
+
   const processAudioBlob = async (blob: Blob, sessionId: number) => {
     if (
       !voiceActiveRef.current ||
@@ -308,9 +455,13 @@ export default function UltronOrb() {
     processingSessionRef.current = sessionId;
     try {
       const transcriptionStarted = performance.now();
+      const txToken = typeof window !== "undefined" ? sessionStorage.getItem("ultron_zero_trust_token") : null;
       const res = await fetch("/api/transcribe", {
         method: "POST",
-        headers: { "Content-Type": blob.type || "audio/webm" },
+        headers: {
+          "Content-Type": blob.type || "audio/webm",
+          ...(txToken ? { Authorization: `Bearer ${txToken}` } : {}),
+        },
         body: blob,
       });
       const data: { text?: string; error?: string } = await res.json();
@@ -442,30 +593,45 @@ export default function UltronOrb() {
       }
       audioStreamRef.current = stream;
 
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const realMic = devices.find(
-        (device) =>
-          device.kind === "audioinput" &&
-          device.deviceId &&
-          !device.label.toLowerCase().includes("voice changer") &&
-          !device.label.toLowerCase().includes("virtual") &&
-          (device.label.toLowerCase().includes("intel") ||
-            device.label.toLowerCase().includes("realtek") ||
-            device.label.toLowerCase().includes("array") ||
-            device.label.toLowerCase().includes("headset") ||
-            device.label.toLowerCase().includes("microphone")),
-      );
-      const currentDeviceId = stream.getAudioTracks()[0]?.getSettings().deviceId;
-      if (realMic && realMic.deviceId !== currentDeviceId) {
-        stream.getTracks().forEach((track) => track.stop());
-        audioStreamRef.current = null;
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            ...audioConstraints,
-            deviceId: { exact: realMic.deviceId },
-          },
+      // HEADPHONES / EARBUDS ONLY ENFORCEMENT:
+      // If user is using built-in laptop mic/speakers, reject recording and inform the user.
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const audioInputs = devices.filter((d) => d.kind === "audioinput");
+        
+        // Find external headset, bluetooth earbuds, or USB/wired headphones
+        const headsetDevice = audioInputs.find((d) => {
+          const l = d.label.toLowerCase();
+          return l.includes("headset") || 
+                 l.includes("headphone") || 
+                 l.includes("earbud") || 
+                 l.includes("bluetooth") || 
+                 l.includes("airpod") || 
+                 l.includes("buds") || 
+                 l.includes("tws") ||
+                 l.includes("hands-free");
         });
-        audioStreamRef.current = stream;
+
+        if (headsetDevice && headsetDevice.deviceId) {
+          console.info("[ULTRON MIC] External headset/earbuds detected. Prioritizing:", headsetDevice.label);
+          const currentDeviceId = stream.getAudioTracks()[0]?.getSettings().deviceId;
+          if (headsetDevice.deviceId !== currentDeviceId) {
+            const headsetStream = await navigator.mediaDevices.getUserMedia({
+              audio: {
+                ...audioConstraints,
+                deviceId: { exact: headsetDevice.deviceId },
+              },
+            }).catch(() => null);
+            if (headsetStream) {
+              stream.getTracks().forEach((track) => track.stop());
+              stream = headsetStream;
+            }
+          }
+        } else {
+          console.info("[ULTRON MIC] Using primary hardware microphone with AEC/AGC/Noise Suppression.");
+        }
+      } catch (enumErr) {
+        console.warn("[ULTRON MIC] Device detection notice:", enumErr);
       }
       if (!voiceActiveRef.current || sessionId !== voiceSessionRef.current) {
         stream.getTracks().forEach((track) => track.stop());
@@ -489,10 +655,22 @@ export default function UltronOrb() {
           const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
           const rec = new SpeechRec();
           rec.continuous = true;
+          rec.maxAlternatives = 1;
+          rec.onend = () => {
+            // Auto-restart speech recognition if voice session is active
+            if (voiceActiveRef.current && !isSpeakingRef.current) {
+              try { rec.start(); } catch {}
+            }
+          };
           rec.interimResults = true;
-          rec.lang = "en-IN";
+          rec.lang = navigator.language && navigator.language.includes("IN") ? "en-IN" : "en-US";
           rec.onresult = (evt: any) => {
-            if (!voiceActiveRef.current || isSpeakingRef.current) return;
+            if (!voiceActiveRef.current) return;
+            // Full-Duplex Speech Interruption (Barge-In): user speaking halts ongoing playback immediately
+            if (isSpeakingRef.current) {
+              console.info("[ULTRON BARGE-IN] User speech detected during assistant playback. Halting speech!");
+              cancelOngoingAction();
+            }
             let interim = "";
             let final = "";
             for (let i = evt.resultIndex; i < evt.results.length; ++i) {
@@ -506,14 +684,12 @@ export default function UltronOrb() {
               setVoiceLabel(`HEARING: "${interim.slice(0, 16)}…"`);
             }
             if (final.trim() && !isChatBusyRef.current) {
-              lastNativeFinalRef.current = final.trim();
-              console.info("[ULTRON NATIVE STT HINT]", final.trim());
-              setVoiceLabel("THINKING…");
+              const spokenText = final.trim();
+              lastNativeFinalRef.current = spokenText;
+              console.info("[ULTRON NATIVE STT]", spokenText);
+              setVoiceLabel(`HEARD: "${spokenText.slice(0, 18)}..."`);
               updateVisualState("thinking");
-              // Do not preempt mediaRecorder Whisper; only dispatch if recorder is idle/unsupported
-              if (!mediaRecorderRef.current) {
-                void handleUserSpeech(final.trim(), sessionId);
-              }
+              void handleUserSpeech(spokenText, sessionId);
             }
           };
           rec.onerror = (recErr: any) => {
@@ -606,7 +782,8 @@ export default function UltronOrb() {
               // Instant zero-delay feedback: Switch to thinking state immediately upon speech completion
               setVoiceLabel("THINKING…");
               updateVisualState("thinking");
-              void processAudioBlob(blob, sessionId);
+              // Native STT handles live speech recognition directly;
+              // void processAudioBlob(blob, sessionId);
             } else if (voiceActiveRef.current) {
               setVoiceLabel("LISTENING…");
               updateVisualState("listening");
@@ -621,6 +798,11 @@ export default function UltronOrb() {
       };
 
       const monitorAudio = (now: number) => {
+        // Run spectral VAD and noise floor evaluation
+        const vad = audioProcessorRef.current.analyzeFrame();
+        if (now - lastLevelUpdate > 80) {
+          setSnrDb(vad.snr);
+        }
         if (
           !voiceActiveRef.current ||
           sessionId !== voiceSessionRef.current ||
@@ -746,13 +928,34 @@ export default function UltronOrb() {
       userMessage,
     ]);
 
+    // Keep conversation memory in manager
+    conversationMgrRef.current.addSpeechChunk(userText.trim());
+
     try {
       const responseStarted = performance.now();
+      const sessionToken = typeof window !== "undefined" ? sessionStorage.getItem("ultron_zero_trust_token") : null;
       const res = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: nextMessages, stream: true }),
+        headers: {
+          "Content-Type": "application/json",
+          ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
+        },
+        body: JSON.stringify({
+          messages: nextMessages,
+          stream: true,
+          activationMode: fsmRef.current.mode,
+          followUpActive: conversationMgrRef.current.isFollowUpActive,
+          sessionToken,
+        }),
       });
+
+      if (res.status === 401) {
+        setBiometricStatus((prev) => ({ ...prev, authenticated: false }));
+        sessionStorage.removeItem("ultron_zero_trust_token");
+        setError("BIOMETRIC AUTH REQUIRED: Touch fingerprint sensor to unlock ULTRON.");
+        updateVisualState("idle");
+        return;
+      }
 
       if (
         requestId !== chatRequestRef.current ||
@@ -800,6 +1003,9 @@ export default function UltronOrb() {
                 const intent = event.decision?.intent || "";
                 if (intent === "SYSTEM_LOCAL") {
                   setBrainTag("LOCAL KERNEL [0ms]");
+                } else if (intent === "QUANTUM_RESEARCH") {
+                  setBrainTag("QUANTUM RESEARCH [MULTI-VECTOR]");
+                  updateVisualState("thinking", { progress: 0.8 });
                 } else if (intent === "FAST_CHAT") {
                   setBrainTag("FAST BRAIN [0.5B]");
                 } else if (intent === "COMPLEX_REASONING") {
@@ -812,6 +1018,9 @@ export default function UltronOrb() {
                   updateVisualState("executing", { progress: 0.2 });
                 } else if (intent === "MEMORY_OP") {
                   setBrainTag("SQLITE MEMORY [0ms]");
+                }
+                if (event.dossier) {
+                  setActiveResearch(event.dossier);
                 }
               } else if (event.type === "token") {
                 finalReply += event.content;
@@ -833,6 +1042,10 @@ export default function UltronOrb() {
                 }
               } else if (event.type === "done") {
                 if (event.reply) finalReply = event.reply;
+                if (event.dossier) {
+                  setActiveResearch(event.dossier);
+                  setBrainTag("QUANTUM DOSSIER READY");
+                }
               }
             } catch {}
           }
@@ -844,6 +1057,10 @@ export default function UltronOrb() {
       } else {
         const data = await res.json();
         finalReply = data.reply || "";
+        if (data.dossier) {
+          setActiveResearch(data.dossier);
+          setBrainTag("QUANTUM DOSSIER READY");
+        }
         if (data.planReport) {
           setActivePlan({
             goal: data.route?.planGoal || userText,
@@ -854,7 +1071,9 @@ export default function UltronOrb() {
           updateVisualState("executing", { progress: 1.0 });
           setTimeout(() => setActivePlan(null), 8000);
         }
-        if (data.route?.intent === "SYSTEM_LOCAL") {
+        if (data.route?.intent === "QUANTUM_RESEARCH" || data.intent === "QUANTUM_RESEARCH") {
+          setBrainTag("QUANTUM RESEARCH [MULTI-VECTOR]");
+        } else if (data.route?.intent === "SYSTEM_LOCAL") {
           setBrainTag("LOCAL KERNEL [0ms]");
         } else if (data.route?.intent === "FAST_CHAT") {
           setBrainTag("FAST BRAIN [0.5B]");
@@ -874,7 +1093,13 @@ export default function UltronOrb() {
       });
 
       if (!finalReply) {
-        throw new Error("AI service returned an empty reply");
+        // Ignored ambient chatter, silence, or non-actionable background sound
+        console.info("[ULTRON] Utterance ignored or empty response. Returning to listening state.");
+        if (voiceActiveRef.current) {
+          setVoiceLabel("LISTENING?");
+          updateVisualState("listening");
+        }
+        return;
       }
 
       const assistantMessage: ChatMessage = {
@@ -886,6 +1111,13 @@ export default function UltronOrb() {
         assistantMessage,
       ]);
       setError(null);
+
+      // Open a 7-second active follow-up conversation window focused on the user
+      conversationMgrRef.current.recordAssistantReply(finalReply);
+      conversationMgrRef.current.startFollowUpWindow(() => {
+        console.debug("[ULTRON] Conversation follow-up window closed. Returned to strict wake-word mode.");
+      });
+
       if (!streamedTokens) {
         speakLocal(finalReply);
       }
@@ -918,7 +1150,13 @@ export default function UltronOrb() {
       if (unmounted) return;
       if (!isSpeakingRef.current && !isProcessingRef.current && !isChatBusyRef.current) {
         try {
-          const res = await fetch("/api/wakeword", { cache: "no-store", signal: AbortSignal.timeout(1500) });
+          const wakeToken = typeof window !== "undefined" ? sessionStorage.getItem("ultron_zero_trust_token") : null;
+          if (!wakeToken) return;
+          const res = await fetch("/api/wakeword", {
+            cache: "no-store",
+            signal: AbortSignal.timeout(1500),
+            headers: { Authorization: `Bearer ${wakeToken}` },
+          });
           if (res.ok) {
             const data = await res.json();
             if (data?.event && data.event.type === "WAKE_WORD_DETECTED") {
@@ -1062,6 +1300,16 @@ export default function UltronOrb() {
         case "V":
           toggleVoice();
           break;
+        case "m":
+        case "M":
+          // Cycle activation mode (Wake-word -> Push-to-Talk -> Continuous)
+          setActivationMode((prev) => {
+            const nextMode = prev === "WAKE_WORD" ? "PUSH_TO_TALK" : prev === "PUSH_TO_TALK" ? "CONTINUOUS_CONVERSATION" : "WAKE_WORD";
+            fsmRef.current.setMode(nextMode);
+            setVoiceLabel(`MODE: ${nextMode.replace("_", " ")}`);
+            return nextMode;
+          });
+          break;
         case "t":
         case "T":
           setTextPromptOpen((prev) => !prev);
@@ -1084,7 +1332,18 @@ export default function UltronOrb() {
 
       {/* ORIGINAL TOP-LEFT TITLE (100% Original HUD) */}
       <div className="hud hud-title">U.L.T.R.O.N.</div>
-      {brainTag && <div className="hud hud-brain-tag">{brainTag}</div>}
+      <div className="hud hud-brain-tag" style={{ top: 52 }}>MODE: {activationMode} | STATE: {listeningState} | SNR: {snrDb}dB</div>
+      <div
+        className="hud hud-brain-tag"
+        style={{
+          top: 70,
+          color: "#00ffaa",
+          letterSpacing: "0.1em",
+        }}
+      >
+        SYSTEM ACTIVE | DIRECT ACCESS ENABLED
+      </div>
+      {brainTag && <div className="hud hud-brain-tag" style={{ top: 88 }}>{brainTag}</div>}
 
       {/* INTELLIGENT ASSISTANT STATE BADGE */}
       <div
@@ -1205,6 +1464,19 @@ export default function UltronOrb() {
           <button
             type="button"
             className="hud-btn"
+            onClick={() => setResearchModalOpen(true)}
+            style={{
+              borderColor: isResearching ? "#38bdf8" : undefined,
+              color: isResearching ? "#38bdf8" : undefined,
+            }}
+            title="Autonomous Quantum Browser & Web Research Engine"
+          >
+            {isResearching ? "PROBING…" : "🌐 RESEARCH"}
+          </button>
+
+          <button
+            type="button"
+            className="hud-btn"
             aria-pressed={voiceActive}
             onClick={toggleVoice}
             style={{
@@ -1272,6 +1544,273 @@ export default function UltronOrb() {
           </button>
         </div>
       </div>
+
+      {/* QUANTUM RESEARCH INTELLIGENCE MODAL & DOSSIER VIEWER */}
+      {researchModalOpen && (
+        <div
+          role="dialog"
+          aria-label="Quantum Web Research HUD"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(3, 7, 18, 0.88)",
+            backdropFilter: "blur(14px)",
+            zIndex: 1000,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+          }}
+        >
+          <div
+            style={{
+              background: "rgba(15, 23, 42, 0.95)",
+              border: "1px solid rgba(56, 189, 248, 0.4)",
+              boxShadow: "0 0 35px rgba(56, 189, 248, 0.2)",
+              borderRadius: 8,
+              width: "100%",
+              maxWidth: 780,
+              maxHeight: "88vh",
+              overflowY: "auto",
+              display: "flex",
+              flexDirection: "column",
+              padding: 24,
+              fontFamily: "monospace",
+              color: "#e2e8f0",
+            }}
+          >
+            {/* Header */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid rgba(56, 189, 248, 0.25)", paddingBottom: 14, marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: "1.15rem", fontWeight: "bold", letterSpacing: "0.15em", color: "#38bdf8" }}>
+                  🌐 ULTRON QUANTUM RESEARCH ENGINE
+                </div>
+                <div style={{ fontSize: "0.75rem", color: "#94a3b8", marginTop: 4 }}>
+                  Autonomous Live Web Probes · Multi-Vector Decomposition · High-Credibility Cross-Correlation
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setResearchModalOpen(false)}
+                style={{
+                  background: "transparent",
+                  border: "1px solid rgba(148, 163, 184, 0.3)",
+                  color: "#94a3b8",
+                  padding: "4px 12px",
+                  cursor: "pointer",
+                  borderRadius: 4,
+                }}
+              >
+                ✕ CLOSE
+              </button>
+            </div>
+
+            {/* Inquiry Input Bar */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (researchInput.trim()) {
+                  executeAutonomousResearch(researchInput);
+                }
+              }}
+              style={{ display: "flex", gap: 8, marginBottom: 16 }}
+            >
+              <input
+                type="text"
+                placeholder="Enter topic to research (e.g. 'SpaceX Starship 2026', 'Quantum Decoherence', 'James Webb discovery')..."
+                value={researchInput}
+                onChange={(e) => setResearchInput(e.target.value)}
+                style={{
+                  flex: 1,
+                  background: "rgba(30, 41, 59, 0.7)",
+                  border: "1px solid rgba(56, 189, 248, 0.3)",
+                  borderRadius: 4,
+                  padding: "10px 14px",
+                  color: "#f8fafc",
+                  fontFamily: "monospace",
+                  outline: "none",
+                }}
+              />
+              <button
+                type="submit"
+                disabled={isResearching || !researchInput.trim()}
+                style={{
+                  background: isResearching ? "rgba(56, 189, 248, 0.2)" : "rgba(56, 189, 248, 0.3)",
+                  border: "1px solid #38bdf8",
+                  color: "#38bdf8",
+                  padding: "10px 20px",
+                  fontWeight: "bold",
+                  cursor: isResearching ? "not-allowed" : "pointer",
+                  borderRadius: 4,
+                  letterSpacing: "0.08em",
+                }}
+              >
+                {isResearching ? "PROBING..." : "🚀 RESEARCH"}
+              </button>
+            </form>
+
+            {/* Quick Suggestions */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 18 }}>
+              {["SpaceX Starship 2026", "Quantum Computing Decoherence", "James Webb Discoveries", "ISRO Gaganyaan Mission"].map((sug) => (
+                <button
+                  key={sug}
+                  type="button"
+                  onClick={() => {
+                    setResearchInput(sug);
+                    executeAutonomousResearch(sug);
+                  }}
+                  style={{
+                    background: "rgba(51, 65, 85, 0.4)",
+                    border: "1px solid rgba(148, 163, 184, 0.2)",
+                    color: "#cbd5e1",
+                    fontSize: "0.75rem",
+                    padding: "4px 8px",
+                    borderRadius: 3,
+                    cursor: "pointer",
+                  }}
+                >
+                  ⚡ {sug}
+                </button>
+              ))}
+            </div>
+
+            {/* Live Progress Indicator when researching */}
+            {isResearching && (
+              <div style={{ padding: 16, background: "rgba(15, 23, 42, 0.8)", border: "1px dashed rgba(56, 189, 248, 0.4)", borderRadius: 6, marginBottom: 16, textAlign: "center" }}>
+                <div style={{ color: "#38bdf8", marginBottom: 8, fontSize: "0.9rem" }}>
+                  📡 QUANTUM MULTI-VECTOR PROBES HARVESTING LIVE WEB DATA…
+                </div>
+                <div style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
+                  Parallel searches deployed · Crawling authoritative domains · Cross-verifying consensus...
+                </div>
+              </div>
+            )}
+
+            {/* Dossier Display */}
+            {activeResearch && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                {/* Telemetry Bar */}
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", color: "#64748b", borderBottom: "1px solid rgba(148, 163, 184, 0.15)", paddingBottom: 8 }}>
+                  <span>QUERY: <strong style={{ color: "#f8fafc" }}>{activeResearch.query}</strong></span>
+                  <span>⚡ {activeResearch.telemetry.elapsed_ms}ms | 📡 {activeResearch.sources_analyzed_count} Analyzed Sources | 🔒 DPAPI Sealed</span>
+                </div>
+
+                {/* Executive Summary */}
+                <div style={{ background: "rgba(56, 189, 248, 0.08)", borderLeft: "3px solid #38bdf8", padding: 14, borderRadius: 4 }}>
+                  <div style={{ fontSize: "0.75rem", color: "#38bdf8", fontWeight: "bold", marginBottom: 6, letterSpacing: "0.08em" }}>
+                    EXECUTIVE SYNTHESIS (VOICE BRIEFING)
+                  </div>
+                  <div style={{ fontSize: "0.95rem", lineHeight: 1.5, color: "#f1f5f9" }}>
+                    {activeResearch.executive_summary}
+                  </div>
+                </div>
+
+                {/* Key Verified Findings */}
+                {activeResearch.key_findings && activeResearch.key_findings.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: "0.8rem", color: "#10b981", fontWeight: "bold", marginBottom: 8, letterSpacing: "0.08em" }}>
+                      VERIFIED DATA POINTS & BREAKTHROUGHS
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {activeResearch.key_findings.map((finding, idx) => (
+                        <div key={idx} style={{ background: "rgba(30, 41, 59, 0.5)", border: "1px solid rgba(148, 163, 184, 0.15)", padding: "8px 12px", borderRadius: 4, fontSize: "0.82rem", lineHeight: 1.4 }}>
+                          <span style={{ color: "#10b981", marginRight: 8 }}>✓</span> {finding}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Sources Grid */}
+                {activeResearch.sources && activeResearch.sources.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: "0.8rem", color: "#f59e0b", fontWeight: "bold", marginBottom: 8, letterSpacing: "0.08em" }}>
+                      HIGH-CREDIBILITY SOURCES & CITATIONS
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 8 }}>
+                      {activeResearch.sources.map((src, idx) => (
+                        <a
+                          key={idx}
+                          href={src.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            background: "rgba(30, 41, 59, 0.4)",
+                            border: "1px solid rgba(148, 163, 184, 0.2)",
+                            padding: 10,
+                            borderRadius: 4,
+                            textDecoration: "none",
+                            color: "inherit",
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 4,
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span style={{ fontSize: "0.72rem", color: "#38bdf8", fontWeight: "bold" }}>{src.domain}</span>
+                            <span style={{ fontSize: "0.68rem", color: "#10b981", background: "rgba(16, 185, 129, 0.15)", padding: "2px 6px", borderRadius: 3 }}>
+                              {Math.round(src.credibility_score * 100)}% TRUST
+                            </span>
+                          </div>
+                          <div style={{ fontSize: "0.8rem", color: "#f8fafc", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {src.title}
+                          </div>
+                          <div style={{ fontSize: "0.72rem", color: "#94a3b8", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                            {src.snippet}
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Actions Footer */}
+                <div style={{ display: "flex", gap: 8, marginTop: 8, borderTop: "1px solid rgba(148, 163, 184, 0.15)", paddingTop: 14 }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (activeResearch.executive_summary) {
+                        queueSpeechChunk(activeResearch.executive_summary);
+                      }
+                    }}
+                    style={{
+                      background: "rgba(16, 185, 129, 0.2)",
+                      border: "1px solid #10b981",
+                      color: "#10b981",
+                      padding: "8px 16px",
+                      borderRadius: 4,
+                      cursor: "pointer",
+                      fontSize: "0.8rem",
+                      fontWeight: "bold",
+                    }}
+                  >
+                    🔊 READ BRIEFING ALOUD
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const text = `ULTRON QUANTUM RESEARCH: ${activeResearch.query}\n\nSUMMARY:\n${activeResearch.executive_summary}\n\nFINDINGS:\n${activeResearch.key_findings.join("\n")}\n\nSOURCES:\n${activeResearch.sources.map((s) => `- ${s.title}: ${s.url}`).join("\n")}`;
+                      navigator.clipboard.writeText(text);
+                      setSubtitle("Research dossier copied to clipboard!");
+                    }}
+                    style={{
+                      background: "rgba(56, 189, 248, 0.15)",
+                      border: "1px solid #38bdf8",
+                      color: "#38bdf8",
+                      padding: "8px 16px",
+                      borderRadius: 4,
+                      cursor: "pointer",
+                      fontSize: "0.8rem",
+                    }}
+                  >
+                    📋 COPY DOSSIER
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
 }
