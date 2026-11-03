@@ -1,29 +1,57 @@
 /**
  * @file lib/crypto.ts
- * @description Stark-Grade End-to-End Cryptography Module for ULTRON Web & API Subsystems.
+ * @description Transport Cryptography Module for ULTRON Web & API Subsystems.
  *
  * Subsystem:
- * Security & End-to-End Encryption (E2EE) Transport Fabric.
+ * Encryption & End-to-End (E2EE) Transport Fabric.
  *
  * Key Responsibilities:
  * - Employs AES-256-GCM (Authenticated Encryption with Associated Data) via the native
- *   Web Crypto API (`SubtleCrypto`), available in modern browsers and Node.js 18+.
- * - Generates 96-bit cryptographically secure random nonces per payload to guarantee replay immunity.
- * - Computes HMAC-SHA256 signatures to authenticate client-to-server handshakes.
- * - Provides sub-millisecond envelope sealing and unsealing (<0.1ms via hardware AES-NI instructions).
- * - Implements zero-knowledge guarantees: Transcripts and audio payloads can be sealed
- *   before being transmitted over the wire or stored in memory.
+ *   Web Crypto API (`SubtleCrypto`), available in modern browsers, Edge and Node.js 20+.
+ * - Generates a fresh 96-bit CSPRNG nonce per payload to guarantee replay immunity.
+ * - Computes optional HMAC-SHA256 handshake signatures for transport integrity.
+ * - Provides sealed-envelope helpers so transcript/audio payloads can be encrypted before
+ *   transmission or storage.
  *
  * Architectural Role & Safety Guarantees:
- * - Interfaces between the UI layer (`UltronOrb.tsx`) and Next.js API routes (`/api/chat`, `/api/wakeword`).
- * - Guarantees that intercepted HTTP/SSE streams cannot be read or modified by any third party
- *   or supercomputer without the 256-bit symmetric key.
- * - Enforces tamper-evidence: Any modification of the ciphertext or 128-bit authentication tag
- *   causes the Web Crypto decrypt operation to reject immediately.
+ * - Interfaces between the UI layer (`UltronOrb.tsx`) and Next.js API routes.
+ * - Tamper-evidence: any modification of the ciphertext or 128-bit authentication tag makes
+ *   the Web Crypto decrypt operation reject immediately.
+ *
+ * Authentication note (updated per user request):
+ * - Fingerprint / WebAuthn / Zero-Trust session gating has been REMOVED from the app. ULTRON
+ *   is a local single-user desktop assistant and all local API routes are intentionally open
+ *   on the loopback interface. This module therefore no longer issues or verifies session
+ *   tokens; only transport sealing/authenticity helpers remain.
  */
 
-// 256-bit default pre-shared Stark key (in production, can be overridden via process.env / local storage)
+// 256-bit default pre-shared transport key (derived to an AES key; not an account password).
 const DEFAULT_KEY_STRING = "STARK_ULTRON_MARK_LXXXV_OMEGA_SEC_256BIT_KEY";
+
+/**
+ * Computes an HMAC-SHA256 signature as lowercase hex using Web Crypto.
+ *
+ * WHY: `crypto.subtle` exists in browsers, Edge and Node 20+, so signing works everywhere
+ * without Node-only `require("crypto")` / `Buffer` APIs.
+ *
+ * @param secret - HMAC key material.
+ * @param message - Message to authenticate.
+ * @returns Lowercase hex signature.
+ */
+async function hmacSha256Hex(secret: string, message: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(message));
+  return Array.from(new Uint8Array(signature))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
 
 /**
  * Derives a CryptoKey for AES-256-GCM from a secret string using SHA-256 digest.
@@ -51,7 +79,7 @@ async function deriveAesKey(secret: string = DEFAULT_KEY_STRING): Promise<Crypto
  * Pipeline:
  * 1. Serializes payload to UTF-8 bytes.
  * 2. Generates a fresh 12-byte (96-bit) CSPRNG nonce via `crypto.getRandomValues()`.
- * 3. Encrypts payload with 128-bit authentication tag.
+ * 3. Encrypts payload with a 128-bit authentication tag.
  * 4. Packs [VERSION (1 byte)] + [NONCE (12 bytes)] + [CIPHERTEXT + TAG].
  * 5. Returns a standard Base64-encoded envelope.
  *
@@ -99,6 +127,11 @@ export async function sealPayload(data: unknown, secret?: string): Promise<strin
  * If the envelope was tampered with, corrupted, or an incorrect key is provided,
  * the Web Crypto engine will reject the decryption and throw an error.
  *
+ * Interop note: this JavaScript envelope is version 0x02 with standard Base64. The Python
+ * engine (`ultron_engine/crypto.py`) uses version 0x03 + URL-safe Base64 + a DPAPI-backed
+ * key, so envelopes are NOT interchangeable between the two runtimes. They never cross the
+ * process boundary today; do not feed a Python envelope here.
+ *
  * @param base64Envelope - The Base64 encoded sealed envelope.
  * @param secret - Optional master passphrase.
  * @returns Decrypted string or parsed JSON object.
@@ -144,83 +177,33 @@ export async function unsealPayload<T = unknown>(base64Envelope: string, secret?
 }
 
 /**
- * Computes an HMAC-SHA256 signature token for client requests to prevent request forgery.
+ * Computes an HMAC-SHA256 signature token for optional client request integrity checks.
  *
  * @param message - The payload message or timestamp string.
  * @param secret - Secret key string.
  * @returns Hex string of the HMAC-SHA256 signature.
  */
-export async function generateHandshakeToken(message: string, secret: string = DEFAULT_KEY_STRING): Promise<string> {
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-
-  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(message));
-  return Array.from(new Uint8Array(signature))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-/**
- * Issues an HMAC-SHA256 Zero-Trust Session Token valid for 15 minutes.
- */
-export function issueZeroTrustToken(identity = "primary_user", secret: string = DEFAULT_KEY_STRING): string {
-  const payload = {
-    sub: identity,
-    auth: "windows_hello_fingerprint",
-    iat: Math.floor(Date.now() / 1000),
-    exp: Math.floor(Date.now() / 1000) + 900, // 15 minutes
-    jti: Math.random().toString(36).substring(2) + Date.now().toString(36),
-  };
-
-  const payloadB64 = Buffer.from(JSON.stringify(payload)).toString("base64url");
-  const cryptoMod = require("crypto");
-  const hmac = cryptoMod.createHmac("sha256", secret);
-  hmac.update(payloadB64);
-  const signature = hmac.digest("hex");
-
-  return `${payloadB64}.${signature}`;
-}
-
-/**
- * Verifies an HMAC-SHA256 Zero-Trust Session Token.
- */
-export function verifyZeroTrustToken(token: string | null, secret: string = DEFAULT_KEY_STRING): boolean {
-  if (!token || !token.includes(".")) return false;
-  try {
-    const [payloadB64, sig] = token.split(".");
-    const cryptoMod = require("crypto");
-    const hmac = cryptoMod.createHmac("sha256", secret);
-    hmac.update(payloadB64);
-    const expectedSig = hmac.digest("hex");
-
-    if (sig.length !== expectedSig.length) return false;
-    if (!cryptoMod.timingSafeEqual(Buffer.from(sig), Buffer.from(expectedSig))) {
-      return false;
-    }
-    const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf-8"));
-    return Date.now() / 1000 <= payload.exp;
-  } catch {
-    return false;
-  }
+export async function generateHandshakeToken(
+  message: string,
+  secret: string = DEFAULT_KEY_STRING
+): Promise<string> {
+  return hmacSha256Hex(secret, message);
 }
 
 /**
  * Returns the active cryptographic status and telemetry for the HUD.
+ *
+ * NOTE: values describe only what this module actually does. The Python engine owns the
+ * DPAPI-backed vault; the Web Crypto module derives its transport key from a shared secret.
+ * Session/authentication gating is intentionally absent (local single-user desktop app).
  */
 export function getCryptoStatus() {
   return {
-    cipher: "AES-256-GCM (NIST SP 800-38D AEAD)",
-    key_protection: "Windows DPAPI (OS User-Bound)",
+    cipher: "AES-256-GCM (Web Crypto; 96-bit nonce, 128-bit auth tag)",
+    key_protection: "SHA-256-derived in-process transport key",
     tamper_proof: true,
-    hardware_acceleration: "AES-NI Hardware Acceleration",
-    latency: "< 0.08 ms",
-    zero_trust_gating: "ENFORCED",
+    hardware_acceleration: "Platform WebCrypto (AES-NI when available)",
+    latency: "sub-millisecond",
+    authentication: "DISABLED (local single-user access)",
   };
 }
-

@@ -23,18 +23,26 @@ class ExecutionEngine(BaseEngine):
 
     def validate(self, action, params):
         issues = []
+        # `params` comes straight from the HTTP payload and may be null/string;
+        # `.get` on those raised AttributeError before validation could run.
+        if not isinstance(params, dict):
+            params = {}
         if action in ("file_delete", "shell") and not params.get("confirm"):
             issues.append("confirmation required")
         cmd = str(params.get("command", ""))
         if any(d in cmd.lower() for d in DANGEROUS):
             issues.append("dangerous command blocked")
         path = params.get("path")
-        if path and (".." in path or path.startswith("/etc") or path.startswith("C:\\Windows")):
-            issues.append("protected path")
+        if path:
+            # A numeric path must not raise TypeError on the string checks.
+            path = path if isinstance(path, str) else str(path)
+            if ".." in path or path.startswith("/etc") or path.startswith("C:\\Windows"):
+                issues.append("protected path")
         return issues
 
     async def execute(self, action, params=None):
-        params = params or {}
+        if not isinstance(params, dict):
+            params = {}
         issues = self.validate(action, params)
         if issues:
             return {"action": action, "status": "blocked", "issues": issues, "success": False}

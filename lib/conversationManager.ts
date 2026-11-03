@@ -25,6 +25,11 @@ export class ConversationManager {
   private _lastAssistantReply: string = "";
   private _lastUserQuery: string = "";
 
+  // Hard cap on buffered speech chunks. `finalizeTurn()` is expected to flush the
+  // buffer after every completed turn, but a caller that only ever appends cannot
+  // grow memory without bound.
+  private readonly _maxBufferedChunks = 12;
+
   public followUpDurationMs: number = 7000; // 7 seconds receptive window after speaking
 
   public get isFollowUpActive(): boolean {
@@ -41,25 +46,38 @@ export class ConversationManager {
 
   /**
    * Appends speech chunk to turn buffer and evaluates if turn is complete.
+   *
+   * @param chunk - Trimmed transcript fragment captured since the last endpoint.
+   * @returns Current turn state including the joined utterance and an adaptive
+   *   silence budget for the endpoint detector.
    */
   public addSpeechChunk(chunk: string): TurnState {
     const clean = chunk.trim();
     if (clean) {
       this._buffer.push(clean);
+      // Keep only the most recent fragments if the caller never finalizes the turn,
+      // otherwise a long-running session would grow this array forever.
+      while (this._buffer.length > this._maxBufferedChunks) {
+        this._buffer.shift();
+      }
     }
 
     const fullUtterance = this._buffer.join(" ");
-    const isQuestion = fullUtterance.endsWith("?") || /^(what|how|why|when|where|who|can you|could you)\b/i.test(fullUtterance);
-    const hasTrailingConjunction = /\b(and|or|because|so|if|then|with|that|about)\s*$/i.test(fullUtterance);
+    // Code-mixed English/Hindi utterances need the same pause handling as English.
+    const isQuestion =
+      fullUtterance.endsWith("?") ||
+      /^(what|how|why|when|where|who|can you|could you|kya|kaise|kyun|kab|kahan|kaun)\b/i.test(fullUtterance);
+    const hasTrailingConjunction =
+      /\b(and|or|because|so|if|then|with|that|about|aur|kyunki|toh|phir|lekin|par|ki)\s*$/i.test(fullUtterance);
 
     // Calculate adaptive endpointing silence duration
-    let recommendedEndpointMs = 450;
+    let recommendedEndpointMs = 700;
     if (hasTrailingConjunction) {
-      recommendedEndpointMs = 1200; // Give user more time to complete trailing clauses
+      recommendedEndpointMs = 1400; // Give user more time to complete trailing clauses
     } else if (isQuestion) {
-      recommendedEndpointMs = 380; // Questions can be cut slightly faster
+      recommendedEndpointMs = 600; // Questions can be finalized sooner without cutting normal pauses
     } else if (fullUtterance.length < 15) {
-      recommendedEndpointMs = 600; // Very short phrases might have subsequent words
+      recommendedEndpointMs = 900; // Very short phrases are more likely to be continued
     }
 
     return {
@@ -141,4 +159,3 @@ export class ConversationManager {
     this._lastUserQuery = "";
   }
 }
-

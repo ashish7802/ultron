@@ -11,6 +11,8 @@
  * - Identifies incomplete sentences and continuation pauses without premature turn cuts.
  * - Distinguishes conversational acknowledgements ("hmm", "okay", "yeah") from actionable requests.
  * - Enforces safety confirmation requirements on destructive, security, or financial operations.
+ * - Quick-Decision Policy: ambiguous input is answered with a stated best-effort assumption
+ *   instead of a clarification loop, so the assistant never gets stuck on doubt.
  */
 
 export type DecisionAction =
@@ -28,6 +30,8 @@ export interface DecisionResult {
   intent: string;
   confidence: number;
   reason: string;
+  /** Human-readable assumption ULTRON made when it decided to act instead of asking back. */
+  assumption?: string;
   response_mode: ResponseMode;
   requires_confirmation: boolean;
   acknowledgement_phrase?: string;
@@ -131,12 +135,15 @@ export class ResponseDecisionEngine {
     // 5. Conversational Acknowledgements ("hmm", "okay", "yeah")
     // Should NOT trigger full LLM answers; react subtly or remain in listening loop
     if (FILLER_AND_ACKNOWLEDGEMENTS.has(lower.replace(/[.!?,]/g, ""))) {
+      // NOTE: response_mode must match the chosen action — REACT carries a spoken
+      // acknowledgement, so advertising SILENT here previously told consumers not to speak it.
+      const acknowledgementAction = context.followUpWindowActive ? "REACT" : "IGNORE";
       return {
-        action: context.followUpWindowActive ? "REACT" : "IGNORE",
+        action: acknowledgementAction,
         intent: "CONVERSATIONAL_ACKNOWLEDGEMENT",
         confidence: 0.92,
         reason: "User uttered conversational acknowledgement without query",
-        response_mode: "SILENT",
+        response_mode: acknowledgementAction === "REACT" ? "VOICE" : "SILENT",
         requires_confirmation: false,
         acknowledgement_phrase: "Understood.",
       };
@@ -171,19 +178,21 @@ export class ResponseDecisionEngine {
 
     const queryToEvaluate = cleaned || raw;
 
-    // 7. Ambiguity Check: If query is extremely short and context is empty
+    // 7. Quick-Decision Policy: never stall the user with a clarification loop for a single
+    //    ambiguous word. Instead, make the best-effort interpretation immediately and state
+    //    the assumption, so ULTRON keeps moving (explicit user requirement).
     if (queryToEvaluate.split(/\s+/).length === 1 && !context.lastUserSpeech && !context.followUpWindowActive) {
       const singleWord = queryToEvaluate.toLowerCase().replace(/[^a-z]/g, "");
       const isKnownCommand = ["time", "date", "status", "help", "mute", "unmute", "hello", "hi", "hey"].includes(singleWord);
-      if (!isKnownCommand) {
+      if (!isKnownCommand && singleWord.length >= 2) {
         return {
-          action: "CLARIFY",
-          intent: "AMBIGUOUS_QUERY",
-          confidence: 0.65,
-          reason: "Single word query without prior context requires clarification",
+          action: "RESPOND",
+          intent: "ASSUMED_QUERY",
+          confidence: 0.6,
+          reason: "Single-word query handled with a best-effort assumption instead of stalling",
           response_mode: "BOTH",
           requires_confirmation: false,
-          acknowledgement_phrase: `Could you clarify what you would like to do with ${queryToEvaluate}?`,
+          assumption: `I'll take that as a request about "${queryToEvaluate}".`,
           cleaned_query: queryToEvaluate,
         };
       }

@@ -79,6 +79,16 @@ export class HandTracker {
   private running = false;
   private lastVideoTime = -1;
 
+  /**
+   * Monotonic start/stop generation counter.
+   *
+   * @description `start()` awaits getUserMedia, video playback and MediaPipe model
+   * creation. A `stop()` (or a second `start()`) issued during those awaits must
+   * cancel the pending start, otherwise the async continuation would re-enable the
+   * camera and animation loop after the caller asked for shutdown.
+   */
+  private generation = 0;
+
   // keyed by handedness label so state survives re-ordering between frames
   private handStates = new Map<string, HandState>();
   private prevMode: GestureMode = "idle";
@@ -97,6 +107,11 @@ export class HandTracker {
   }
 
   async start(): Promise<void> {
+    if (this.running) return;
+
+    const generation = ++this.generation;
+    const isCancelled = () => generation !== this.generation;
+
     let initialStream: MediaStream | null = null;
     let selectedDeviceId: string | null = null;
 
@@ -164,6 +179,12 @@ export class HandTracker {
       // If enumerate or permission fails, proceed to standard request
     }
 
+    // A stop()/restart issued while probing devices invalidates this start.
+    if (isCancelled()) {
+      initialStream?.getTracks().forEach((t) => t.stop());
+      return;
+    }
+
     if (!initialStream) {
       const constraints: MediaTrackConstraints = selectedDeviceId
         ? { deviceId: { exact: selectedDeviceId }, width: 640, height: 480 }
@@ -177,61 +198,108 @@ export class HandTracker {
       this.stream = initialStream;
     }
 
-    this.video.srcObject = this.stream;
-    await this.video.play();
-
-    let fileset: any;
-    try {
-      // Offline-first: load local bundled WASM files
-      fileset = await FilesetResolver.forVisionTasks(LOCAL_WASM_PATH);
-    } catch (wasmErr) {
-      console.warn("[HandTracker] Local WASM failed, falling back to CDN:", wasmErr);
-      fileset = await FilesetResolver.forVisionTasks(FALLBACK_WASM_CDN);
+    if (isCancelled()) {
+      this.releaseStream();
+      return;
     }
 
-    const tryCreate = async (modelPath: string, delegate: "GPU" | "CPU") => {
-      return await HandLandmarker.createFromOptions(fileset, {
-        baseOptions: { modelAssetPath: modelPath, delegate },
-        runningMode: "VIDEO",
-        numHands: 2,
-        minHandDetectionConfidence: 0.4,
-        minHandPresenceConfidence: 0.4,
-        minTrackingConfidence: 0.4,
-      });
-    };
+    this.video.srcObject = this.stream;
+    try {
+      await this.video.play();
+    } catch (playErr) {
+      // Autoplay was blocked or the element was unmounted: never leave the camera on.
+      this.releaseStream();
+      throw playErr;
+    }
+
+    if (isCancelled()) {
+      this.releaseStream();
+      return;
+    }
 
     try {
-      // Offline-first: load local bundled hand landmarker task model
-      this.landmarker = await tryCreate(LOCAL_MODEL_PATH, "GPU");
-    } catch {
+      let fileset: Awaited<ReturnType<typeof FilesetResolver.forVisionTasks>>;
       try {
-        this.landmarker = await tryCreate(LOCAL_MODEL_PATH, "CPU");
-      } catch (localModelErr) {
-        console.warn("[HandTracker] Local model failed, falling back to CDN:", localModelErr);
+        // Offline-first: load local bundled WASM files
+        fileset = await FilesetResolver.forVisionTasks(LOCAL_WASM_PATH);
+      } catch (wasmErr) {
+        console.warn("[HandTracker] Local WASM failed, falling back to CDN:", wasmErr);
+        fileset = await FilesetResolver.forVisionTasks(FALLBACK_WASM_CDN);
+      }
+
+      const tryCreate = async (modelPath: string, delegate: "GPU" | "CPU") => {
+        return await HandLandmarker.createFromOptions(fileset, {
+          baseOptions: { modelAssetPath: modelPath, delegate },
+          runningMode: "VIDEO",
+          numHands: 2,
+          minHandDetectionConfidence: 0.4,
+          minHandPresenceConfidence: 0.4,
+          minTrackingConfidence: 0.4,
+        });
+      };
+
+      try {
+        // Offline-first: load local bundled hand landmarker task model
+        this.landmarker = await tryCreate(LOCAL_MODEL_PATH, "GPU");
+      } catch {
         try {
-          this.landmarker = await tryCreate(FALLBACK_MODEL_URL, "GPU");
-        } catch {
-          this.landmarker = await tryCreate(FALLBACK_MODEL_URL, "CPU");
+          this.landmarker = await tryCreate(LOCAL_MODEL_PATH, "CPU");
+        } catch (localModelErr) {
+          console.warn("[HandTracker] Local model failed, falling back to CDN:", localModelErr);
+          try {
+            this.landmarker = await tryCreate(FALLBACK_MODEL_URL, "GPU");
+          } catch {
+            this.landmarker = await tryCreate(FALLBACK_MODEL_URL, "CPU");
+          }
         }
       }
+    } catch (modelErr) {
+      // WASM/model initialisation failed after the camera was already opened:
+      // release the stream before propagating so the camera indicator turns off.
+      this.releaseStream();
+      throw modelErr;
+    }
+
+    if (isCancelled()) {
+      this.landmarker?.close();
+      this.landmarker = null;
+      this.releaseStream();
+      return;
     }
 
     this.running = true;
     this.loop();
   }
 
+  /**
+   * Stops media capture and clears any video element binding.
+   *
+   * @description Does not touch the MediaPipe landmarker; callers that own a
+   * created model should use {@link HandTracker.stop}.
+   */
+  private releaseStream(): void {
+    if (this.stream) {
+      this.stream.getTracks().forEach((t) => t.stop());
+      this.stream = null;
+    }
+    if (this.video.srcObject) {
+      this.video.srcObject = null;
+    }
+  }
+
   stop(): void {
+    // Invalidate any start() that is still awaiting getUserMedia / model loading.
+    this.generation += 1;
     this.running = false;
     cancelAnimationFrame(this.rafId);
     this.landmarker?.close();
     this.landmarker = null;
-    this.stream?.getTracks().forEach((t) => t.stop());
-    this.stream = null;
-    this.video.srcObject = null;
+    this.releaseStream();
     this.handStates.clear();
     this.prevMode = "idle";
     this.prevSpinGrab = null;
     this.prevZoomDist = null;
+    this.lastVideoTime = -1;
     const ctx = this.overlay.getContext("2d");
     ctx?.clearRect(0, 0, this.overlay.width, this.overlay.height);
     this.emitStatus({ hands: 0, mode: "idle" });
@@ -245,9 +313,14 @@ export class HandTracker {
     if (this.video.currentTime === this.lastVideoTime) return;
     this.lastVideoTime = this.video.currentTime;
 
-    const result = this.landmarker.detectForVideo(this.video, performance.now());
-    this.processHands(result.landmarks, result.handedness.map((h) => h[0]?.categoryName ?? "?"));
-    this.drawOverlay(result.landmarks);
+    try {
+      const result = this.landmarker.detectForVideo(this.video, performance.now());
+      this.processHands(result.landmarks, result.handedness.map((h) => h[0]?.categoryName ?? "?"));
+      this.drawOverlay(result.landmarks);
+    } catch (frameErr) {
+      // A single bad frame (GPU hiccup, detached video) must not kill the loop.
+      console.warn("[HandTracker] Frame processing failed:", frameErr);
+    }
   };
 
   private processHands(

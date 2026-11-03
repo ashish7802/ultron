@@ -48,9 +48,22 @@ class OllamaLlmEngine(BaseEngine):
                 # If offline or daemon unreachable, proceed with available models or fallback
                 pass
 
-    async def process(self, payload: Dict[str, Any] | None = None) -> Dict[str, Any]:
-        """Generate a response for `payload['prompt']` or return fallback message."""
-        prompt = "" if payload is None else payload.get("prompt", payload.get("text", ""))
+    async def process(self, payload: Any = None) -> Dict[str, Any]:
+        """Generate a response for `payload['prompt']` or return fallback message.
+
+        Args:
+            payload: Engine payload. The FastAPI layer forwards
+                ``body.get("payload")`` verbatim, so this may be a dict, a bare
+                string/list (e.g. "" from an empty UI query), a number or
+                ``None`` -- never assume ``.get`` exists.
+
+        Returns:
+            dict: Engine envelope with ``engine``, ``status``, ``response`` and
+            ``fallback`` keys.
+        """
+        # Normalize every inbound shape to a prompt string first.  Previously a
+        # non-dict payload hit `payload.get(...)` and raised AttributeError.
+        prompt = self._extract_prompt(payload)
         
         if not HAS_OLLAMA or not self._client:
             return {
@@ -70,7 +83,7 @@ class OllamaLlmEngine(BaseEngine):
             return {
                 "engine": self.name,
                 "status": "ok",
-                "response": result.get("response", ""),
+                "response": result.get("response", "") if isinstance(result, dict) else str(result),
                 "fallback": False
             }
         except Exception as e:
@@ -81,6 +94,30 @@ class OllamaLlmEngine(BaseEngine):
                 "error": str(e),
                 "fallback": True
             }
+
+    @staticmethod
+    def _extract_prompt(payload: Any) -> str:
+        """Coerces any supported payload shape into the prompt text.
+
+        Args:
+            payload: Raw engine payload (dict, string, list, number or None).
+
+        Returns:
+            str: Prompt text; empty string when no prompt information exists.
+        """
+        if payload is None:
+            return ""
+        if isinstance(payload, dict):
+            value = payload.get("prompt", payload.get("text", ""))
+        else:
+            value = payload
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        # Lists/numbers are appended to the offline fallback string, so render
+        # them deterministically instead of leaking Python repr as "the answer".
+        return str(value)
 
     def health(self) -> Dict[str, Any]:
         """Health check reporting engine operational status."""

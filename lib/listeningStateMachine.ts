@@ -52,6 +52,7 @@ export class ListeningStateMachine {
   private _history: StateTransitionEvent[] = [];
   private _continuationTimer: ReturnType<typeof setTimeout> | null = null;
   private _activeListeningTimer: ReturnType<typeof setTimeout> | null = null;
+  private _responseTimer: ReturnType<typeof setTimeout> | null = null;
   private _mutedPreviousState: ListeningState = "IDLE";
 
   // Configurable timeouts in milliseconds
@@ -61,7 +62,10 @@ export class ListeningStateMachine {
 
   constructor(initialMode: ActivationMode = "WAKE_WORD") {
     this._mode = initialMode;
-    this._state = initialMode === "PUSH_TO_TALK" ? "IDLE" : "WAKE_WORD_DETECTION";
+    // Start in the idle state that matches the activation mode: push-to-talk waits
+    // for a key press (IDLE), continuous mode is already listening, and wake-word
+    // mode passively scans for the activation phrase.
+    this._state = this._resolveDefaultWaitingState();
   }
 
   public get state(): ListeningState {
@@ -74,7 +78,6 @@ export class ListeningStateMachine {
 
   public setMode(mode: ActivationMode): void {
     if (this._mode === mode) return;
-    const oldMode = this._mode;
     this._mode = mode;
     
     // Automatically transition default waiting state based on activation mode
@@ -114,7 +117,14 @@ export class ListeningStateMachine {
     if (this._state === "TEMPORARILY_MUTED" && target !== "ERROR_RECOVERY") {
       // Only unmuting can exit TEMPORARILY_MUTED
       if (reason.toLowerCase().includes("unmute")) {
-        return this._commit(this._resolveDefaultWaitingState(), "Unmuted by user");
+        // Restore the last stable waiting state the user was in when muted; transient
+        // states (SPEAKING, SPEECH_PROCESSING, ...) fall back to the mode default.
+        const previous = this._mutedPreviousState;
+        const restoreTarget =
+          previous === "IDLE" || previous === "WAKE_WORD_DETECTION" || previous === "ACTIVE_LISTENING"
+            ? previous
+            : this._resolveDefaultWaitingState();
+        return this._commit(restoreTarget, "Unmuted by user");
       }
       return false; // Cannot transition while muted
     }
@@ -135,12 +145,19 @@ export class ListeningStateMachine {
       }, this.maxActiveListeningMs);
     } else if (target === "WAITING_FOR_CONTINUATION") {
       this._continuationTimer = setTimeout(() => {
-        if (this._mode === "CONTINUOUS_CONVERSATION") {
-          this.transition("ACTIVE_LISTENING", "Continuation expired, returning to continuous listening");
-        } else {
-          this.transition("WAKE_WORD_DETECTION", "Continuation expired, returning to wake-word detection");
-        }
+        // Resolve the fallback at expiry time: the activation mode may have changed
+        // while this timer was pending (e.g. continuous -> push-to-talk).
+        this.transition(this._resolveDefaultWaitingState(), "Continuation expired");
       }, this.continuationTimeoutMs);
+    } else if (target === "RESPONSE_PENDING") {
+      this._responseTimer = setTimeout(() => {
+        // Reasoning engine never delivered a reply: drop back to a safe listening state
+        // instead of hanging in RESPONSE_PENDING forever.
+        this.transition(
+          this._resolveDefaultWaitingState(),
+          "Response wait timeout exceeded",
+        );
+      }, this.maxResponseWaitMs);
     }
 
     return this._commit(target, reason);
@@ -166,6 +183,9 @@ export class ListeningStateMachine {
         return to === "ACTIVE_LISTENING" || to === "SPEECH_PROCESSING" || to === "WAKE_WORD_DETECTION" || to === "IDLE" || to === "ERROR_RECOVERY";
       case "ERROR_RECOVERY":
         return to === "IDLE" || to === "WAKE_WORD_DETECTION" || to === "ACTIVE_LISTENING";
+      case "TEMPORARILY_MUTED":
+        // Muted state only allows the explicit unmute path or emergency recovery.
+        return to === "ERROR_RECOVERY";
       default:
         return false;
     }
@@ -207,14 +227,34 @@ export class ListeningStateMachine {
       clearTimeout(this._activeListeningTimer);
       this._activeListeningTimer = null;
     }
+    if (this._responseTimer) {
+      clearTimeout(this._responseTimer);
+      this._responseTimer = null;
+    }
+  }
+
+  /**
+   * Detaches every listener and clears pending timers so the machine can be
+   * discarded without leaking timeouts or calling back into an unmounted UI.
+   */
+  public dispose(): void {
+    this._clearAllTimers();
+    this._listeners.clear();
+    this._history = [];
   }
 
   /**
    * Reset state machine to clean default condition.
+   *
+   * @description Bypasses the transition matrix on purpose: a reset must always
+   * succeed (even from TEMPORARILY_MUTED) so a new voice session can never inherit
+   * a stale state.
    */
   public reset(): void {
     this._clearAllTimers();
-    this.transition(this._resolveDefaultWaitingState(), "FSM Reset");
+    const target = this._resolveDefaultWaitingState();
+    if (this._state === target) return;
+    this._commit(target, "FSM Reset");
   }
 }
 

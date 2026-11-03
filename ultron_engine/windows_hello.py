@@ -144,7 +144,11 @@ def get_windows_hello_availability() -> Dict[str, Any]:
         proc = subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, text=True, timeout=8)
         availability_str = proc.stdout.strip() if proc.returncode == 0 else "Unknown"
     except Exception:
-        availability_str = "Available" if sensor_info["detected"] else "DeviceNotPresent"
+        # Fail closed: if the Windows Runtime availability probe cannot run (missing
+        # PowerShell, WinRT blocked, timeout) we must NOT infer "Available" from a
+        # detected PnP device. Hardware presence alone cannot prove the biometric
+        # consent prompt is usable, so report an ambiguous/unknown state.
+        availability_str = "Unknown"
 
     is_ready = availability_str == "Available" and sensor_info["detected"]
 
@@ -174,8 +178,14 @@ def request_native_windows_hello_verification(prompt_message: str = "ULTRON Zero
     if sys.platform != "win32":
         return {"success": False, "result": "NonWindowsPlatform", "error": "Windows Hello only runs on Windows."}
 
-    # Clean prompt string
-    clean_prompt = prompt_message.replace('"', '\\"').replace("'", "")
+    # Escape the prompt for a single-quoted PowerShell string. PowerShell escapes a
+    # single quote by doubling it (''); a backslash is NOT an escape character there,
+    # so the previous replace('"', '\\"') was meaningless and stripping apostrophes
+    # silently corrupted the user-visible prompt. Non-printable characters are removed
+    # because the command runs non-interactively, and the length is capped to stay
+    # well inside Windows command-line limits.
+    clean_prompt = str(prompt_message).replace("'", "''")
+    clean_prompt = "".join(ch for ch in clean_prompt if ch.isprintable())[:200]
 
     ps_cmd = (
         "Add-Type -AssemblyName System.Runtime.WindowsRuntime; "
@@ -195,6 +205,14 @@ def request_native_windows_hello_verification(prompt_message: str = "ULTRON Zero
             timeout=60  # Allow 60 seconds for user to touch sensor
         )
         res_str = proc.stdout.strip()
+        # Fail closed: never trust a verification result emitted by a failed process.
+        if proc.returncode != 0:
+            detail = (proc.stderr or res_str or "no output").strip()[:300]
+            return {
+                "success": False,
+                "result": "Error",
+                "message": f"Windows Hello verification command failed (exit {proc.returncode}): {detail}",
+            }
         if res_str == "Verified":
             return {
                 "success": True,

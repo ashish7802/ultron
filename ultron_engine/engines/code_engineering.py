@@ -19,13 +19,18 @@ class CodeEngineeringEngine(BaseEngine):
         pass
 
     def syntax_check(self, code, lang="python"):
+        # `compile()` requires str/bytes/AST.  Payload code is often a number or
+        # null from the UI, producing TypeError/ValueError instead of a
+        # structured "syntax failed" result -- normalize and report instead.
+        if not isinstance(code, (str, bytes)):
+            code = "" if code is None else str(code)
         if lang == "python":
             try:
                 compile(code, "<ultron>", "exec")
                 return {"ok": True, "error": None}
-            except SyntaxError as e:
+            except (SyntaxError, ValueError, TypeError) as e:
                 return {"ok": False, "error": str(e)}
-        return {"ok": True, "error": None, "note": "syntax check not implemented for " + lang}
+        return {"ok": True, "error": None, "note": "syntax check not implemented for " + str(lang)}
 
     def run_tests(self, cwd=None, cmd=None):
         cmd = cmd or ["python", "-m", "pytest", "-q"]
@@ -57,7 +62,11 @@ class CodeEngineeringEngine(BaseEngine):
             r = self.git_status(payload.get("cwd"))
             return {"id": str(uuid.uuid4()), "engine": self.name, "status": "ok", **r}
         if action == "debug":
+            # Error details can be a nested object; slicing a dict raises
+            # TypeError, so render it to text first.
             err = payload.get("error", "")
+            if not isinstance(err, str):
+                err = "" if err is None else str(err)
             return {"id": str(uuid.uuid4()), "engine": self.name, "status": "ok",
                     "diagnosis": f"Review: {err[:200]}", "suggestion": "check syntax and dependencies"}
         if action == "cad":

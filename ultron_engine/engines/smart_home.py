@@ -20,8 +20,12 @@ class SmartHomeEngine(BaseEngine):
         pass
 
     def register_device(self, device_id, device_type, state=None):
+        # Device state must stay a dict: `command()` later calls
+        # `dev["state"].update(...)`, so a list/string state would crash on use.
+        if not isinstance(state, dict):
+            state = {}
         self._devices[device_id] = {"id": device_id, "type": device_type,
-                                    "state": state or {}, "available": True, "verified": False}
+                                    "state": state, "available": True, "verified": False}
 
     def validate_command(self, device_id, command):
         if device_id not in self._devices:
@@ -29,6 +33,10 @@ class SmartHomeEngine(BaseEngine):
         dev = self._devices[device_id]
         if not dev["available"]:
             return {"valid": False, "reason": "device unavailable"}
+        # Commands come from JSON and may be a bare string/null; `.get` on
+        # those raised AttributeError instead of a clean rejection.
+        if not isinstance(command, dict):
+            return {"valid": False, "reason": "malformed command"}
         allowed = {"light": ["on", "off", "brightness", "color"],
                    "ac": ["on", "off", "temp", "mode"],
                    "lock": ["lock", "unlock"],

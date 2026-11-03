@@ -28,6 +28,13 @@ class TTSEngine(BaseEngine):
         pass
 
     def synthesize(self, text: str, emotion: str = "neutral") -> dict:
+        # Payload text may be None/number; `len(text)`/slicing would raise.
+        if not isinstance(text, str):
+            text = "" if text is None else str(text)
+        # Emotion is used as a dict key: an unhashable value (list/dict) would
+        # raise TypeError, so fall back to the neutral prosody.
+        if not isinstance(emotion, str):
+            emotion = "neutral"
         prosody = EMOTION_PROSODY.get(emotion, EMOTION_PROSODY["neutral"])
         # chunk for streaming
         chunks = [text[i:i+120] for i in range(0, len(text), 120)] or [""]

@@ -22,6 +22,10 @@ class ConversationEngine(BaseEngine):
         pass
 
     def detect_turn(self, text: str) -> dict:
+        # Payload text may be None/number from JSON; coerce instead of raising
+        # AttributeError on `.strip()`.
+        if not isinstance(text, str):
+            text = "" if text is None else str(text)
         t = (text or "").strip()
         is_question = t.endswith("?")
         is_command = t.lower().startswith(("open", "play", "stop", "set", "turn", "show"))
@@ -34,6 +38,12 @@ class ConversationEngine(BaseEngine):
 
     def response_timing(self, turn_type: str, complexity: float = 0.5) -> dict:
         base = {"question": 200, "command": 100, "statement": 300}.get(turn_type, 250)
+        # Complexity comes from the UI and may be null/string; a bad value
+        # would raise TypeError on the multiplication.
+        try:
+            complexity = float(complexity)
+        except (TypeError, ValueError):
+            complexity = 0.5
         delay = int(base + complexity * 200)
         return {"delay_ms": delay, "stream": complexity > 0.4}
 

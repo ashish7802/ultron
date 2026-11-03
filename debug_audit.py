@@ -89,7 +89,12 @@ async def main():
     print("\n=== SERVER MODULE ===")
     try:
         import ultron_engine.server as srv
-        print(f"  server imported; app={srv.app.title}")
+        if not srv.HAS_FASTAPI:
+            # fastapi is an OPTIONAL web-stack dependency; its absence must not
+            # fail this engine audit (the module itself still imports cleanly).
+            print("  skipped: fastapi not installed (optional dependency)")
+        else:
+            print(f"  server imported; app={srv.app.title}")
     except Exception as ex:
         FAILURES.append(f"server import: {ex}")
         print(f"  SERVER IMPORT ERROR: {ex}")

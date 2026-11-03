@@ -21,14 +21,31 @@ class SimulationEngine(BaseEngine):
 
     def physics_calc(self, params):
         # basic kinematics: distance = v*t + 0.5*a*t^2
-        v = params.get("velocity", 0.0)
-        t = params.get("time", 1.0)
-        a = params.get("acceleration", 0.0)
+        if not isinstance(params, dict):
+            params = {}
+        # UI-supplied kinematics may be null/strings; coerce so multiplication
+        # and comparisons stay numeric.
+        try:
+            v = float(params.get("velocity", 0.0))
+        except (TypeError, ValueError):
+            v = 0.0
+        try:
+            t = float(params.get("time", 1.0))
+        except (TypeError, ValueError):
+            t = 1.0
+        try:
+            a = float(params.get("acceleration", 0.0))
+        except (TypeError, ValueError):
+            a = 0.0
         dist = v * t + 0.5 * a * t * t
         return {"distance": dist, "type": "kinematics", "estimated": False}
 
     def what_if(self, base, changes):
         # apply changes to base params and recompute
+        if not isinstance(base, dict):
+            base = {}
+        if not isinstance(changes, dict):
+            changes = {}
         merged = dict(base)
         merged.update(changes)
         return {"base": base, "changes": changes, "result": merged, "estimated": True}
@@ -44,6 +61,11 @@ class SimulationEngine(BaseEngine):
         elif action == "scenario":
             sid = str(uuid.uuid4())
             self._scenarios[sid] = payload
+            # Scenarios were never evicted; bound the store like every other
+            # engine history so repeated simulations cannot exhaust memory.
+            if len(self._scenarios) > 1000:
+                for old in list(self._scenarios)[:-500]:
+                    del self._scenarios[old]
             r = {"scenario_id": sid, "stored": True}
         else:
             r = {"ok": True, "note": "simulation requires external libs for 3D"}

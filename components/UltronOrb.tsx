@@ -83,6 +83,12 @@ export default function UltronOrb() {
   const [brainTag, setBrainTag] = useState<string | null>(null);
   const [subtitle, setSubtitle] = useState<string | null>(null);
   const subtitleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const planClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Monotonic TTS playback generation. Bumped whenever existing speech is
+  // cancelled (STOP, barge-in, voice off, unmount) so callbacks belonging to a
+  // cancelled utterance can never restart the speech queue.
+  const speechGenerationRef = useRef(0);
 
 
   // Autonomous Quantum Web & Browser Research State
@@ -114,45 +120,6 @@ export default function UltronOrb() {
   const [researchInput, setResearchInput] = useState("");
   const [isResearching, setIsResearching] = useState(false);
 
-  // All-in-One Cloud AI Brain Infrastructure State (5TB Google Drive + Cloud GPU)
-  const [cloudModalOpen, setCloudModalOpen] = useState(false);
-  const [cloudBrainStatus, setCloudBrainStatus] = useState<{
-    status: string;
-    cloud_provider: string;
-    cloud_endpoint: string;
-    active_model: any;
-    gpu_state: string;
-    idle_duration_seconds: number;
-    auto_idle_threshold_seconds: number;
-    storage_5tb_quota: {
-      tier: string;
-      total_formatted: string;
-      used_formatted: string;
-      free_formatted: string;
-      usage_percent: number;
-    };
-    session_telemetry: {
-      total_tokens: number;
-      estimated_session_cost_usd: number;
-      estimated_session_cost_inr: number;
-    };
-    available_models: Array<{
-      id: string;
-      name: string;
-      parameters: string;
-      quantization: string;
-      size_gb: number;
-      context_window: number;
-      required_vram_gb: number;
-      recommended_gpu: string;
-      description: string;
-      is_active: boolean;
-    }>;
-  } | null>(null);
-  const [isSwitchingModel, setIsSwitchingModel] = useState(false);
-
-  const lastInteractionRef = useRef(Date.now());
-
   const speechQueueRef = useRef<string[]>([]);
   const isPlayingQueueRef = useRef(false);
   const voiceActiveRef = useRef(false);
@@ -174,7 +141,7 @@ export default function UltronOrb() {
   const animFrameRef = useRef<number | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const speechRecognitionRef = useRef<any>(null);
-  const lastNativeFinalRef = useRef<string>("");
+  const speechTurnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeAudioRef = useRef<HTMLAudioElement | null>(null);
   const startVoiceSystemRef = useRef<(() => Promise<void>) | null>(null);
 
@@ -186,7 +153,26 @@ export default function UltronOrb() {
     return () => {
       voiceActiveRef.current = false;
       voiceSessionRef.current += 1;
+      // Invalidate any in-flight TTS callbacks before tearing the audio graph down.
+      speechGenerationRef.current += 1;
+      if (subtitleTimerRef.current) {
+        clearTimeout(subtitleTimerRef.current);
+        subtitleTimerRef.current = null;
+      }
+      if (planClearTimerRef.current) {
+        clearTimeout(planClearTimerRef.current);
+        planClearTimerRef.current = null;
+      }
       stopVoiceStream();
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        try {
+          // Browser speech synthesis outlives the React tree; without this the
+          // assistant keeps talking after the HUD unmounts.
+          window.speechSynthesis.cancel();
+        } catch {}
+      }
+      audioProcessorRef.current.dispose();
+      fsmRef.current.dispose();
       trackerRef.current?.stop();
       trackerRef.current = null;
       scene.dispose();
@@ -195,52 +181,6 @@ export default function UltronOrb() {
   }, []);
 
   // Direct Access: No biometric check or background auth polling required
-
-  /**
-   * Fetches the live status of the Cloud AI Brain, 5TB Google Drive quota,
-   * active model specifications, and GPU power state.
-   */
-  const fetchCloudStatus = useCallback(async () => {
-    try {
-      const res = await fetch("/api/cloud/models");
-      if (res.ok) {
-        const data = await res.json();
-        setCloudBrainStatus(data);
-      }
-    } catch (err) {
-      console.warn("[CLOUD BRAIN TELEMETRY ERROR]", err);
-    }
-  }, []);
-
-  /**
-   * Hot-swaps the active cloud LLM model and signals the remote cloud worker
-   * to load the corresponding model weights from Google Drive 5TB storage.
-   */
-  const switchCloudModel = useCallback(
-    async (modelId: string) => {
-      try {
-        setIsSwitchingModel(true);
-        const res = await fetch("/api/cloud/models", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "switch", model_id: modelId }),
-        });
-        if (res.ok) {
-          await fetchCloudStatus();
-          setBrainTag(`CLOUD MODEL LOADED: ${modelId.toUpperCase()}`);
-        }
-      } catch (err) {
-        console.warn("[CLOUD BRAIN MODEL SWITCH FAILED]", err);
-      } finally {
-        setIsSwitchingModel(false);
-      }
-    },
-    [fetchCloudStatus]
-  );
-
-  useEffect(() => {
-    fetchCloudStatus();
-  }, [fetchCloudStatus]);
 
   const updateVisualState = useCallback(
     (st: AssistantVisualState, data?: { audioLevel?: number; progress?: number }) => {
@@ -251,6 +191,11 @@ export default function UltronOrb() {
   );
 
   const cancelOngoingAction = useCallback(() => {
+    // Invalidate TTS callbacks before cancelling: speechSynthesis fires onerror/
+    // onend for the cancelled utterance and those handlers would otherwise restart
+    // the queue from the next scheduled sentence.
+    speechGenerationRef.current += 1;
+    audioProcessorRef.current.setAssistantSpeaking(false);
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
@@ -261,11 +206,7 @@ export default function UltronOrb() {
       } catch {}
       activeAudioRef.current = null;
     }
-    const stopToken = typeof window !== "undefined" ? sessionStorage.getItem("ultron_zero_trust_token") : null;
-    void fetch("/api/tts", {
-      method: "DELETE",
-      headers: { ...(stopToken ? { Authorization: `Bearer ${stopToken}` } : {}) },
-    }).catch(() => {});
+    void fetch("/api/tts", { method: "DELETE" }).catch(() => {});
     if (speechRecognitionRef.current) {
       try {
         speechRecognitionRef.current.abort();
@@ -276,6 +217,10 @@ export default function UltronOrb() {
     isSpeakingRef.current = false;
     isChatBusyRef.current = false;
     chatRequestRef.current += 1;
+    if (planClearTimerRef.current) {
+      clearTimeout(planClearTimerRef.current);
+      planClearTimerRef.current = null;
+    }
     setActivePlan(null);
     speechCooldownUntilRef.current = performance.now() + 400;
     updateVisualState(voiceActiveRef.current ? "listening" : "idle");
@@ -287,6 +232,7 @@ export default function UltronOrb() {
     if (speechQueueRef.current.length === 0) {
       isPlayingQueueRef.current = false;
       isSpeakingRef.current = false;
+      audioProcessorRef.current.setAssistantSpeaking(false);
       speechCooldownUntilRef.current = performance.now() + 450;
       updateVisualState(voiceActiveRef.current ? "listening" : "idle");
       setVoiceLabel(voiceActiveRef.current ? "LISTENING…" : "VOICE OFF");
@@ -301,6 +247,12 @@ export default function UltronOrb() {
     const sentence = speechQueueRef.current.shift()!;
     isPlayingQueueRef.current = true;
     isSpeakingRef.current = true;
+    // Snapshot the playback generation before speaking. If the user cancels speech
+    // (STOP / barge-in / voice off), the generation is bumped and callbacks fired
+    // by the cancelled utterance are ignored instead of advancing the queue.
+    const playbackGeneration = speechGenerationRef.current;
+    const isStalePlayback = () => playbackGeneration !== speechGenerationRef.current;
+    audioProcessorRef.current.setAssistantSpeaking(true);
     pauseVoiceRecorder();
     updateVisualState("speaking", { audioLevel: 0.7 });
     setVoiceLabel("SPEAKING…");
@@ -325,7 +277,7 @@ export default function UltronOrb() {
       let finished = false;
       const watchdogDuration = Math.max(3000, sentence.length * 110);
       const watchdog = setTimeout(() => {
-        if (!finished && isSpeakingRef.current) {
+        if (!finished && isSpeakingRef.current && !isStalePlayback()) {
           finished = true;
           playNextSentence();
         }
@@ -335,15 +287,15 @@ export default function UltronOrb() {
         if (!finished) {
           finished = true;
           clearTimeout(watchdog);
-          playNextSentence();
+          if (!isStalePlayback()) playNextSentence();
         }
       };
 
-      utterance.onerror = (e) => {
+      utterance.onerror = () => {
         if (!finished) {
           finished = true;
           clearTimeout(watchdog);
-          playNextSentence();
+          if (!isStalePlayback()) playNextSentence();
         }
       };
 
@@ -355,7 +307,7 @@ export default function UltronOrb() {
       } catch {
         finished = true;
         clearTimeout(watchdog);
-        playNextSentence();
+        if (!isStalePlayback()) playNextSentence();
       }
     };
 
@@ -377,15 +329,37 @@ export default function UltronOrb() {
 
   const speakLocal = useCallback(
     (text: string) => {
+      // Bump the generation BEFORE cancel() so the cancelled utterance's async
+      // onend/onerror can never fire playNextSentence into the new queue.
+      speechGenerationRef.current += 1;
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
         window.speechSynthesis.cancel();
       }
       speechQueueRef.current = [];
       isPlayingQueueRef.current = false;
+      isSpeakingRef.current = false;
       queueSpeechChunk(text);
     },
     [queueSpeechChunk],
   );
+
+  const scheduleVoiceTurn = (transcript: string, sessionId: number) => {
+    if (!voiceActiveRef.current || sessionId !== voiceSessionRef.current) return;
+
+    const turn = conversationMgrRef.current.addSpeechChunk(transcript);
+    if (speechTurnTimerRef.current) {
+      clearTimeout(speechTurnTimerRef.current);
+    }
+
+    // Wait for the adaptive silence budget so short recognition fragments and
+    // clause pauses are combined into one conversational turn.
+    speechTurnTimerRef.current = setTimeout(() => {
+      speechTurnTimerRef.current = null;
+      const completeTurn = conversationMgrRef.current.finalizeTurn();
+      if (!completeTurn || !voiceActiveRef.current || sessionId !== voiceSessionRef.current) return;
+      void handleUserSpeech(completeTurn, sessionId);
+    }, turn.recommendedEndpointMs);
+  };
 
   /**
    * Executes autonomous quantum web research on a specific topic.
@@ -401,17 +375,10 @@ export default function UltronOrb() {
       updateVisualState("thinking", { progress: 0.3 });
 
       try {
-        const sessionToken = typeof window !== "undefined" ? sessionStorage.getItem("ultron_zero_trust_token") : null;
         const res = await fetch("/api/research", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
-          },
-          body: JSON.stringify({
-            query: trimmed,
-            sessionToken,
-          }),
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: trimmed }),
         });
 
         const data = await res.json();
@@ -439,14 +406,17 @@ export default function UltronOrb() {
   );
 
   const processAudioBlob = async (blob: Blob, sessionId: number) => {
-    if (
-      !voiceActiveRef.current ||
-      sessionId !== voiceSessionRef.current ||
-      isSpeakingRef.current ||
-      isProcessingRef.current ||
-      isChatBusyRef.current ||
-      blob.size < 500
-    ) {
+    if (!voiceActiveRef.current || sessionId !== voiceSessionRef.current) {
+      return;
+    }
+    if (isSpeakingRef.current || isProcessingRef.current || isChatBusyRef.current) {
+      return;
+    }
+    if (blob.size < 500) {
+      // Too little audio to transcribe; restore the idle listening label that
+      // recorder.onstop switched to "THINKING…".
+      setVoiceLabel("LISTENING…");
+      updateVisualState("listening");
       return;
     }
 
@@ -454,13 +424,9 @@ export default function UltronOrb() {
     processingSessionRef.current = sessionId;
     try {
       const transcriptionStarted = performance.now();
-      const txToken = typeof window !== "undefined" ? sessionStorage.getItem("ultron_zero_trust_token") : null;
       const res = await fetch("/api/transcribe", {
         method: "POST",
-        headers: {
-          "Content-Type": blob.type || "audio/webm",
-          ...(txToken ? { Authorization: `Bearer ${txToken}` } : {}),
-        },
+        headers: { "Content-Type": blob.type || "audio/webm" },
         body: blob,
       });
       const data: { text?: string; error?: string } = await res.json();
@@ -473,11 +439,7 @@ export default function UltronOrb() {
       }
 
       if (!voiceActiveRef.current || sessionId !== voiceSessionRef.current) return;
-      let transcript = data.text?.trim() ?? "";
-      if (!transcript && lastNativeFinalRef.current) {
-        transcript = lastNativeFinalRef.current.trim();
-        lastNativeFinalRef.current = "";
-      }
+      const transcript = data.text?.trim() ?? "";
       if (!transcript) {
         console.debug("[ULTRON STT] No speech detected in the captured audio.");
         if (voiceActiveRef.current && sessionId === voiceSessionRef.current) {
@@ -508,7 +470,7 @@ export default function UltronOrb() {
       console.info("[ULTRON STT]", transcript);
       setVoiceLabel(`HEARD: "${transcript.slice(0, 18)}…"`);
       setError(null);
-      await handleUserSpeech(transcript, sessionId);
+      scheduleVoiceTurn(transcript, sessionId);
     } catch (err) {
       if (!voiceActiveRef.current || sessionId !== voiceSessionRef.current) return;
       const message = err instanceof Error ? err.message : "Unknown transcription error";
@@ -541,6 +503,11 @@ export default function UltronOrb() {
 
   const stopVoiceStream = () => {
     pauseVoiceRecorder();
+    if (speechTurnTimerRef.current) {
+      clearTimeout(speechTurnTimerRef.current);
+      speechTurnTimerRef.current = null;
+    }
+    conversationMgrRef.current.finalizeTurn();
     if (speechRecognitionRef.current) {
       try {
         speechRecognitionRef.current.stop();
@@ -552,13 +519,16 @@ export default function UltronOrb() {
     recordingStartedAtRef.current = null;
     silenceStartedAtRef.current = null;
 
-    if (animFrameRef.current) {
+    if (animFrameRef.current !== null) {
       cancelAnimationFrame(animFrameRef.current);
       animFrameRef.current = null;
     }
 
+    // Release the secondary spectral-VAD AudioContext along with the capture graph.
+    audioProcessorRef.current.dispose();
+
     if (audioCtxRef.current && audioCtxRef.current.state !== "closed") {
-      void audioCtxRef.current.close();
+      void audioCtxRef.current.close().catch(() => {});
       audioCtxRef.current = null;
     }
     analyserRef.current = null;
@@ -567,6 +537,9 @@ export default function UltronOrb() {
       audioStreamRef.current.getTracks().forEach((t) => t.stop());
       audioStreamRef.current = null;
     }
+
+    // Return the listening state machine to the mode's idle state for the next session.
+    fsmRef.current.reset();
   };
 
   const startVoiceSystem = async () => {
@@ -642,11 +615,29 @@ export default function UltronOrb() {
       const audioCtx = new AudioContext();
       audioCtxRef.current = audioCtx;
       await audioCtx.resume();
+      if (!voiceActiveRef.current || sessionId !== voiceSessionRef.current) {
+        // A newer session (or shutdown) superseded this start-up while the audio
+        // context was resuming: release only the resources created by this call.
+        stream.getTracks().forEach((track) => track.stop());
+        if (audioStreamRef.current === stream) audioStreamRef.current = null;
+        if (audioCtxRef.current === audioCtx) {
+          void audioCtx.close().catch(() => {});
+          audioCtxRef.current = null;
+        }
+        return;
+      }
       const source = audioCtx.createMediaStreamSource(stream);
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 2048;
       source.connect(analyser);
       analyserRef.current = analyser;
+
+      // Wire the spectral VAD / adaptive noise-floor analyser used for the HUD SNR
+      // readout. Fire-and-forget so a slow/second AudioContext can never block the
+      // microphone session from starting.
+      void audioProcessorRef.current.initialize(stream).catch((vadErr) => {
+        console.warn("[ULTRON VAD] Spectral analyser unavailable:", vadErr);
+      });
 
       // Native SpeechRecognition for instant 0ms streaming transcription
       if (typeof window !== "undefined" && ("webkitSpeechRecognition" in window || "SpeechRecognition" in window)) {
@@ -656,15 +647,27 @@ export default function UltronOrb() {
           rec.continuous = true;
           rec.maxAlternatives = 1;
           rec.onend = () => {
-            // Auto-restart speech recognition if voice session is active
-            if (voiceActiveRef.current && !isSpeakingRef.current) {
+            // Auto-restart only while THIS recognition instance still owns the current
+            // voice session. Restarting from a superseded/stopped recogniser would
+            // resurrect a second microphone listener with a stale session id.
+            if (
+              speechRecognitionRef.current === rec &&
+              voiceActiveRef.current &&
+              sessionId === voiceSessionRef.current &&
+              !isSpeakingRef.current
+            ) {
               try { rec.start(); } catch {}
             }
           };
           rec.interimResults = true;
-          rec.lang = navigator.language && navigator.language.includes("IN") ? "en-IN" : "en-US";
+          const browserLanguage = (navigator.language || "en-US").toLowerCase();
+          rec.lang = browserLanguage.startsWith("hi")
+            ? "hi-IN"
+            : browserLanguage === "en-in"
+              ? "en-IN"
+              : navigator.language || "en-US";
           rec.onresult = (evt: any) => {
-            if (!voiceActiveRef.current) return;
+            if (!voiceActiveRef.current || sessionId !== voiceSessionRef.current) return;
             // Full-Duplex Speech Interruption (Barge-In): user speaking halts ongoing playback immediately
             if (isSpeakingRef.current) {
               console.info("[ULTRON BARGE-IN] User speech detected during assistant playback. Halting speech!");
@@ -684,11 +687,10 @@ export default function UltronOrb() {
             }
             if (final.trim() && !isChatBusyRef.current) {
               const spokenText = final.trim();
-              lastNativeFinalRef.current = spokenText;
               console.info("[ULTRON NATIVE STT]", spokenText);
               setVoiceLabel(`HEARD: "${spokenText.slice(0, 18)}..."`);
               updateVisualState("thinking");
-              void handleUserSpeech(spokenText, sessionId);
+              scheduleVoiceTurn(spokenText, sessionId);
             }
           };
           rec.onerror = (recErr: any) => {
@@ -769,6 +771,8 @@ export default function UltronOrb() {
               mediaRecorderRef.current = null;
             }
             if (
+              voiceActiveRef.current &&
+              sessionId === voiceSessionRef.current &&
               duration >= MIN_RECORDING_MS &&
               !isChatBusyRef.current &&
               !isSpeakingRef.current
@@ -781,9 +785,21 @@ export default function UltronOrb() {
               // Instant zero-delay feedback: Switch to thinking state immediately upon speech completion
               setVoiceLabel("THINKING…");
               updateVisualState("thinking");
-              // Native STT handles live speech recognition directly;
-              // void processAudioBlob(blob, sessionId);
-            } else if (voiceActiveRef.current) {
+              // Chromium streams transcripts through the native SpeechRecognition
+              // engine above (lower latency). Browsers without that API (Firefox,
+              // Safari) fall back to uploading the captured blob for transcription
+              // instead of silently discarding the recording.
+              if (!speechRecognitionRef.current) {
+                void processAudioBlob(blob, sessionId);
+              }
+            } else if (
+              voiceActiveRef.current &&
+              sessionId === voiceSessionRef.current &&
+              // Do not overwrite the "THINKING…" state when the recorder stopped
+              // because a reply is already being processed.
+              !isProcessingRef.current &&
+              !isChatBusyRef.current
+            ) {
               setVoiceLabel("LISTENING…");
               updateVisualState("listening");
             }
@@ -883,6 +899,9 @@ export default function UltronOrb() {
       updateVisualState("listening");
     } catch (err) {
       console.error("Mic access error:", err);
+      // A superseded session must not tear down the microphone of the session that
+      // replaced it (its failure is only relevant to its own startup attempt).
+      if (sessionId !== voiceSessionRef.current) return;
       const errorName = err instanceof DOMException ? err.name : "";
       const message = err instanceof Error ? err.message : "Unknown microphone error";
       const userMessage = errorName === "NotAllowedError"
@@ -927,32 +946,26 @@ export default function UltronOrb() {
       userMessage,
     ]);
 
-    // Keep conversation memory in manager
-    conversationMgrRef.current.addSpeechChunk(userText.trim());
+    // Voice turns are buffered until the adaptive silence timer fires. Typed
+    // prompts bypass that timer, so record them directly in conversation context.
+    if (voiceSessionId === undefined) {
+      conversationMgrRef.current.addSpeechChunk(userText.trim());
+      conversationMgrRef.current.finalizeTurn();
+    }
+    conversationMgrRef.current.closeFollowUpWindow();
 
     try {
       const responseStarted = performance.now();
-      const sessionToken = typeof window !== "undefined" ? sessionStorage.getItem("ultron_zero_trust_token") : null;
       const res = await fetch("/api/chat", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: nextMessages,
           stream: true,
           activationMode: fsmRef.current.mode,
           followUpActive: conversationMgrRef.current.isFollowUpActive,
-          sessionToken,
         }),
       });
-
-      if (res.status === 401) {
-        setError("AI service unauthorized. Please verify system settings.");
-        updateVisualState("idle");
-        return;
-      }
 
       if (
         requestId !== chatRequestRef.current ||
@@ -986,6 +999,16 @@ export default function UltronOrb() {
           const { done, value } = await reader.read();
           if (done) break;
 
+          // STOP / barge-in / a newer request bumped chatRequestRef. Stop consuming
+          // the stream so the cancelled reply can never re-queue speech or overwrite
+          // the HUD after the user asked it to stop.
+          if (requestId !== chatRequestRef.current) {
+            try {
+              await reader.cancel();
+            } catch {}
+            return;
+          }
+
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split("\n");
           buffer = lines.pop() ?? "";
@@ -1018,6 +1041,22 @@ export default function UltronOrb() {
                 }
                 if (event.dossier) {
                   setActiveResearch(event.dossier);
+                }
+              } else if (event.type === "status") {
+                // "Talk while working": the API narrates long-running phases (research,
+                // planning, degraded fallback). Show them in the HUD and, in voice mode,
+                // speak them when the reply queue is idle so ULTRON talks the user through
+                // the task instead of going silent.
+                const statusMessage = typeof event.message === "string" ? event.message.trim() : "";
+                if (statusMessage) {
+                  setSubtitle(statusMessage);
+                  setBrainTag("WORKING…");
+                  if (typeof event.progress === "number") {
+                    updateVisualState("executing", { progress: event.progress });
+                  }
+                  if (voiceActiveRef.current && !isSpeakingRef.current) {
+                    queueSpeechChunk(statusMessage);
+                  }
                 }
               } else if (event.type === "token") {
                 finalReply += event.content;
@@ -1066,7 +1105,13 @@ export default function UltronOrb() {
             status: data.planReport.overall_status,
           });
           updateVisualState("executing", { progress: 1.0 });
-          setTimeout(() => setActivePlan(null), 8000);
+          // Track the auto-dismiss timer so unmount/STOP can clear it instead of
+          // leaving a pending state update behind.
+          if (planClearTimerRef.current) clearTimeout(planClearTimerRef.current);
+          planClearTimerRef.current = setTimeout(() => {
+            planClearTimerRef.current = null;
+            setActivePlan(null);
+          }, 8000);
         }
         if (data.route?.intent === "QUANTUM_RESEARCH" || data.intent === "QUANTUM_RESEARCH") {
           setBrainTag("QUANTUM RESEARCH [MULTI-VECTOR]");
@@ -1095,6 +1140,9 @@ export default function UltronOrb() {
         if (voiceActiveRef.current) {
           setVoiceLabel("LISTENING?");
           updateVisualState("listening");
+        } else {
+          // Text-mode prompt with no reply: otherwise the orb stays on "thinking".
+          updateVisualState("idle");
         }
         return;
       }
@@ -1118,6 +1166,13 @@ export default function UltronOrb() {
       if (!streamedTokens) {
         speakLocal(finalReply);
       }
+
+      // Text-only turns (voice off, or streaming with no queued/playing sentence)
+      // never fire the speech queue's "finished" hook, which would leave the orb
+      // stuck on "thinking". Return it to the idle/listening visual state.
+      if (!isSpeakingRef.current && !isPlayingQueueRef.current) {
+        updateVisualState(voiceActiveRef.current ? "listening" : "idle");
+      }
     } catch (err) {
       if (
         requestId !== chatRequestRef.current ||
@@ -1130,6 +1185,11 @@ export default function UltronOrb() {
       console.error("Chat request failed:", err);
       setError(`AI RESPONSE FAILED: ${message}`);
       speakLocal("Local AI did not respond. Please try again.");
+      // If the browser cannot speak, speakLocal() is a no-op and the orb would be
+      // stuck on "thinking" forever; return to the idle/listening visual state.
+      if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+        updateVisualState(voiceActiveRef.current ? "listening" : "idle");
+      }
     } finally {
       if (requestId === chatRequestRef.current) {
         isChatBusyRef.current = false;
@@ -1147,12 +1207,11 @@ export default function UltronOrb() {
       if (unmounted) return;
       if (!isSpeakingRef.current && !isProcessingRef.current && !isChatBusyRef.current) {
         try {
-          const wakeToken = typeof window !== "undefined" ? sessionStorage.getItem("ultron_zero_trust_token") : null;
-          if (!wakeToken) return;
+          // Authentication was removed per user request (local single-user app),
+          // so hands-free activation polls the wake-word route directly.
           const res = await fetch("/api/wakeword", {
             cache: "no-store",
             signal: AbortSignal.timeout(1500),
-            headers: { Authorization: `Bearer ${wakeToken}` },
           });
           if (res.ok) {
             const data = await res.json();
@@ -1194,6 +1253,12 @@ export default function UltronOrb() {
       isChatBusyRef.current = false;
       chatRequestRef.current += 1;
       voiceSessionRef.current += 1;
+      // Invalidate pending TTS callbacks and drop queued sentences BEFORE cancel()
+      // so the cancelled utterance's onerror cannot speak the next queued sentence.
+      speechGenerationRef.current += 1;
+      speechQueueRef.current = [];
+      isPlayingQueueRef.current = false;
+      audioProcessorRef.current.setAssistantSpeaking(false);
       setVoiceActive(false);
       setVoiceLabel("VOICE OFF");
       setMicLevel(0);
@@ -1217,8 +1282,13 @@ export default function UltronOrb() {
   };
 
   const submitTextPrompt = () => {
-    if (!textInput.trim()) return;
     const prompt = textInput.trim();
+    if (!prompt) return;
+    if (isChatBusyRef.current) {
+      // Do not clear the input: the prompt would otherwise be silently dropped.
+      setError("AI IS STILL RESPONDING — WAIT OR PRESS STOP");
+      return;
+    }
     setTextInput("");
     setTextPromptOpen(false);
     handleUserSpeech(prompt);
@@ -1248,10 +1318,25 @@ export default function UltronOrb() {
 
     try {
       await tracker.start();
+      // A stop()/toggle may have raced the async camera + MediaPipe startup. If this
+      // tracker is no longer the active one, keep the HUD off instead of showing a
+      // phantom "GESTURES ON" state.
+      if (trackerRef.current !== tracker) {
+        tracker.stop();
+        setCamera("off");
+        return;
+      }
       setCamera("on");
     } catch (err) {
-      trackerRef.current = null;
+      const isCurrentTracker = trackerRef.current === tracker;
+      if (isCurrentTracker) trackerRef.current = null;
       tracker.stop();
+      if (!isCurrentTracker) {
+        // The user already toggled gestures off while the camera was starting; do not
+        // surface a stale start-up error on top of the "off" state.
+        setCamera("off");
+        return;
+      }
       setCamera("error");
       setError(
         err instanceof DOMException && err.name === "NotAllowedError"
@@ -1265,6 +1350,13 @@ export default function UltronOrb() {
     if (trackerRef.current) stopGestures();
     else void startGestures();
   }, [startGestures, stopGestures]);
+
+  // Mirror listening state-machine transitions (activation mode changes, session
+  // resets) into the HUD instead of leaving it frozen on the initial state.
+  useEffect(() => {
+    const fsm = fsmRef.current;
+    return fsm.subscribe((event) => setListeningState(event.to));
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1469,22 +1561,6 @@ export default function UltronOrb() {
             title="Autonomous Quantum Browser & Web Research Engine"
           >
             {isResearching ? "PROBING…" : "🌐 RESEARCH"}
-          </button>
-
-          <button
-            type="button"
-            className="hud-btn"
-            onClick={() => {
-              fetchCloudStatus();
-              setCloudModalOpen(true);
-            }}
-            style={{
-              borderColor: cloudBrainStatus?.gpu_state === "ACTIVE" ? "#a855f7" : "#06b6d4",
-              color: cloudBrainStatus?.gpu_state === "ACTIVE" ? "#c084fc" : "#22d3ee",
-            }}
-            title="All-in-One Cloud AI Brain: Google Drive 5TB & Cloud GPU Inference"
-          >
-            ☁️ CLOUD BRAIN
           </button>
 
           <button
@@ -1821,339 +1897,6 @@ export default function UltronOrb() {
                 </div>
               </div>
             )}
-          </div>
-        </div>
-      )}
-
-      {/* ALL-IN-ONE CLOUD AI BRAIN HUD & MODEL MANAGER MODAL */}
-      {cloudModalOpen && (
-        <div
-          role="dialog"
-          aria-label="Cloud AI Brain HUD"
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(3, 7, 18, 0.88)",
-            backdropFilter: "blur(14px)",
-            zIndex: 1000,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 20,
-          }}
-        >
-          <div
-            style={{
-              background: "rgba(15, 23, 42, 0.95)",
-              border: "1px solid rgba(168, 85, 247, 0.4)",
-              boxShadow: "0 0 40px rgba(168, 85, 247, 0.2)",
-              borderRadius: 8,
-              width: "100%",
-              maxWidth: 840,
-              maxHeight: "88vh",
-              overflowY: "auto",
-              display: "flex",
-              flexDirection: "column",
-              padding: 24,
-              fontFamily: "monospace",
-              color: "#e2e8f0",
-            }}
-          >
-            {/* Header */}
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                borderBottom: "1px solid rgba(168, 85, 247, 0.25)",
-                paddingBottom: 14,
-                marginBottom: 16,
-              }}
-            >
-              <div>
-                <div
-                  style={{
-                    fontSize: "1.15rem",
-                    fontWeight: "bold",
-                    letterSpacing: "0.15em",
-                    color: "#c084fc",
-                  }}
-                >
-                  ☁️ ULTRON ALL-IN-ONE CLOUD AI BRAIN
-                </div>
-                <div style={{ fontSize: "0.75rem", color: "#94a3b8", marginTop: 4 }}>
-                  5TB Google Drive Remote Storage · Cloud GPU Inference · Zero Local Heavy Weights
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setCloudModalOpen(false)}
-                style={{
-                  background: "transparent",
-                  border: "1px solid rgba(148, 163, 184, 0.3)",
-                  color: "#94a3b8",
-                  padding: "4px 12px",
-                  cursor: "pointer",
-                  borderRadius: 4,
-                }}
-              >
-                ✕ CLOSE
-              </button>
-            </div>
-
-            {/* Hardware & Cloud Highlights */}
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-                gap: 12,
-                marginBottom: 18,
-              }}
-            >
-              <div
-                style={{
-                  background: "rgba(30, 41, 59, 0.6)",
-                  border: "1px solid rgba(56, 189, 248, 0.2)",
-                  borderRadius: 6,
-                  padding: 12,
-                }}
-              >
-                <div style={{ fontSize: "0.7rem", color: "#94a3b8" }}>REMOTE STORAGE TIER</div>
-                <div style={{ fontSize: "1rem", fontWeight: "bold", color: "#38bdf8", marginTop: 4 }}>
-                  5TB Google Drive
-                </div>
-                <div style={{ fontSize: "0.68rem", color: "#10b981", marginTop: 2 }}>
-                  {cloudBrainStatus?.storage_5tb_quota?.free_formatted || "4.97 TB"} Available
-                </div>
-              </div>
-
-              <div
-                style={{
-                  background: "rgba(30, 41, 59, 0.6)",
-                  border: "1px solid rgba(168, 85, 247, 0.2)",
-                  borderRadius: 6,
-                  padding: 12,
-                }}
-              >
-                <div style={{ fontSize: "0.7rem", color: "#94a3b8" }}>CLOUD GPU COMPUTE</div>
-                <div style={{ fontSize: "1rem", fontWeight: "bold", color: "#c084fc", marginTop: 4 }}>
-                  {cloudBrainStatus?.gpu_state === "ACTIVE" ? "ACTIVE (Running)" : "IDLE_SLEEP"}
-                </div>
-                <div style={{ fontSize: "0.68rem", color: "#e2e8f0", marginTop: 2 }}>
-                  10m Auto-Idle Cutoff to $0
-                </div>
-              </div>
-
-              <div
-                style={{
-                  background: "rgba(30, 41, 59, 0.6)",
-                  border: "1px solid rgba(16, 185, 129, 0.2)",
-                  borderRadius: 6,
-                  padding: 12,
-                }}
-              >
-                <div style={{ fontSize: "0.7rem", color: "#94a3b8" }}>LAPTOP LOCAL FOOTPRINT</div>
-                <div style={{ fontSize: "1rem", fontWeight: "bold", color: "#10b981", marginTop: 4 }}>
-                  0 MB Heavy Weights
-                </div>
-                <div style={{ fontSize: "0.68rem", color: "#94a3b8", marginTop: 2 }}>
-                  Optimized for 8GB RAM / Intel iGPU
-                </div>
-              </div>
-            </div>
-
-            {/* Google Drive 5TB Storage Bar */}
-            <div
-              style={{
-                background: "rgba(30, 41, 59, 0.5)",
-                border: "1px solid rgba(148, 163, 184, 0.2)",
-                borderRadius: 6,
-                padding: 14,
-                marginBottom: 18,
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                <span style={{ fontSize: "0.8rem", fontWeight: "bold", color: "#f8fafc" }}>
-                  📁 Google Drive 5TB AI Vault Allocation
-                </span>
-                <span style={{ fontSize: "0.75rem", color: "#38bdf8" }}>
-                  {cloudBrainStatus?.storage_5tb_quota?.used_formatted || "24.00 GB"} /{" "}
-                  {cloudBrainStatus?.storage_5tb_quota?.total_formatted || "5.00 TB"} (
-                  {cloudBrainStatus?.storage_5tb_quota?.usage_percent || 0.48}%)
-                </span>
-              </div>
-              <div
-                style={{
-                  width: "100%",
-                  height: 8,
-                  background: "rgba(15, 23, 42, 0.8)",
-                  borderRadius: 4,
-                  overflow: "hidden",
-                }}
-              >
-                <div
-                  style={{
-                    width: `${Math.max(2, cloudBrainStatus?.storage_5tb_quota?.usage_percent || 0.5)}%`,
-                    height: "100%",
-                    background: "linear-gradient(90deg, #38bdf8, #a855f7)",
-                    borderRadius: 4,
-                  }}
-                />
-              </div>
-              <div style={{ fontSize: "0.7rem", color: "#94a3b8", marginTop: 8 }}>
-                Primary storage for LLM checkpoints, datasets, multi-version models, and system backups.
-              </div>
-            </div>
-
-            {/* Centralized LLM Model Manager & Hot-Swapper */}
-            <div style={{ marginBottom: 18 }}>
-              <div
-                style={{
-                  fontSize: "0.85rem",
-                  fontWeight: "bold",
-                  color: "#c084fc",
-                  marginBottom: 10,
-                  letterSpacing: "0.08em",
-                }}
-              >
-                🧠 CENTRALIZED LLM MODEL REGISTRY & HOT-SWAPPER
-              </div>
-
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {cloudBrainStatus?.available_models?.map((model) => {
-                  const isActive =
-                    model.is_active ||
-                    cloudBrainStatus.active_model?.id === model.id;
-
-                  return (
-                    <div
-                      key={model.id}
-                      style={{
-                        background: isActive
-                          ? "rgba(168, 85, 247, 0.12)"
-                          : "rgba(30, 41, 59, 0.4)",
-                        border: `1px solid ${
-                          isActive ? "#c084fc" : "rgba(148, 163, 184, 0.2)"
-                        }`,
-                        borderRadius: 6,
-                        padding: 12,
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                      }}
-                    >
-                      <div style={{ flex: 1, marginRight: 16 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontSize: "0.95rem", fontWeight: "bold", color: "#f8fafc" }}>
-                            {model.name}
-                          </span>
-                          {isActive && (
-                            <span
-                              style={{
-                                fontSize: "0.68rem",
-                                background: "#10b981",
-                                color: "#000",
-                                fontWeight: "bold",
-                                padding: "2px 6px",
-                                borderRadius: 3,
-                              }}
-                            >
-                              ● ACTIVE BRAIN
-                            </span>
-                          )}
-                        </div>
-                        <div style={{ fontSize: "0.72rem", color: "#94a3b8", marginTop: 4 }}>
-                          {model.description}
-                        </div>
-                        <div
-                          style={{
-                            display: "flex",
-                            gap: 12,
-                            fontSize: "0.68rem",
-                            color: "#cbd5e1",
-                            marginTop: 6,
-                          }}
-                        >
-                          <span>💾 Size: {model.size_gb} GB</span>
-                          <span>⚡ VRAM: {model.required_vram_gb} GB</span>
-                          <span>📏 Context: {model.context_window?.toLocaleString()} tokens</span>
-                          <span>🖥️ Target GPU: {model.recommended_gpu}</span>
-                        </div>
-                      </div>
-
-                      <div>
-                        {isActive ? (
-                          <button
-                            type="button"
-                            disabled
-                            style={{
-                              background: "rgba(16, 185, 129, 0.2)",
-                              border: "1px solid #10b981",
-                              color: "#10b981",
-                              padding: "6px 14px",
-                              borderRadius: 4,
-                              fontSize: "0.75rem",
-                              fontWeight: "bold",
-                              cursor: "default",
-                            }}
-                          >
-                            LOADED
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={isSwitchingModel}
-                            onClick={() => switchCloudModel(model.id)}
-                            style={{
-                              background: "rgba(168, 85, 247, 0.2)",
-                              border: "1px solid #c084fc",
-                              color: "#c084fc",
-                              padding: "6px 14px",
-                              borderRadius: 4,
-                              fontSize: "0.75rem",
-                              fontWeight: "bold",
-                              cursor: isSwitchingModel ? "wait" : "pointer",
-                            }}
-                          >
-                            {isSwitchingModel ? "SWITCHING…" : "⚡ ACTIVATE"}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Session Cost Telemetry & Protection */}
-            <div
-              style={{
-                background: "rgba(15, 23, 42, 0.7)",
-                border: "1px solid rgba(148, 163, 184, 0.2)",
-                borderRadius: 6,
-                padding: 12,
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-              }}
-            >
-              <div>
-                <div style={{ fontSize: "0.75rem", fontWeight: "bold", color: "#f8fafc" }}>
-                  💰 Real-Time Cloud Inference Cost Telemetry
-                </div>
-                <div style={{ fontSize: "0.68rem", color: "#94a3b8", marginTop: 2 }}>
-                  Transparent Pay-As-You-Go Billing Protection. Never bills while idle.
-                </div>
-              </div>
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: "0.95rem", fontWeight: "bold", color: "#10b981" }}>
-                  ${cloudBrainStatus?.session_telemetry?.estimated_session_cost_usd?.toFixed(5) || "0.00000"} USD
-                </div>
-                <div style={{ fontSize: "0.68rem", color: "#94a3b8" }}>
-                  (₹{cloudBrainStatus?.session_telemetry?.estimated_session_cost_inr?.toFixed(2) || "0.00"} INR)
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       )}

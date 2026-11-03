@@ -47,8 +47,10 @@ const MIN_DISTANCE = 0.6;
 const MAX_DISTANCE = 40;
 
 export function createOrbScene(container: HTMLElement): OrbSceneApi {
-  const width = container.clientWidth;
-  const height = container.clientHeight;
+  // A hidden/collapsed container reports 0px; feeding 0 into the camera aspect
+  // ratio produces NaN and the scene never renders. Clamp to at least 1px.
+  const width = Math.max(1, container.clientWidth);
+  const height = Math.max(1, container.clientHeight);
 
   // ——— SCENE ———
   const scene = new THREE.Scene();
@@ -661,11 +663,15 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
   // ═══════════════════════════════════════════════
   // HEXAGONAL NODES — small tech details
   // ═══════════════════════════════════════════════
+  // Source geometries that are only used to build EdgesGeometry never enter the
+  // scene graph, so they must be tracked here to be disposed on teardown.
+  const detachedGeometries: THREE.BufferGeometry[] = [icoGeo];
   for (let i = 0; i < 15; i++) {
     const phi = Math.acos(2 * Math.random() - 1);
     const theta = Math.random() * Math.PI * 2;
     const r = R1 + 0.02;
     const hexGeo = new THREE.CircleGeometry(0.03 + Math.random() * 0.02, 6);
+    detachedGeometries.push(hexGeo);
     const hexEdges = new THREE.EdgesGeometry(hexGeo);
     const hex = new THREE.LineSegments(hexEdges, lineMat(C_MID, 0.5));
     hex.position.set(
@@ -838,6 +844,11 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
     chromaticPass.uniforms.uTime.value = t;
 
     // Apply Assistant State Modulations
+    // Reset every state-driven scalar first: orbGroup scale is only written by some
+    // branches, so without this a previous state (e.g. "error" pulse) would stay
+    // frozen on the orb after switching to "speaking"/"executing".
+    orbGroup.scale.setScalar(1.0);
+    chromaticPass.uniforms.uIntensity.value = currentAssistantState === "error" ? 0.007 : 0.003;
     if (currentAssistantState === "listening") {
       const audioBoost = Math.min(1.0, stateAudioLevel * 4.5);
       const pulse = 1.0 + Math.sin(t * 3.5) * 0.04 + audioBoost * 0.12;
@@ -893,10 +904,37 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
 
   animate();
 
+  // ——— WEBGL CONTEXT LOSS RECOVERY ———
+  // Browsers can drop the WebGL context (GPU reset, driver update, tab evicted in
+  // the background). Without preventDefault + loop restart the HUD would stay black
+  // until a full page reload.
+  const canvas = renderer.domElement;
+
+  function onContextLost(event: Event) {
+    // Signal that we will restore the context ourselves; this is what allows the
+    // browser to fire `webglcontextrestored` instead of discarding the canvas.
+    event.preventDefault();
+    cancelAnimationFrame(rafId);
+  }
+
+  function onContextRestored() {
+    if (disposed) return;
+    // Three.js has re-initialised its GL state; rebuild the post-processing render
+    // targets and resume the loop.
+    composer.reset();
+    clock.start(); // restart the clock so the pause does not jump the animation
+    animate();
+  }
+
+  canvas.addEventListener("webglcontextlost", onContextLost, false);
+  canvas.addEventListener("webglcontextrestored", onContextRestored, false);
+
   // ——— RESIZE ———
   function onResize() {
-    const w = container.clientWidth;
-    const h = container.clientHeight;
+    // Collapsed/hidden containers report 0px; guard against NaN aspect ratios and
+    // zero-sized drawing buffers.
+    const w = Math.max(1, container.clientWidth);
+    const h = Math.max(1, container.clientHeight);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
@@ -909,20 +947,41 @@ export function createOrbScene(container: HTMLElement): OrbSceneApi {
     disposed = true;
     cancelAnimationFrame(rafId);
     window.removeEventListener("resize", onResize);
+    canvas.removeEventListener("webglcontextlost", onContextLost);
+    canvas.removeEventListener("webglcontextrestored", onContextRestored);
     controls.dispose();
+
+    // Materials and geometries are intentionally shared between many meshes (debris
+    // reuses a handful of geometries, panels share one material). Track them in Sets
+    // so each GPU resource is released exactly once.
+    const geometries = new Set<THREE.BufferGeometry>();
+    const materials = new Set<THREE.Material>();
+    const textures = new Set<THREE.Texture>();
     scene.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
-      if (mesh.geometry) mesh.geometry.dispose();
+      if (mesh.geometry) geometries.add(mesh.geometry);
       const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       for (const mat of mats) {
         if (!mat) continue;
-        const anyMat = mat as THREE.Material & { map?: THREE.Texture };
-        anyMat.map?.dispose();
-        mat.dispose();
+        materials.add(mat);
+        const anyMat = mat as THREE.Material & { map?: THREE.Texture | null };
+        if (anyMat.map) textures.add(anyMat.map);
       }
     });
+    for (const texture of textures) texture.dispose();
+    for (const material of materials) material.dispose();
+    for (const geometry of geometries) geometry.dispose();
+    for (const geometry of detachedGeometries) geometry.dispose();
+
+    // EffectComposer.dispose() only frees its read/write buffers; bloom and the
+    // chromatic pass own additional render targets/materials/quads.
+    bloom.dispose();
+    chromaticPass.dispose();
     composer.dispose();
     renderer.dispose();
+    // Release the GL context immediately so remounting the HUD in the same Electron
+    // window cannot hit the browser's "too many active WebGL contexts" limit.
+    renderer.forceContextLoss();
     renderer.domElement.remove();
   }
 

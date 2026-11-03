@@ -87,6 +87,21 @@ class MemoryEngine(BaseEngine):
         """Computes HMAC-SHA256 blind index hash for deduplication."""
         return default_crypto.blind_index_hash(content)
 
+    @staticmethod
+    def _record_id(value: Any) -> Optional[str]:
+        """Normalizes a memory id coming from the UI for SQL binding.
+
+        SQLite raises ``ProgrammingError`` for dict/list parameters before it
+        can report "record not found", so non-string ids are treated as absent.
+
+        Args:
+            value: Raw ``target`` value from a payload.
+
+        Returns:
+            Optional[str]: The id when it is a string, otherwise ``None``.
+        """
+        return value if isinstance(value, str) else None
+
     def _validate_token(self, token: Optional[str]) -> bool:
         """
         Validates HMAC-SHA256 Zero-Trust session token and revocation blacklist.
@@ -115,6 +130,10 @@ class MemoryEngine(BaseEngine):
         """
         Stores an item encrypted at rest with AES-256-GCM.
         """
+        # `tier` is forwarded to a SQLite TEXT column; a JSON object/list would
+        # raise sqlite3.InterfaceError at bind time, so fall back to the default.
+        if not isinstance(tier, str):
+            tier = "long"
         h = self._hash(content)
         cur = self._conn.execute("SELECT id FROM memory WHERE hash=?", (h,))
         if cur.fetchone():
@@ -153,6 +172,19 @@ class MemoryEngine(BaseEngine):
             sensitive memories are blocked.
         """
         # Check intruder defense state
+        if not isinstance(tier, str):
+            # SQLite cannot bind dict/list tier filters; treat as "no filter".
+            tier = None
+        # `query` is used with `.lower()`; a dict/list from the UI would raise.
+        if not isinstance(query, str):
+            query = "" if query is None else str(query)
+        # `limit` comes from the UI and may be null/string/negative; it is used
+        # both as a SQL LIMIT and a list bound, so clamp it to a sane integer.
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            limit = 20
+        limit = max(1, min(limit, 200))
         defense_allowed, _ = default_intruder_defense.check_access_permission(session_token)
         if not defense_allowed:
             is_authenticated = False
@@ -209,6 +241,7 @@ class MemoryEngine(BaseEngine):
 
     async def correct(self, target_id: str, new_content: Any) -> Dict[str, Any]:
         """Corrects an existing memory record, re-sealing it."""
+        target_id = self._record_id(target_id)
         cur = self._conn.execute("SELECT id FROM memory WHERE id=?", (target_id,))
         if not cur.fetchone():
             return {"corrected": False, "reason": "not_found"}
@@ -231,6 +264,10 @@ class MemoryEngine(BaseEngine):
 
     async def delete(self, target_id: Optional[str] = None, tier: Optional[str] = None) -> Dict[str, Any]:
         """Securely deletes records."""
+        # SQLite cannot bind a dict/list tier filter; ignore such values.
+        if tier is not None and not isinstance(tier, str):
+            tier = None
+        target_id = self._record_id(target_id)
         if target_id:
             self._conn.execute("DELETE FROM memory WHERE id=?", (target_id,))
             self._short = [s for s in self._short if s.get("id") != target_id]

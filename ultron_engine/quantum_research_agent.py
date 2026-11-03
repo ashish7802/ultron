@@ -32,10 +32,15 @@ Key Responsibilities:
 Safety / Security Guarantees:
     - Read-Only Web Exploration: Only executes standard HTTP GET requests; never submits
       credentials, fills forms, or modifies external web application state.
-    - SSRF & Sandbox Protection: Rejects private/loopback network targets (e.g., 127.0.0.1,
-      169.254.169.254, RFC 1918 subnets) during live content scraping.
-    - Resource & Memory Bounds: Enforces strict per-request timeouts (8s) and payload size
-      caps (max 15KB per page) to prevent denial-of-service from runaway web pages.
+    - SSRF & Sandbox Protection: Rejects private/loopback/link-local/metadata targets
+      (e.g. 127.0.0.1, 169.254.169.254, RFC 1918 subnets) in every literal IP form
+      (dotted, integer, hex, IPv6-mapped, 0.0.0.0). Redirects are validated hop-by-hop
+      instead of being auto-followed, and each hop's DNS answers must be public.
+    - Resource & Memory Bounds: Enforces a 5s timeout per HTTP hop, a 2MB response cap
+      before DOM parsing, and a 4.5KB extracted-text cap per page to prevent
+      denial-of-service from runaway web pages.
+    - Encrypted Research Archive: Persisted dossiers are AES-256-GCM sealed, so the
+      SQLite research archive never stores plaintext web content at rest.
 """
 
 import sys
@@ -45,8 +50,26 @@ import json
 import time
 import asyncio
 import hashlib
-from typing import Dict, List, Any, Optional
-from urllib.parse import urlparse
+import ipaddress
+import socket
+from typing import Dict, List, Any, Optional, Union
+from urllib.parse import urlparse, urljoin
+
+# The research agent is executed two ways:
+#   1. Imported as `ultron_engine.quantum_research_agent` (module/package mode), where
+#      `__package__` is set and package-relative imports resolve.
+#   2. Spawned directly as a child process by `app/api/research/route.ts` (script mode),
+#      where `__package__` is None and relative imports raise
+#      "attempted relative import with no known parent package".
+# Import the shared crypto engine for both modes so the research API cannot fail with a
+# 502 on a packaging detail (standalone script execution is a supported entrypoint).
+if __package__:
+    from .crypto import default_crypto
+else:  # pragma: no cover - exercised by the /api/research child process
+    _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+    if _PROJECT_ROOT not in sys.path:
+        sys.path.insert(0, _PROJECT_ROOT)
+    from ultron_engine.crypto import default_crypto
 
 # Third-party asynchronous HTTP and DOM parsing libraries
 try:
@@ -92,7 +115,10 @@ HIGH_CREDIBILITY_DOMAINS = {
     "springer.com": 0.95,
 }
 
-# Forbidden host patterns to prevent Server-Side Request Forgery (SSRF)
+# Forbidden host patterns to prevent Server-Side Request Forgery (SSRF).
+# These exact-form patterns are kept as a fast first line of defence; the primary
+# check in `is_safe_url` uses the `ipaddress` module (see `_literal_ip`), which also
+# covers IPv6, mapped addresses, and numeric/hex-encoded IPv4 forms.
 FORBIDDEN_HOST_PATTERNS = [
     re.compile(r"^localhost$", re.I),
     re.compile(r"^127\.\d+\.\d+\.\d+$"),
@@ -102,6 +128,74 @@ FORBIDDEN_HOST_PATTERNS = [
     re.compile(r"^169\.254\.\d+\.\d+$"),
     re.compile(r"^::1$"),
 ]
+
+# Resource bounds for live crawling. Timeouts bound every network hop; the byte cap
+# prevents a hostile/oversized page from exhausting memory during DOM parsing.
+MAX_PAGE_BYTES = 2 * 1024 * 1024
+PAGE_REQUEST_TIMEOUT_SECONDS = 5.0
+MAX_REDIRECT_HOPS = 3
+
+# Union type covering both address families returned by `ipaddress`.
+IPAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
+
+
+def _literal_ip(hostname: str) -> Optional[IPAddress]:
+    """
+    Parses a hostname that is an IP literal, including numeric/hex IPv4 encodings.
+
+    Why: RFC-1918 regexes miss SSRF bypasses such as `http://2130706433/`,
+    `http://0x7f000001/`, IPv6-mapped `[::ffff:127.0.0.1]`, or `0.0.0.0`. Normalising
+    every literal form through `ipaddress` lets one policy check cover them all.
+
+    Args:
+        hostname (str): Host portion returned by `urlparse(...).hostname`.
+
+    Returns:
+        Optional[ipaddress._BaseAddress]: Parsed address, or None for a DNS name.
+    """
+    candidate = hostname.strip().strip("[]").rstrip(".")
+    try:
+        return ipaddress.ip_address(candidate)
+    except ValueError:
+        pass
+    # Legacy inet_aton forms: "127.1", "0177.0.0.1" (octal), "0x7f000001" (hex).
+    # Platform resolvers (Winsock/glibc) accept these as 127.0.0.1, so a lexical
+    # parser that only understands dotted-quad would let them through as SSRF.
+    try:
+        return ipaddress.IPv4Address(socket.inet_aton(candidate))
+    except (OSError, ValueError):
+        pass
+    try:
+        if candidate.isdigit():
+            return ipaddress.ip_address(int(candidate))
+        if candidate.lower().startswith("0x"):
+            return ipaddress.ip_address(int(candidate, 16))
+    except (ValueError, OverflowError):
+        # Not an IP literal (e.g. a numeric-looking DNS label); treat as a name.
+        return None
+    return None
+
+
+def _is_public_ip(address: IPAddress) -> bool:
+    """
+    Returns True only for globally-routable addresses.
+
+    `ipaddress` flags are used so loopback, RFC-1918, link-local (including
+    169.254.169.254 cloud metadata), CGNAT, ULA, multicast, reserved, and
+    unspecified addresses are all rejected by the same policy.
+    """
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        address = address.ipv4_mapped
+    return not (
+        address.is_loopback
+        or address.is_private
+        or address.is_link_local
+        or address.is_multicast
+        or address.is_reserved
+        or address.is_unspecified
+        or address.is_global is False
+    )
+
 
 
 class QuantumResearchAgent:
@@ -145,13 +239,101 @@ class QuantumResearchAgent:
             hostname = parsed.hostname
             if not hostname:
                 return False
-            # Check against internal and private IP ranges
+            # 1. Fast exact-form patterns (localhost and common private literals).
             for pattern in FORBIDDEN_HOST_PATTERNS:
                 if pattern.match(hostname):
                     return False
+            # 2. Any IP literal (dotted, integer, hex, octal, IPv6, v4-mapped,
+            #    0.0.0.0) must resolve to a globally-routable address.
+            literal = _literal_ip(hostname)
+            if literal is not None and not _is_public_ip(literal):
+                return False
+            # 3. Fail closed on numeric-looking hosts that no parser understood:
+            #    treating them as DNS names would let exotic resolver encodings
+            #    (e.g. malformed numeric forms) slip past the policy.
+            if literal is None and re.fullmatch(r"[0-9.]+", hostname):
+                return False
             return True
         except Exception:
             return False
+
+    async def _dns_is_public(self, hostname: str) -> bool:
+        """
+        Best-effort DNS-rebinding defence: every resolved address must be public.
+
+        Why: a hostname this process cannot inspect lexically could resolve to a
+        loopback/private address. Resolution failure is treated as unsafe (fail closed).
+
+        Limitation:
+            This is a pre-flight check; a hostile resolver could still answer
+            differently for the real connection (classic DNS-rebinding TOCTOU).
+            Redirects are additionally re-validated hop-by-hop and the HTTP client
+            never follows redirects automatically.
+
+        Args:
+            hostname (str): Host to resolve.
+
+        Returns:
+            bool: True when all resolved addresses are public.
+        """
+        literal = _literal_ip(hostname)
+        if literal is not None:
+            return _is_public_ip(literal)
+
+        try:
+            loop = asyncio.get_running_loop()
+            infos = await asyncio.wait_for(
+                loop.getaddrinfo(hostname, None, type=socket.SOCK_STREAM),
+                timeout=3.0,
+            )
+        except Exception:
+            return False
+
+        resolved = {info[4][0] for info in infos if info and info[4]}
+        if not resolved:
+            return False
+        try:
+            return all(_is_public_ip(ipaddress.ip_address(addr)) for addr in resolved)
+        except ValueError:
+            return False
+
+    async def _fetch_with_safe_redirects(self, url: str, client: httpx.AsyncClient) -> Optional[Any]:
+        """
+        Fetches one URL while validating every redirect hop against the SSRF policy.
+
+        Why: letting the HTTP client follow redirects automatically would allow a
+        public page to redirect the crawler to loopback/RFC-1918/metadata endpoints,
+        bypassing `is_safe_url` entirely.
+
+        Args:
+            url (str): Initial target URL.
+            client (httpx.AsyncClient): Shared HTTP client (timeouts configured here).
+
+        Returns:
+            Optional[httpx.Response]: Final non-redirect response, or None when any
+            hop is unsafe, resolution fails, or the redirect budget is exhausted.
+        """
+        current = url
+        for _hop in range(MAX_REDIRECT_HOPS + 1):
+            if not self.is_safe_url(current):
+                return None
+            hostname = urlparse(current).hostname
+            if not hostname or not await self._dns_is_public(hostname):
+                return None
+
+            resp = await client.get(
+                current,
+                timeout=PAGE_REQUEST_TIMEOUT_SECONDS,
+                follow_redirects=False,
+            )
+            if resp.is_redirect:
+                location = resp.headers.get("location", "")
+                if not location:
+                    return None
+                current = urljoin(current, location)
+                continue
+            return resp
+        return None
 
     def decompose_query(self, query: str) -> List[str]:
         """
@@ -205,8 +387,10 @@ class QuantumResearchAgent:
             return results
 
         try:
-            # Run blocking DDGS in a thread pool to preserve async responsiveness
-            loop = asyncio.get_event_loop()
+            # Run blocking DDGS in a thread pool to preserve async responsiveness.
+            # `get_running_loop` is the supported accessor inside a coroutine
+            # (`get_event_loop` is deprecated for this use in modern Python).
+            loop = asyncio.get_running_loop()
             def _sync_search():
                 harvested = []
                 with DDGS() as ddgs:
@@ -239,17 +423,26 @@ class QuantumResearchAgent:
 
         Returns:
             Optional[Dict[str, Any]]: Extracted text content, headings, and metadata.
+
+        Side Effects:
+            Performs one or more outbound HTTP GET requests (read-only). Every hop is
+            SSRF-validated; oversized responses are rejected before DOM parsing.
         """
         if not self.is_safe_url(url) or not HAS_WEB_DEPS:
             return None
 
         try:
-            resp = await client.get(url, timeout=5.0)
-            if resp.status_code != 200:
+            resp = await self._fetch_with_safe_redirects(url, client)
+            if resp is None or resp.status_code != 200:
                 return None
 
             content_type = resp.headers.get("content-type", "")
             if "text/html" not in content_type and "application/xhtml" not in content_type:
+                return None
+
+            # Bound DOM-parsing memory: a hostile page must not be able to exhaust
+            # process memory through BeautifulSoup on a multi-megabyte body.
+            if len(resp.content) > MAX_PAGE_BYTES:
                 return None
 
             soup = BeautifulSoup(resp.text, "html.parser")
@@ -428,7 +621,9 @@ class QuantumResearchAgent:
         scraped_data_map: Dict[str, Any] = {}
         if HAS_WEB_DEPS and raw_sources:
             targets = [s["url"] for s in raw_sources[:4]]
-            async with httpx.AsyncClient(headers={"User-Agent": self.user_agent}, follow_redirects=True) as client:
+            # Redirects are followed manually in `_fetch_with_safe_redirects` so each
+            # hop can be SSRF-validated; never let the client auto-follow them here.
+            async with httpx.AsyncClient(headers={"User-Agent": self.user_agent}, follow_redirects=False) as client:
                 scrape_tasks = [self.scrape_page_content(u, client) for u in targets]
                 scraped_results = await asyncio.gather(*scrape_tasks, return_exceptions=True)
                 for res in scraped_results:
@@ -498,9 +693,21 @@ class QuantumResearchAgent:
         """
         Persists research findings into ULTRON's encrypted SQLite memory store.
 
+        Security:
+            The query, executive summary, findings, and sources are sealed with
+            AES-256-GCM before being written, so the research archive never stores
+            browsed plaintext on disk (matching the documented zero-plaintext-at-rest
+            guarantee). Persistence is deliberately non-fatal: a DB error must never
+            break an otherwise successful research response.
+
         Args:
             dossier (Dict[str, Any]): Research findings dossier to serialize.
+
+        Side Effects:
+            Creates/updates `ultron_engine/ultron_memory.db`; closes the connection in
+            a `finally` block so a failing insert cannot leak a SQLite handle.
         """
+        conn = None
         try:
             import sqlite3
             db_path = os.path.join(os.path.dirname(__file__), "ultron_memory.db")
@@ -522,19 +729,25 @@ class QuantumResearchAgent:
                 "INSERT INTO research_archive VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     rec_id,
-                    dossier["query"],
-                    dossier["executive_summary"],
-                    json.dumps(dossier["key_findings"]),
-                    json.dumps(dossier["sources"]),
+                    # Text columns hold AES-256-GCM envelopes, never plaintext.
+                    default_crypto.seal(dossier["query"]),
+                    default_crypto.seal(dossier["executive_summary"]),
+                    default_crypto.seal(dossier["key_findings"]),
+                    default_crypto.seal(dossier["sources"]),
                     dossier["telemetry"]["elapsed_ms"],
                     time.time(),
                 )
             )
             conn.commit()
-            conn.close()
-        except Exception as err:
-            # Non-fatal persistence logging
+        except Exception:
+            # Non-fatal persistence telemetry (see docstring).
             pass
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
 
 # CLI invocation entrypoint for testing and external process spawning

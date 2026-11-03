@@ -29,6 +29,10 @@ class KnowledgeResearchEngine(BaseEngine):
     name = "knowledge_research"
     layer = "knowledge"
 
+    # Directory names pruned from local searches (see _search_local_sync).
+    SKIP_DIRS = {"node_modules", ".git", ".next", "__pycache__", ".venv", "venv",
+                 ".tmp", "backups", ".qpanda", ".andromity"}
+
     def __init__(self, bus, state):
         super().__init__(bus, state)
         self._lock = asyncio.Lock()
@@ -43,7 +47,12 @@ class KnowledgeResearchEngine(BaseEngine):
 
     def credibility(self, source):
         url = str(source.get("url", "") if isinstance(source, dict) else source)
-        domain = url.split("/")[2] if "://" in url else ""
+        # Defensive split: malformed URLs ("http://") have no host component.
+        if "://" in url:
+            parts = url.split("/")
+            domain = parts[2] if len(parts) > 2 else ""
+        else:
+            domain = ""
         score = 0.5
         if any(d in domain for d in CREDIBLE_DOMAINS):
             score += 0.3
@@ -53,10 +62,17 @@ class KnowledgeResearchEngine(BaseEngine):
 
     def rank_sources(self, sources):
         ranked = []
+        # Sources/candidates come from JSON and may be null or a string; both
+        # previously raised TypeError while iterating/coercing.
+        if not isinstance(sources, (list, tuple)):
+            sources = []
         for s in sources:
             s = dict(s) if isinstance(s, dict) else {"url": str(s), "title": str(s)}
             s["credibility"] = self.credibility(s)
-            s["relevance"] = float(s.get("relevance", 0.5))
+            try:
+                s["relevance"] = float(s.get("relevance", 0.5))
+            except (TypeError, ValueError):
+                s["relevance"] = 0.5
             s["score"] = round(0.6 * s["relevance"] + 0.4 * s["credibility"], 3)
             ranked.append(s)
         ranked.sort(key=lambda x: x["score"], reverse=True)
@@ -65,9 +81,13 @@ class KnowledgeResearchEngine(BaseEngine):
     def cross_check(self, claims, sources):
         # verify each claim appears in at least one source text
         results = []
+        if not isinstance(claims, (list, tuple)):
+            claims = []
+        if not isinstance(sources, (list, tuple)):
+            sources = []
         corpus = " ".join(str(s.get("text", s.get("title", ""))) for s in sources).lower()
         for c in claims:
-            supported = c.lower() in corpus
+            supported = str(c).lower() in corpus
             results.append({"claim": c, "supported": supported})
         return results
 
@@ -75,14 +95,20 @@ class KnowledgeResearchEngine(BaseEngine):
         results = []
         if HAS_DDGS:
             try:
-                with DDGS() as ddgs:
-                    for r in ddgs.text(query, max_results=max_results):
-                        results.append({
-                            "title": r.get("title", ""),
-                            "url": r.get("href") or r.get("url", ""),
-                            "snippet": r.get("body") or r.get("snippet", ""),
-                            "source": "duckduckgo"
-                        })
+                # DDGS is a synchronous/blocking client. Running it inline inside
+                # this coroutine stalled the whole event loop (all engines share
+                # it), so the blocking search is offloaded to a worker thread.
+                def _ddg_text():
+                    with DDGS() as ddgs:
+                        return list(ddgs.text(query, max_results=max_results))
+
+                for r in await asyncio.to_thread(_ddg_text):
+                    results.append({
+                        "title": r.get("title", ""),
+                        "url": r.get("href") or r.get("url", ""),
+                        "snippet": r.get("body") or r.get("snippet", ""),
+                        "source": "duckduckgo"
+                    })
             except Exception as e:
                 results.append({"error": f"ddgs: {e}"})
         # fallback: try httpx if nothing found
@@ -99,8 +125,10 @@ class KnowledgeResearchEngine(BaseEngine):
             except Exception as e:
                 results.append({"error": f"httpx: {e}"})
         ranked = self.rank_sources(results)
-        # cache results
+        # cache results (bounded: this dict was never evicted and grew forever)
         self._cache[query] = {"results": ranked, "ts": time.time()}
+        while len(self._cache) > 100:
+            self._cache.pop(next(iter(self._cache)))
         return ranked
 
     async def fetch_content(self, url):
@@ -134,25 +162,49 @@ class KnowledgeResearchEngine(BaseEngine):
                 detailed.append(s)
         return {"query": query, "sources": sources, "detailed": detailed}
 
-    async def search_local(self, query, root="."):
+    @staticmethod
+    def _search_local_sync(query, root="."):
+        """Synchronous repository scan used by :meth:`search_local`.
+
+        Kept as a plain function so the blocking filesystem walk can run in a
+        worker thread instead of stalling the shared asyncio event loop.
+
+        Args:
+            query: Text to search for (any JSON value; coerced to str).
+            root: Directory to scan.
+
+        Returns:
+            list: Up to 20 ``{"path", "snippet"}`` matches.
+        """
         matches = []
+        query_low = str(query or "").lower()
+        for dirpath, dirnames, files in os.walk(root):
+            # Dependency/build trees are huge and contain no user knowledge;
+            # walking node_modules/.next from the repo root took seconds.
+            dirnames[:] = [d for d in dirnames if d not in KnowledgeResearchEngine.SKIP_DIRS]
+            if len(matches) > 50:
+                break
+            for f in files:
+                if f.endswith((".py", ".md", ".ts", ".tsx", ".json")):
+                    p = os.path.join(dirpath, f)
+                    try:
+                        # Skip very large generated/vendored files: we only need
+                        # a 200-char snippet, and reading them is pure overhead.
+                        if os.path.getsize(p) > 2 * 1024 * 1024:
+                            continue
+                        with open(p, "r", encoding="utf-8", errors="ignore") as fh:
+                            content = fh.read()
+                        if query_low in content.lower():
+                            matches.append({"path": p, "snippet": content[:200]})
+                    except OSError:
+                        pass
+        return matches[:20]
+
+    async def search_local(self, query, root="."):
         try:
-            for dirpath, _, files in os.walk(root):
-                if len(matches) > 50:
-                    break
-                for f in files:
-                    if f.endswith((".py", ".md", ".ts", ".tsx", ".json")):
-                        p = os.path.join(dirpath, f)
-                        try:
-                            with open(p, "r", encoding="utf-8", errors="ignore") as fh:
-                                content = fh.read()
-                            if query.lower() in content.lower():
-                                matches.append({"path": p, "snippet": content[:200]})
-                        except Exception:
-                            pass
+            return await asyncio.to_thread(self._search_local_sync, query, root)
         except Exception as e:
             return {"error": str(e)}
-        return matches[:20]
 
     async def learn_and_store(self, query, store_to_memory=True):
         research = await self.research(query)
@@ -163,12 +215,12 @@ class KnowledgeResearchEngine(BaseEngine):
                     summary += d["text"][:500] + "\n\n"
         result = {"query": query, "summary": summary[:2000], "sources": research.get("sources", [])}
         if store_to_memory and summary:
-            try:
-                from .memory import MemoryEngine
-                # Get memory instance if available
-                result["stored"] = True
-            except Exception:
-                result["stored"] = False
+            # This engine only has the MemoryEngine *class* importable, not a
+            # live instance, so it cannot persist anything.  The old code
+            # always reported stored=True (a false success); report the truth
+            # so callers do not believe knowledge was saved.
+            result["stored"] = False
+            result["store_reason"] = "memory_engine_not_wired"
         return result
 
     async def process(self, payload=None):
@@ -183,7 +235,9 @@ class KnowledgeResearchEngine(BaseEngine):
             return {"id": str(uuid.uuid4()), "engine": self.name, "status": "ok", "results": res}
         if action == "search_local":
             res = await self.search_local(payload.get("query", ""), payload.get("root", "."))
-            return {"id": str(uuid.uuid4()), "engine": self.name, "status": "ok", "matches": res, "count": len(res)}
+            # search_local returns a dict on error; len(dict) is not a match count.
+            count = len(res) if isinstance(res, list) else 0
+            return {"id": str(uuid.uuid4()), "engine": self.name, "status": "ok", "matches": res, "count": count}
         if action == "search_web" or action == "web":
             res = await self.search_web(payload.get("query", ""), payload.get("max_results", 10))
             return {"id": str(uuid.uuid4()), "engine": self.name, "status": "ok", "results": res}

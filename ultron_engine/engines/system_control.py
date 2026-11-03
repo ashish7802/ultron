@@ -21,7 +21,8 @@ class SystemControlEngine(BaseEngine):
         pass
 
     def validate_command(self, cmd):
-        low = (cmd or "").lower()
+        # OS command may be null/number from the UI; `.lower()` would raise.
+        low = str(cmd or "").lower()
         risky = any(w in low for w in ["shutdown", "restart", "format", "del /", "rm -rf", "reg delete"])
         protected = any(p in low for p in PROTECTED_PROCESSES)
         return {"valid": not protected, "risky": risky, "requires_approval": risky, "protected": protected}
@@ -43,6 +44,9 @@ class SystemControlEngine(BaseEngine):
             res = {"app": payload.get("app"), "status": "requested", "requires_approval": False}
         elif action == "terminate":
             proc = payload.get("process", "")
+            # Normalize before `.lower()`: a non-string process name raised
+            # AttributeError and skipped the protected-process guard.
+            proc = proc if isinstance(proc, str) else ("" if proc is None else str(proc))
             if proc.lower() in PROTECTED_PROCESSES:
                 res = {"process": proc, "status": "blocked", "reason": "protected process"}
             else:

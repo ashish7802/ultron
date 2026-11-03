@@ -20,6 +20,17 @@ class SelfCorrectionEngine(BaseEngine):
     async def _on(self, ev):
         pass
 
+    @staticmethod
+    def _retry_key(key):
+        """Normalizes a retry key so it is always hashable.
+
+        Keys arrive from JSON payloads where objects/lists cannot be used as
+        dict keys (``TypeError: unhashable type``), so they are serialized.
+        """
+        if isinstance(key, (dict, list, set)):
+            return str(key)
+        return key
+
     def diagnose(self, error):
         msg = str(error)
         if "timeout" in msg.lower():
@@ -33,11 +44,13 @@ class SelfCorrectionEngine(BaseEngine):
         return {"category": "unknown", "suggestion": "inspect logs"}
 
     def can_retry(self, key):
+        key = self._retry_key(key)
         count = self._retries.get(key, 0)
         return count < self.MAX_RETRIES
 
     async def attempt(self, key, fn, *args, **kwargs):
         # fn is a sync/async callable
+        key = self._retry_key(key)
         last_err = None
         while self.can_retry(key):
             self._retries[key] = self._retries.get(key, 0) + 1
@@ -66,7 +79,7 @@ class SelfCorrectionEngine(BaseEngine):
             return {"id": str(uuid.uuid4()), "engine": self.name, "status": "ok",
                     "can_retry": self.can_retry(payload.get("key", "default"))}
         if action == "reset":
-            self._retries.pop(payload.get("key", "default"), None)
+            self._retries.pop(self._retry_key(payload.get("key", "default")), None)
             return {"id": str(uuid.uuid4()), "engine": self.name, "status": "ok", "reset": True}
         return {"id": str(uuid.uuid4()), "engine": self.name, "status": "ok"}
 

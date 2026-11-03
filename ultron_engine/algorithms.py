@@ -1,6 +1,85 @@
-"""ULTRON engine algorithms: concrete implementations per engine."""
+"""ULTRON engine algorithms: concrete implementations per engine.
+
+Module Purpose
+    Implements the stateless (or store-backed) behaviour of every ULTRON engine
+    in one place. Most engine modules in ``ultron_engine.engines`` are thin
+    wrappers that simply delegate ``process()`` to the matching
+    ``<name>_process`` function defined here.
+
+Key Responsibilities
+    - Normalize untrusted engine payloads and return ``_record`` envelopes.
+    - Contain optional-dependency fallbacks (e.g. psutil) so a missing package
+      degrades one engine instead of crashing the orchestrator.
+    - Bound in-memory caches so long-running processes do not leak memory.
+
+Architectural Role
+    - Used by ``ultron_engine.engines.*`` and reached from the FastAPI service
+      (``server.py``) and the Electron/Next UI through ``OrchestratorEngine``.
+
+Safety / Security Guarantees
+    - Payload fields are treated as hostile: they may be ``None``, numbers or
+      nested containers because the HTTP layer forwards JSON verbatim.
+    - Secrets are redacted before observability records are stored.
+"""
 import asyncio, time, uuid, hashlib, re, json, os, math
 from typing import Any, Dict, List, Optional
+
+
+def _as_text(value: Any, default: str = "") -> str:
+    """Coerces an untrusted payload field into text.
+
+    Payloads arrive from JSON/HTTP and callers frequently send ``None``,
+    numbers or containers where a string is expected.  Downstream code calls
+    ``.lower()``/``.strip()``/``len()`` on these fields, which would otherwise
+    raise and abort the whole engine call.  Normalizing once at the boundary
+    keeps the public contract (always return a record) intact.
+
+    Args:
+        value (Any): Raw field value from the payload.
+        default (str): Value returned for ``None``.
+
+    Returns:
+        str: A safe string representation of ``value``.
+    """
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
+def _as_float(value: Any, default: float) -> float:
+    """Safely converts a payload field to ``float`` (bad input -> default).
+
+    A single malformed number from the UI must not raise ``ValueError`` and
+    take down an engine, so conversion is best-effort.
+    """
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _as_int(value: Any, default: int) -> int:
+    """Safely converts a payload field to ``int`` (bad input -> default)."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _as_list(value: Any) -> list:
+    """Normalizes a payload field to a list.
+
+    Strings are intentionally NOT exploded into characters: a malformed
+    ``tools``/``sources`` field should yield no candidates rather than bogus
+    one-character entries.  ``None`` and other scalars become ``[]``.
+    """
+    if isinstance(value, list):
+        return value
+    if isinstance(value, (tuple, set)):
+        return list(value)
+    return []
 
 
 def _record(name, payload, status="ok", extra=None):
@@ -13,7 +92,9 @@ def _record(name, payload, status="ok", extra=None):
 
 # ---- Core Layer ----
 def intelligence_process(payload):
-    text = (payload or {}).get("text", "") if isinstance(payload, dict) else str(payload or "")
+    # `text` may legitimately be None/number from the UI; coerce before any
+    # string op so intent classification never raises on malformed input.
+    text = _as_text(payload.get("text", "")) if isinstance(payload, dict) else _as_text(payload)
     low = text.lower()
     intents = []
     if any(w in low for w in ["open", "launch", "start"]): intents.append("launch_app")
@@ -42,7 +123,9 @@ def context_state_process(payload):
     # validate schema keys
     allowed = {"active_app","active_task","environment","context","version"}
     unknown = [k for k in p if k not in allowed]
-    version = int(p.get("version", 0)) + 1
+    # A non-numeric version from the UI must increment from 0 instead of
+    # raising ValueError mid-snapshot.
+    version = _as_int(p.get("version", 0), 0) + 1
     return _record("context_state", payload, extra={
         "snapshot_keys": list(p.keys()), "unknown_keys": unknown,
         "version": version, "valid": len(unknown)==0})
@@ -107,7 +190,7 @@ def perception_process(payload):
 
 
 def conversation_process(payload):
-    text = (payload or {}).get("text", "") if isinstance(payload, dict) else str(payload or "")
+    text = _as_text(payload.get("text", "")) if isinstance(payload, dict) else _as_text(payload)
     # turn detection: question vs statement
     is_question = text.strip().endswith("?")
     interrupted = bool((payload or {}).get("interrupt")) if isinstance(payload, dict) else False
@@ -116,7 +199,7 @@ def conversation_process(payload):
 
 
 def tts_process(payload):
-    text = (payload or {}).get("text", "") if isinstance(payload, dict) else str(payload or "")
+    text = _as_text(payload.get("text", "")) if isinstance(payload, dict) else _as_text(payload)
     emotion = (payload or {}).get("emotion", "neutral") if isinstance(payload, dict) else "neutral"
     # chunk for streaming
     chunks = [text[i:i+80] for i in range(0, len(text), 80)] or [""]
@@ -139,7 +222,7 @@ def multimodal_process(payload):
 
 # ---- Action Layer ----
 def planning_process(payload):
-    goal = (payload or {}).get("goal", "") if isinstance(payload, dict) else str(payload or "")
+    goal = _as_text(payload.get("goal", "")) if isinstance(payload, dict) else _as_text(payload)
     # decompose into steps
     steps = [s.strip() for s in re.split(r"[,;\n]", goal) if s.strip()]
     if not steps:
@@ -155,9 +238,12 @@ def execution_process(payload):
 
 
 def tool_intelligence_process(payload):
-    tools = (payload or {}).get("tools", []) if isinstance(payload, dict) else []
+    # `tools`/`intent` come straight from the UI and may be null or a string;
+    # iterating a non-list would raise TypeError and coercion keeps selection
+    # deterministic.
+    tools = _as_list((payload or {}).get("tools", [])) if isinstance(payload, dict) else []
     # select best by name match to intent
-    intent = (payload or {}).get("intent", "") if isinstance(payload, dict) else ""
+    intent = _as_text((payload or {}).get("intent", "")) if isinstance(payload, dict) else ""
     selected = None
     for t in tools:
         if isinstance(t, str) and intent.lower() in t.lower():
@@ -169,7 +255,7 @@ def tool_intelligence_process(payload):
 
 
 def system_control_process(payload):
-    cmd = (payload or {}).get("command", "") if isinstance(payload, dict) else str(payload or "")
+    cmd = _as_text(payload.get("command", "")) if isinstance(payload, dict) else _as_text(payload)
     # sandbox: block dangerous
     dangerous = ["rm -rf", "format", "del /", "shutdown", "reg delete"]
     blocked = any(d in cmd.lower() for d in dangerous)
@@ -184,7 +270,7 @@ def smart_home_process(payload):
 
 
 def code_engineering_process(payload):
-    code = (payload or {}).get("code", "") if isinstance(payload, dict) else str(payload or "")
+    code = _as_text(payload.get("code", "")) if isinstance(payload, dict) else _as_text(payload)
     # basic syntax check via compile for python
     ok = True
     err = None
@@ -192,6 +278,12 @@ def code_engineering_process(payload):
         if code.strip():
             compile(code, "<ultron>", "exec")
     except SyntaxError as e:
+        ok = False
+        err = str(e)
+    except (ValueError, TypeError) as e:
+        # compile() raises ValueError for source containing NUL bytes and
+        # TypeError for exotic source objects; both are bad *user input* and
+        # must be reported as a failed check, not crash the engine.
         ok = False
         err = str(e)
     return _record("code_engineering", payload, status="ok" if ok else "error",
@@ -209,9 +301,10 @@ def communication_process(payload):
 
 # ---- Knowledge Layer ----
 def knowledge_research_process(payload):
-    query = (payload or {}).get("query", "") if isinstance(payload, dict) else str(payload or "")
+    query = _as_text((payload or {}).get("query", "")) if isinstance(payload, dict) else _as_text(payload)
     # simple source ranking by length heuristic
-    sources = (payload or {}).get("sources", []) if isinstance(payload, dict) else []
+    # `sources` may be null/string from the UI; sorting a non-list raised.
+    sources = _as_list((payload or {}).get("sources", [])) if isinstance(payload, dict) else []
     ranked = sorted(sources, key=lambda s: len(str(s)), reverse=True)
     return _record("knowledge_research", payload, extra={"query": query, "ranked_sources": ranked[:5]})
 
@@ -231,15 +324,19 @@ def verification_process(payload):
 def anti_hallucination_process(payload):
     confidence = 0.5
     if isinstance(payload, dict):
-        confidence = float(payload.get("confidence", 0.5))
+        # `float(None)` raises; the confidence is a heuristic, so fall back to
+        # the conservative default for malformed values.
+        confidence = _as_float(payload.get("confidence", 0.5), 0.5)
     grounded = confidence >= 0.6
     return _record("anti_hallucination", payload, extra={"confidence": confidence,
                     "grounded": grounded, "action": "allow" if grounded else "block"})
 
 
 def self_correction_process(payload):
-    error = (payload or {}).get("error", "") if isinstance(payload, dict) else str(payload or "")
-    retries = (payload or {}).get("retries", 0) if isinstance(payload, dict) else 0
+    error = _as_text((payload or {}).get("error", "")) if isinstance(payload, dict) else _as_text(payload)
+    # Retry counters may be strings/null from persisted state; coerce so the
+    # retry-limit comparison cannot raise TypeError.
+    retries = _as_int((payload or {}).get("retries", 0), 0) if isinstance(payload, dict) else 0
     can_retry = retries < 3
     return _record("self_correction", payload, extra={"error": error, "can_retry": can_retry,
                     "next_retry": retries + 1 if can_retry else None})
@@ -247,7 +344,7 @@ def self_correction_process(payload):
 
 # ---- Safety Layer ----
 def security_process(payload):
-    action = (payload or {}).get("action", "") if isinstance(payload, dict) else str(payload or "")
+    action = _as_text((payload or {}).get("action", "")) if isinstance(payload, dict) else _as_text(payload)
     risky = any(w in action.lower() for w in ["delete", "format", "sudo", "rm", "shutdown"])
     return _record("security", payload, extra={"action": action, "risky": risky,
                     "requires_confirmation": risky})
@@ -273,60 +370,139 @@ def alerting_emergency_process(payload):
 # ---- Adaptive Layer ----
 def learning_process(payload, store):
     pref = (payload or {}).get("preference") if isinstance(payload, dict) else None
-    if pref:
+    # Only a dict-shaped {key, value} preference is meaningful; a string/null
+    # preference from the UI previously raised AttributeError on `.get`.
+    if isinstance(pref, dict) and pref.get("key") is not None:
         store.setdefault("prefs", {})[pref.get("key")] = pref.get("value")
     return _record("learning", payload, extra={"prefs_count": len(store.get("prefs", {}))})
 
 
 def proactive_process(payload):
     now = time.time()
-    reminders = (payload or {}).get("reminders", []) if isinstance(payload, dict) else []
-    due = [r for r in reminders if r.get("due", now+1) <= now]
+    reminders = _as_list((payload or {}).get("reminders", [])) if isinstance(payload, dict) else []
+    # Reminder entries are user-supplied: skip malformed items and treat a
+    # non-numeric `due` as "not due yet" instead of raising on comparison.
+    due = []
+    for r in reminders:
+        if not isinstance(r, dict):
+            continue
+        due_ts = _as_float(r.get("due", now + 1), now + 1)
+        if due_ts <= now:
+            due.append(r)
     return _record("proactive", payload, extra={"due_reminders": len(due), "suggestions": ["review_pending_tasks"]})
 
 
 # ---- Infra Layer ----
+# psutil is an OPTIONAL dependency: the repository is expected to run on hosts
+# where it is not installed (and it is not installed in the CI/audit Python).
+# Import it defensively so this engine degrades to a report instead of raising
+# ModuleNotFoundError and taking the orchestrator down.
+try:
+    import psutil as _psutil
+    HAS_PSUTIL = True
+except ImportError:
+    _psutil = None
+    HAS_PSUTIL = False
+
+# Bounded cache: the previous dict grew forever because entries were never
+# evicted.  256 entries is ample for route-decision memoization and keeps a
+# long-running daemon's memory flat.
 _RESOURCE_CACHE = {}
+_RESOURCE_CACHE_MAX = 256
+
+
+def _disk_free_bytes():
+    """Returns free bytes on the current drive, or None if it cannot be read.
+
+    ``shutil.disk_usage("/")`` maps to the current drive on Windows; some
+    sandboxed/networked filesystems raise OSError, which must not crash the
+    resource engine.
+    """
+    import shutil
+    try:
+        _total, _used, free = shutil.disk_usage(os.path.abspath(os.sep))
+        return free
+    except OSError:
+        return None
+
+
 def resource_optimization_process(payload):
-    import psutil, shutil
     p = payload if isinstance(payload, dict) else {}
     action = p.get("action", "status")
-    cpu = psutil.cpu_percent(interval=0.1)
-    mem = psutil.virtual_memory()
-    total, used, free = shutil.disk_usage("/")
+    # Read whatever metrics are available.  Missing psutil (or a psutil call
+    # failing on an unsupported platform) leaves the readings as None and
+    # marks the record `degraded`, which is the documented fallback contract.
+    metrics_error = None
+    cpu = None
+    mem = None
+    if HAS_PSUTIL:
+        try:
+            cpu = _psutil.cpu_percent(interval=0.1)
+            mem = _psutil.virtual_memory()
+        except Exception as e:  # psutil can raise NotImplementedError/OSError per-OS
+            metrics_error = str(e)
+    else:
+        metrics_error = "psutil not installed"
+
+    free = _disk_free_bytes()
+    ram_gb = (mem.total / (1024 ** 3)) if mem is not None else None
+    ram_used_percent = mem.percent if mem is not None else None
+
     # model routing decision
-    task_complexity = float(p.get("complexity", 0.5))
+    task_complexity = _as_float(p.get("complexity", 0.5), 0.5)
     privacy = p.get("privacy", "local_preferred")
-    ram_gb = mem.total / (1024**3)
     # heuristic: local if enough ram and privacy prefers local and complexity moderate
-    local_capable = ram_gb >= 8 and cpu < 85
-    route = "local" if (local_capable and (privacy in ("local_only","local_preferred") or task_complexity < 0.7)) else "cloud"
-    quantized = "q4_k_m" if ram_gb < 16 else "q8_0"
-    # caching
+    local_capable = bool(ram_gb is not None and cpu is not None and ram_gb >= 8 and cpu < 85)
+    if privacy == "local_only":
+        # Privacy invariant: "local_only" must NEVER be upgraded to cloud just
+        # because CPU/RAM look busy.  Previously a busy host silently routed a
+        # local-only request to the cloud.
+        route = "local"
+    else:
+        route = "local" if (local_capable and (privacy in ("local_only", "local_preferred") or task_complexity < 0.7)) else "cloud"
+    # Unknown RAM is treated like a small machine so the safest quantized
+    # model is selected.
+    quantized = "q4_k_m" if (ram_gb is None or ram_gb < 16) else "q8_0"
+    # caching (bounded FIFO)
     key = p.get("cache_key")
     cached = None
     if key and key in _RESOURCE_CACHE:
         cached = _RESOURCE_CACHE[key]
     if p.get("cache_value") is not None and key:
         _RESOURCE_CACHE[key] = p.get("cache_value")
-    return _record("resource_optimization", payload, extra={
-        "cpu_percent": cpu, "ram_total_gb": round(ram_gb,2), "ram_used_percent": mem.percent,
-        "disk_free_gb": round(free/1e9,2), "route": route, "quantization": quantized,
+        while len(_RESOURCE_CACHE) > _RESOURCE_CACHE_MAX:
+            del _RESOURCE_CACHE[next(iter(_RESOURCE_CACHE))]
+    return _record("resource_optimization", payload,
+                   status="ok" if metrics_error is None else "degraded",
+                   extra={
+        "cpu_percent": cpu, "ram_total_gb": round(ram_gb, 2) if ram_gb is not None else None,
+        "ram_used_percent": ram_used_percent,
+        "disk_free_gb": round(free / 1e9, 2) if free is not None else None,
+        "route": route, "quantization": quantized,
         "local_capable": local_capable, "cached": cached is not None, "cache_size": len(_RESOURCE_CACHE),
+        "metrics_available": metrics_error is None, "metrics_error": metrics_error,
         "action": action})
 
 
 def reliability_process(payload, store):
     p = payload if isinstance(payload, dict) else {}
     action_key = p.get("action_key")
+    if isinstance(action_key, (dict, list, set)):
+        # Idempotency keys must be hashable for the dedup set; serialize exotic
+        # shapes instead of raising TypeError ("unhashable type").
+        action_key = json.dumps(action_key, sort_keys=True, default=str)
     seen = store.setdefault("seen", set())
     duplicate = action_key in seen if action_key else False
     if action_key and not duplicate:
         seen.add(action_key)
-    # timeout/retry config
-    timeout = float(p.get("timeout", 30.0))
-    retries = int(p.get("retries", 0))
-    max_retries = int(p.get("max_retries", 3))
+    # Bound the dedup set as well: an always-new action_key stream would grow
+    # this set without limit in a long-running daemon.
+    if len(seen) > 10000:
+        store["seen"] = set(list(seen)[-5000:])
+    # timeout/retry config: values may be null/strings from persisted state.
+    timeout = _as_float(p.get("timeout", 30.0), 30.0)
+    retries = _as_int(p.get("retries", 0), 0)
+    max_retries = _as_int(p.get("max_retries", 3), 3)
     can_retry = retries < max_retries
     # checkpoint
     cp = {"ts": time.time(), "payload": payload, "action_key": action_key}
@@ -350,7 +526,12 @@ def offline_fallback_process(payload):
     # connectivity detection
     import socket
     online = p.get("online")
+    if online is not None:
+        online = bool(online)
     if online is None:
+        # Fast-fail probe.  NOTE: this helper is synchronous by contract, so
+        # the probe blocks the caller for up to `timeout`; keeping the timeout
+        # short bounds the damage when DNS/egress is blackholed.
         try:
             socket.create_connection(("8.8.8.8", 53), timeout=2)
             online = True
@@ -368,6 +549,13 @@ def offline_fallback_process(payload):
 import re as _re
 _LOGS = []
 _TRACES = {}
+_LOG_CAP = 10000
+# Cap the number of distinct trace ids and events per trace: both structures
+# were previously unbounded, leaking memory in a continuously running daemon.
+_TRACE_IDS_CAP = 5000
+_TRACE_EVENTS_CAP = 1000
+
+
 def observability_process(payload):
     p = payload if isinstance(payload, dict) else {}
     action = p.get("action", "log")
@@ -376,16 +564,25 @@ def observability_process(payload):
         if isinstance(v, str):
             return _re.sub(r"(?i)(api[_-]?key|password|token|secret)\s*[:=]\s*\S+", r"\1=[REDACTED]", v)
         if isinstance(v, dict):
-            return {k: ("[REDACTED]" if any(s in k.lower() for s in ("key","password","token","secret")) else redact(val)) for k,val in v.items()}
+            return {k: ("[REDACTED]" if any(s in str(k).lower() for s in ("key","password","token","secret")) else redact(val)) for k,val in v.items()}
+        if isinstance(v, (list, tuple)):
+            # Nested containers are common in telemetry payloads; without this
+            # branch secrets inside lists were stored verbatim (leak).
+            return [redact(item) for item in v]
         return v
     entry = {"ts": time.time(), "level": p.get("level","info"), "message": redact(p.get("message", "")),
              "extra": redact(p.get("extra", {}))}
     _LOGS.append(entry)
-    if len(_LOGS) > 10000:
-        del _LOGS[:5000]
+    if len(_LOGS) > _LOG_CAP:
+        del _LOGS[:_LOG_CAP // 2]
     trace_id = p.get("trace_id")
     if trace_id:
-        _TRACES.setdefault(trace_id, []).append({"ts": time.time(), "event": p.get("event"), "latency_ms": p.get("latency_ms")})
+        events = _TRACES.setdefault(trace_id, [])
+        events.append({"ts": time.time(), "event": p.get("event"), "latency_ms": p.get("latency_ms")})
+        if len(events) > _TRACE_EVENTS_CAP:
+            del events[:_TRACE_EVENTS_CAP // 2]
+        while len(_TRACES) > _TRACE_IDS_CAP:
+            del _TRACES[next(iter(_TRACES))]
     latency = p.get("latency_ms")
     return _record("observability", payload, extra={"log_count": len(_LOGS), "traced": True,
                     "trace_id": trace_id, "trace_events": len(_TRACES.get(trace_id, [])) if trace_id else 0,
@@ -394,7 +591,7 @@ def observability_process(payload):
 
 def testing_evaluation_process(payload):
     p = payload if isinstance(payload, dict) else {}
-    cases = p.get("cases", [])
+    cases = _as_list(p.get("cases", []))
     passed = 0
     failures = []
     for c in cases:

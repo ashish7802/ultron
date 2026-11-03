@@ -20,6 +20,10 @@ class PlanningEngine(BaseEngine):
         pass
 
     def decompose(self, goal):
+        # Goals arrive from JSON and may be null/objects; `.replace()` would
+        # raise AttributeError on those.
+        if not isinstance(goal, str):
+            goal = "" if goal is None else str(goal)
         parts = [s.strip() for s in (goal or "").replace(";", ",").split(",") if s.strip()]
         if not parts:
             parts = [goal] if goal else ["noop"]
@@ -41,6 +45,12 @@ class PlanningEngine(BaseEngine):
                 "created_at": time.time(), "current": 0}
         async with self._lock:
             self._plans[pid] = plan
+            # Plans are never queried by anything but id and would otherwise
+            # accumulate forever in a long-running orchestrator; keep a FIFO
+            # window of the most recent plans.
+            if len(self._plans) > 1000:
+                for old_pid in list(self._plans)[:-500]:
+                    del self._plans[old_pid]
         await self.bus.publish("planning.created", plan, source=self.name)
         await self.state.set("active_plan", pid)
         return plan
@@ -66,6 +76,9 @@ class PlanningEngine(BaseEngine):
         return self._plans[pid]
 
     async def replan(self, pid, failed_step):
+        # `failed_step` may be null/string instead of the expected dict.
+        if not isinstance(failed_step, dict):
+            failed_step = {}
         async with self._lock:
             plan = self._plans.get(pid)
             if not plan:

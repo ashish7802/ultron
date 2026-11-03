@@ -6,29 +6,40 @@
  * Autonomous Knowledge & Real-Time Web Intelligence Engine.
  *
  * Key Responsibilities:
- * - Gated by Zero-Trust Biometric Session Verification: Blocks unauthorized research queries.
- * - Spawns the native Python Quantum Research Agent (`ultron_engine/quantum_research_agent.py`) via secure execFile.
- * - Executes multi-vector search decomposition, concurrent live web scraping, and domain credibility scoring.
- * - Streams real-time quantum research telemetry events via Server-Sent Events (SSE) or returns structured JSON.
- * - Archives verified research findings into ULTRON's encrypted SQLite memory store (`ultron_memory.db`).
+ * - Resolves the Python interpreter portably (env override -> known install paths -> PATH).
+ * - Spawns the native Python Quantum Research Agent (`ultron_engine/quantum_research_agent.py`)
+ *   via `execFile` (no shell), with request-abort propagation and a hard timeout.
+ * - Enforces the requested `maxSources` bound on the returned dossier.
+ * - Streams staged research telemetry via Server-Sent Events (SSE) or returns structured JSON.
  *
  * Safety & Security Guarantees:
- * - Read-Only Live Web Exploration: Never executes form submissions, logins, or state alterations.
- * - SSRF Protection: Rejects loopback (127.0.0.1) and private intranet IP targets.
- * - Fail-Closed Intruder Defense: Access is locked if an active intruder challenge is underway.
+ * - Local single-user design: authentication is not required (fingerprint/Zero-Trust gating
+ *   removed per user request).
+ * - Read-Only Live Web Exploration: SSRF filtering is implemented inside the Python agent
+ *   (`quantum_research_agent.py` rejects loopback/private/link-local targets before scraping).
+ *   This route adds no URL inputs of its own, so it cannot be used to reach internal hosts.
+ * - No shell interpolation: the query is passed as a single argv element to `execFile`.
+ * - Research failures are reported with an honest HTTP status (400/502/503/504), not silently
+ *   hidden behind a 200 response.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { execFile } from "child_process";
 import { promisify } from "util";
+import fs from "fs";
 import path from "path";
-import { verifyZeroTrustToken, getCryptoStatus } from "@/lib/crypto";
-import { intruderDefense } from "@/lib/intruderDefense";
+import { getCryptoStatus } from "@/lib/crypto";
 
 const execFileAsync = promisify(execFile);
 
-// Path to Python 3.12 interpreter and research agent script
-const PYTHON_EXE = "C:\\Users\\kelvy\\AppData\\Local\\Programs\\Python\\Python312\\python.exe";
+/** Wall-clock budget for a full research run (multi-vector search + scraping + synthesis). */
+const RESEARCH_TIMEOUT_MS = 30000;
+/** Hard cap on query length; the Python CLI receives it as argv, and huge argv values fail. */
+const MAX_QUERY_LENGTH = 2000;
+/** Default/limits for the dossier source list. */
+const DEFAULT_MAX_SOURCES = 6;
+const MAX_MAX_SOURCES = 12;
+
 const RESEARCH_SCRIPT = path.join(process.cwd(), "ultron_engine", "quantum_research_agent.py");
 
 export interface ResearchRequestBody {
@@ -39,28 +50,158 @@ export interface ResearchRequestBody {
 }
 
 /**
- * Executes the Python Quantum Research Agent via execFile.
+ * Resolves the Python 3 interpreter used to run the research agent.
+ *
+ * WHY: the old code hard-coded `C:\Users\kelvy\...\Python312\python.exe`, which only works on
+ * one machine. Resolution order:
+ * 1. `ULTRON_PYTHON_PATH` / `ULTRON_PYTHON` environment override (deployments, CI).
+ * 2. Common per-user Windows install locations (if they exist on this host).
+ * 3. `python.exe` / `python3` from PATH as the last resort (spawn error is reported clearly).
+ *
+ * @returns Absolute interpreter path when detected, otherwise a PATH-resolved executable name.
+ */
+export function resolvePythonExecutable(): string {
+  const configured = (process.env.ULTRON_PYTHON_PATH || process.env.ULTRON_PYTHON || "").trim();
+  if (configured) return configured;
+
+  const candidates: string[] = [];
+  if (process.platform === "win32") {
+    const localAppData = process.env.LOCALAPPDATA || "";
+    if (localAppData) {
+      for (const version of ["Python313", "Python312", "Python311", "Python310"]) {
+        candidates.push(path.join(localAppData, "Programs", "Python", version, "python.exe"));
+      }
+    }
+  } else {
+    candidates.push("/usr/bin/python3", "/usr/local/bin/python3");
+  }
+
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) return candidate;
+    } catch {
+      // A stat failure on one candidate should simply move on to the next one.
+    }
+  }
+
+  return process.platform === "win32" ? "python.exe" : "python3";
+}
+
+/**
+ * Clamps an untrusted `maxSources` value into the supported range.
+ *
+ * @param value - Raw request value (may be missing or of any type).
+ * @returns Integer between 1 and MAX_MAX_SOURCES (defaults to DEFAULT_MAX_SOURCES).
+ */
+function normalizeMaxSources(value: unknown): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed)) return DEFAULT_MAX_SOURCES;
+  return Math.min(MAX_MAX_SOURCES, Math.max(1, Math.floor(parsed)));
+}
+
+/**
+ * Enforces the requested source bound on a dossier returned by the Python agent.
+ *
+ * WHY: the agent's CLI only accepts the query today, so the API's documented `maxSources`
+ * contract is applied here instead of being silently ignored. When the Python CLI learns a
+ * `--max-sources` flag this trimming becomes a defence-in-depth check.
+ *
+ * @param dossier - Parsed dossier object from the agent.
+ * @param maxSources - Validated upper bound.
+ * @returns Dossier with a trimmed source list, or the original value when not an object.
+ */
+function limitDossierSources(dossier: unknown, maxSources: number): unknown {
+  if (!dossier || typeof dossier !== "object") return dossier;
+  const record = dossier as Record<string, unknown>;
+  if (!Array.isArray(record.sources)) return dossier;
+
+  const sources = record.sources.slice(0, maxSources);
+  return {
+    ...record,
+    sources,
+    sources_analyzed_count:
+      typeof record.sources_analyzed_count === "number"
+        ? Math.min(record.sources_analyzed_count, sources.length)
+        : sources.length,
+  };
+}
+
+/**
+ * Runs the Python Quantum Research Agent via `execFile`.
  *
  * @param query - Raw user search prompt.
+ * @param maxSources - Upper bound on returned sources (default 6).
+ * @param signal - Optional abort signal so client disconnects stop the child process.
  * @returns Parsed JSON research dossier.
+ * @throws Error from `execFile`/JSON parsing (callers classify it for HTTP responses).
  */
-export async function runQuantumResearchAgent(query: string) {
+export async function runQuantumResearchAgent(
+  query: string,
+  maxSources: number = DEFAULT_MAX_SOURCES,
+  signal?: AbortSignal
+) {
   const { stdout } = await execFileAsync(
-    PYTHON_EXE,
+    resolvePythonExecutable(),
     [RESEARCH_SCRIPT, query],
     {
-      timeout: 30000,
+      timeout: RESEARCH_TIMEOUT_MS,
       maxBuffer: 10 * 1024 * 1024,
       encoding: "utf-8",
+      windowsHide: true,
+      signal,
+      env: {
+        ...process.env,
+        // Force UTF-8 so Hinglish/Devanagari queries and scraped text survive the pipe.
+        PYTHONIOENCODING: "utf-8",
+      },
     }
   );
-  return JSON.parse(stdout.trim());
+
+  const parsed = JSON.parse(stdout.trim());
+  return limitDossierSources(parsed, normalizeMaxSources(maxSources)) as Record<string, unknown>;
+}
+
+/**
+ * Maps a research execution failure to an honest HTTP status and client-safe message.
+ *
+ * WHY: `err.message` from child_process contains absolute paths, interpreter details and
+ * stderr, which should stay in server logs rather than leak through the API.
+ *
+ * @param err - Error thrown by execFile/JSON.parse.
+ * @returns Client-safe error code/message and HTTP status.
+ */
+function describeResearchFailure(err: unknown): { code: string; message: string; status: number } {
+  const error = err as NodeJS.ErrnoException & { killed?: boolean; signal?: string; name?: string };
+
+  if (error?.name === "AbortError" || error?.code === "ABORT_ERR") {
+    return { code: "RESEARCH_ABORTED", message: "Research request was cancelled by the client.", status: 499 };
+  }
+  if (error?.code === "ENOENT") {
+    return {
+      code: "PYTHON_INTERPRETER_NOT_FOUND",
+      message:
+        "Python 3 interpreter not found. Set ULTRON_PYTHON_PATH to the installed python.exe path.",
+      status: 503,
+    };
+  }
+  if (error?.killed || error?.signal === "SIGTERM" || error?.code === "ETIMEDOUT") {
+    return {
+      code: "RESEARCH_TIMEOUT",
+      message: `Web research exceeded the ${Math.round(RESEARCH_TIMEOUT_MS / 1000)}s execution budget.`,
+      status: 504,
+    };
+  }
+  return {
+    code: "RESEARCH_EXECUTION_FAILED",
+    message: "Failed to execute autonomous web research.",
+    status: 502,
+  };
 }
 
 /**
  * Handles incoming Quantum Research requests.
  *
- * @param req - NextRequest containing JSON payload with target inquiry and session token.
+ * @param req - NextRequest containing JSON payload with target inquiry and max sources.
  * @returns NextResponse with structured research dossier or SSE telemetry stream.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -72,76 +213,86 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Invalid JSON request body" }, { status: 400 });
     }
 
-    const { query, maxSources = 6, stream = false } = body;
-
+    const { query, maxSources: requestedMaxSources = DEFAULT_MAX_SOURCES, stream = false } = body || {};
     if (!query || typeof query !== "string" || !query.trim()) {
       return NextResponse.json({ error: "A valid, non-empty query string is required" }, { status: 400 });
     }
 
-    // Direct User Laptop Access: Biometric fingerprint gating disabled per user request
     const sanitizedQuery = query.trim();
+    if (sanitizedQuery.length > MAX_QUERY_LENGTH) {
+      return NextResponse.json(
+        { error: `Query exceeds the ${MAX_QUERY_LENGTH} character limit` },
+        { status: 400 }
+      );
+    }
+    const maxSources = normalizeMaxSources(requestedMaxSources);
 
-    // SSE Streaming Mode for Live Telemetry
+    // Run the agent BEFORE opening an SSE stream.
+    // WHY: HTTP headers (including status) are flushed as soon as the streaming response is
+    // created; an execution failure discovered after that can only be sent as an in-band
+    // event on a 200 response. Awaiting first lets genuine failures return 502/503/504.
+    let dossier: Record<string, unknown>;
+    try {
+      dossier = await runQuantumResearchAgent(sanitizedQuery, maxSources, req.signal);
+    } catch (researchErr) {
+      console.error("[RESEARCH ROUTE EXECUTION ERROR]", researchErr);
+      const failure = describeResearchFailure(researchErr);
+      return NextResponse.json(
+        { success: false, error: failure.code, message: failure.message },
+        { status: failure.status }
+      );
+    }
+
+    // SSE Streaming Mode for staged telemetry (the Python agent is batch, so stages replay
+    // the real pipeline phases once synthesis has completed).
     if (stream) {
       const encoder = new TextEncoder();
+      const stages = [
+        {
+          stage: "DECOMPOSITION",
+          message: "Decomposing inquiry into orthogonal quantum search vectors...",
+          progress: 20,
+        },
+        {
+          stage: "WEB_HARVEST",
+          message: "Deploying concurrent live web probes across DuckDuckGo and authoritative domains...",
+          progress: 50,
+        },
+        {
+          stage: "SYNTHESIS",
+          message: "Cross-correlating facts and computing credibility index...",
+          progress: 85,
+        },
+        {
+          stage: "COMPLETE",
+          message: "Quantum research synthesis finalized.",
+          progress: 100,
+          dossier,
+        },
+      ];
+
+      let cancelled = false;
       const sseStream = new ReadableStream({
-        async start(controller) {
+        start(controller) {
           try {
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({
-                  stage: "DECOMPOSITION",
-                  message: "Decomposing inquiry into orthogonal quantum search vectors...",
-                  progress: 20,
-                })}\n\n`
-              )
-            );
-
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({
-                  stage: "WEB_HARVEST",
-                  message: "Deploying concurrent live web probes across DuckDuckGo and authoritative domains...",
-                  progress: 50,
-                })}\n\n`
-              )
-            );
-
-            const dossier = await runQuantumResearchAgent(sanitizedQuery);
-
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({
-                  stage: "SYNTHESIS",
-                  message: "Cross-correlating facts and computing credibility index...",
-                  progress: 85,
-                })}\n\n`
-              )
-            );
-
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({
-                  stage: "COMPLETE",
-                  message: "Quantum research synthesis finalized.",
-                  progress: 100,
-                  dossier,
-                })}\n\n`
-              )
-            );
-
-            controller.close();
-          } catch (err: any) {
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({
-                  stage: "ERROR",
-                  error: err.message || "Research failed",
-                })}\n\n`
-              )
-            );
-            controller.close();
+            for (const event of stages) {
+              if (cancelled || req.signal.aborted) break;
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+            }
+            if (!cancelled) controller.close();
+          } catch (streamErr) {
+            console.warn("[RESEARCH SSE] Stream terminated early:", streamErr);
+            try {
+              controller.close();
+            } catch {
+              // Already closed/cancelled by the client; nothing left to do.
+            }
           }
+        },
+        cancel() {
+          // Client disconnected (HUD navigation/abort): stop emitting and let the response
+          // be garbage-collected instead of enqueueing into a closed controller.
+          cancelled = true;
         },
       });
 
@@ -150,14 +301,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           "Content-Type": "text/event-stream",
           "Cache-Control": "no-cache",
           Connection: "keep-alive",
-          "X-Ultron-Security": "AES-256-GCM-DPAPI",
+          "X-Ultron-Security": "AES-256-GCM",
         },
       });
     }
 
     // Synchronous JSON response mode
-    const dossier = await runQuantumResearchAgent(sanitizedQuery);
-
     return NextResponse.json(
       {
         success: true,
@@ -166,17 +315,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       },
       {
         headers: {
-          "X-Ultron-Security": "AES-256-GCM-DPAPI",
+          "X-Ultron-Security": "AES-256-GCM",
           "X-Ultron-Research-Status": "VERIFIED_LIVE",
         },
       }
     );
-  } catch (err: any) {
+  } catch (err) {
     console.error("[RESEARCH ROUTE EXCEPTION]", err);
     return NextResponse.json(
       {
+        success: false,
         error: "RESEARCH_EXECUTION_FAILED",
-        message: err.message || "Failed to execute autonomous web research",
+        message: "Failed to execute autonomous web research",
       },
       { status: 500 }
     );

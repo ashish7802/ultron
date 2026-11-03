@@ -2,20 +2,36 @@
 ===============================================================================
 ULTRON CYBERNETIC INTELLIGENCE SYSTEM
 Test Suite: tests_intruder_defense.py
-Purpose: Adaptive Intruder Defense, Anti-Replay, Session Revocation & Audit Verification
+Purpose: Adaptive Intruder Defense, Anti-Replay, Revocation & Audit Verification
 ===============================================================================
 
 Architectural Role & Verification Scope:
-- Validates all 9 dimensions of the Adaptive Intruder Defense System:
-  1. Immediate Lockdown on First Failed Biometric Attempt (CHALLENGE_MODE triggered).
-  2. Active Session Token Revocation (Revocation blacklist enforcement).
-  3. Fail-Closed API Gating (Blocked in lockdown with HTTP 423/401).
-  4. Anti-Replay Challenge Nonce Protection (Single-use 60s TTL).
-  5. Biometric Policy: Strictly rejects ordinary RGB webcam images as biometric proof.
-  6. Encrypted Security Audit Log & Cryptographic HMAC Chaining.
-  7. Tamper Detection on the Audit Ledger (1-bit corruption triggers lockdown).
-  8. Progressive Rate Limiting & Cooldown Escalation (5s -> 30s -> 300s).
-  9. Inactivity Auto-Lockout Enforcement (2-minute idle timeout).
+- ULTRON is LOCAL-ONLY: fingerprint / WebAuthn / Zero-Trust HTTP gating was
+  removed from the app, and no API route is auth-gated. This suite therefore
+  validates ONLY the in-process defense primitives of
+  `ultron_engine.intruder_defense` (they still power the encrypted audit ledger
+  and the local privilege-escalation guard, but are not wired to HTTP auth).
+- Validates 8 dimensions of the Adaptive Intruder Defense System:
+  1. Immediate Lockdown on the first failed biometric attempt (CHALLENGE_MODE).
+  2. Session Revocation & the revocation epoch (tokens issued before lockdown die).
+  3. Anti-Replay Challenge Nonce Protection (single-use, TTL-bound).
+  4. Biometric policy: ordinary RGB webcam images are rejected as biometric proof.
+  5. Encrypted security audit log with a cryptographic HMAC chain.
+  6. Tamper detection on the audit ledger (1-bit corruption is rejected).
+  7. Progressive rate limiting & cooldown escalation (5s -> 30s -> 300s).
+  8. Inactivity auto-lockout (2-minute idle timeout).
+- No HTTP endpoint is contacted and no auth token is issued by the product: the
+  hand-built opaque payload in test 2 only exercises the engine's epoch math.
+
+Exit Code Contract:
+  0 -> all checks passed (SKIPs allowed only for environment preconditions).
+  1 -> a genuine defense/audit failure.
+
+Safety / Security Guarantees:
+- The audit ledger is the real encrypted runtime file; the tamper test saves and
+  restores it in a `finally` block so the live ledger is never left corrupted.
+- No biometric prompt is triggered: all checks are pure in-process state machine
+  and cryptography assertions.
 ===============================================================================
 """
 
@@ -24,264 +40,308 @@ import sys
 import time
 import json
 import base64
-import sqlite3
-import asyncio
-import urllib.request
-import urllib.error
-import tempfile
+import traceback
+
+# Emit UTF-8 so the summary separator glyphs render on every Windows console.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ultron_engine.intruder_defense import IntruderDefenseEngine, default_intruder_defense, AUDIT_LOG_FILE
-from ultron_engine.secure_vault import default_vault
-from ultron_engine.crypto import default_crypto
-from ultron_engine.core import EventBus, SharedState
-from ultron_engine.engines.memory import MemoryEngine
-from ultron_engine.engines.security import SecurityEngine
+from ultron_engine.intruder_defense import IntruderDefenseEngine, AUDIT_LOG_FILE
+from ultron_engine.windows_hello import get_windows_hello_availability
+
+SKIPPED = []
+FAILED = []
+
+
+def skip(label, reason):
+    """Record and print an explicit SKIP marker for a precondition-dependent check."""
+    SKIPPED.append(f"{label}: {reason}")
+    print(f"  -> SKIPPED ({label}): {reason}")
+
+
+def _opaque_session_token(issued_at):
+    """
+    Builds a `[PAYLOAD_B64].[SIGNATURE]` shaped token for revocation-epoch math only.
+
+    WHY: the product no longer issues or verifies Zero-Trust tokens over HTTP. The
+    defense engine's `is_token_revoked` still reads the `iat` claim to enforce its
+    "invalidate every session issued before lockdown" policy, so this helper feeds
+    a synthetic timestamp into that pure in-process logic. Authenticity is not
+    claimed or checked here (there is no auth layer left to check it).
+
+    Args:
+        issued_at (float): UNIX timestamp to embed as the token's `iat` claim.
+
+    Returns:
+        str: Opaque token-shaped string with the requested issue time.
+    """
+    payload = {"sub": "primary_user", "iat": float(issued_at), "exp": float(issued_at) + 900.0}
+    encoded = base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("ascii").rstrip("=")
+    return f"{encoded}.{'0' * 64}"
 
 
 def test_immediate_lockout_on_first_failure():
-    print("[INTRUDER TEST 1/9] Verifying Immediate Lockdown on First Failed Biometric Attempt...")
+    """One failed biometric attempt must immediately enter CHALLENGE_MODE + cooldown."""
+    print("[INTRUDER TEST 1/8] Verifying Immediate Lockdown on First Failed Biometric Attempt...")
     defense = IntruderDefenseEngine()
-    assert defense._status == "NORMAL", "Initial state must be NORMAL"
+    assert defense.get_status()["defense_state"] == "NORMAL", "Initial state must be NORMAL"
 
-    # Simulate first failed biometric scan
     res = defense.record_failed_authentication("fingerprint_mismatch_adversarial_test")
     assert res["status"] == "CHALLENGE_MODE", "State must immediately transition to CHALLENGE_MODE on 1st fail"
-    assert res["consecutive_failures"] == 1
-    assert res["cooldown_remaining"] > 0, "Progressive cooldown must be engaged"
+    assert res["consecutive_failures"] == 1, f"Failure counter must be 1, got {res['consecutive_failures']}"
+    assert res["cooldown_remaining"] > 0, "Progressive cooldown must be engaged on the first failure"
 
-    # Verify access is denied
-    allowed, reason = defense.check_access_permission("any_token")
-    assert not allowed, "Access must be denied in CHALLENGE_MODE"
-    print("  -> PASSED: First failed biometric attempt immediately triggered CHALLENGE_MODE and locked access.")
+    allowed, reason = defense.check_access_permission(None)
+    assert not allowed, "Access must be denied while CHALLENGE_MODE / cooldown is active"
+    assert "RATE_LIMITED" in reason or "SYSTEM_LOCKED" in reason, f"Unexpected denial reason: {reason}"
+    print("  -> PASSED: First failed attempt triggered CHALLENGE_MODE and locked access.")
 
 
-def test_active_session_revocation():
-    print("[INTRUDER TEST 2/9] Verifying Active Session Token Revocation...")
-    sec = SecurityEngine(EventBus(), SharedState())
-    token = sec.issue_session_token("primary_user")
-
+def test_session_revocation_and_epoch():
+    """Explicit revocation plus the revocation epoch must both invalidate sessions."""
+    print("[INTRUDER TEST 2/8] Verifying Session Revocation & Revocation Epoch...")
     defense = IntruderDefenseEngine()
-    # Before failure, token is not revoked
-    assert not defense.is_token_revoked(token)
 
-    # Intrusion event: revoke token
-    defense.revoke_token(token, reason="test_adversarial_revocation")
-    assert defense.is_token_revoked(token) is True, "Token must be on the revocation blacklist"
+    pre_lockdown_token = _opaque_session_token(time.time() - 60)
+    post_lockdown_token = _opaque_session_token(time.time() + 60)
 
-    # Verify access gate rejects the revoked token
-    allowed, reason = defense.check_access_permission(token)
-    assert not allowed
-    assert "REVOKED" in reason or "LOCKED" in reason
-    print("  -> PASSED: Active session token revoked and blacklisted successfully.")
+    # Before any security event, neither synthetic session is revoked.
+    assert defense.is_token_revoked(pre_lockdown_token) is False
+    assert defense.is_token_revoked(post_lockdown_token) is False
 
-
-def test_api_chat_blocked_in_lockdown():
-    print("[INTRUDER TEST 3/9] Verifying /api/chat Blocked During Intrusion Lockdown...")
-    # 1. Trigger lockdown on server via /api/auth/biometric?action=fail
-    url_fail = "http://localhost:3000/api/auth/biometric?action=fail"
-    req_fail = urllib.request.Request(
-        url_fail,
-        data=json.dumps({"reason": "simulated_adversarial_failure"}).encode(),
-        headers={"Content-Type": "application/json"}
+    # A failed biometric attempt advances the revocation epoch to "now": every
+    # session issued before it is invalidated, even though this process never
+    # enumerated that token.
+    defense.record_failed_authentication("epoch_probe")
+    epoch = defense.get_status()["tokens_revoked_at"]
+    assert epoch > 0, "Failed authentication must advance the revocation epoch"
+    assert defense.is_token_revoked(pre_lockdown_token) is True, (
+        "A token issued before the revocation epoch MUST be treated as revoked"
     )
-    try:
-        with urllib.request.urlopen(req_fail) as resp:
-            pass
-    except urllib.error.HTTPError as e:
-        assert e.code == 423, f"Expected 423 Locked, got {e.code}"
-
-    # 2. Attempt to query /api/chat while lockdown is active
-    url_chat = "http://localhost:3000/api/chat"
-    req_chat = urllib.request.Request(
-        url_chat,
-        data=json.dumps({"messages": [{"role": "user", "content": "Query"}]}).encode(),
-        headers={"Content-Type": "application/json"}
+    assert defense.is_token_revoked(post_lockdown_token) is False, (
+        "A token issued after the revocation epoch must remain valid (fresh login)"
     )
-    blocked_as_expected = False
-    try:
-        with urllib.request.urlopen(req_chat) as resp:
-            pass
-    except urllib.error.HTTPError as e:
-        if e.code in (401, 423, 429):
-            blocked_as_expected = True
 
-    assert blocked_as_expected, "CRITICAL: /api/chat did not block access during intrusion lockdown!"
+    # Explicit blacklist revocation is independent of the epoch.
+    explicit = _opaque_session_token(time.time() + 120)
+    defense.revoke_token(explicit, reason="test_explicit_revocation")
+    assert defense.is_token_revoked(explicit) is True, "Blacklisted token must be revoked"
 
-    # 3. Restore normal status for subsequent tests
-    url_lock = "http://localhost:3000/api/auth/biometric?action=enroll"
-    # Challenge and enroll to restore NORMAL
-    with urllib.request.urlopen("http://localhost:3000/api/auth/biometric?action=challenge") as r:
-        chal = json.loads(r.read().decode())["challenge"]
-    req_restore = urllib.request.Request(
-        url_lock,
-        data=json.dumps({"credentialId": "restore_cred_1", "publicKey": "KEY", "challenge": chal}).encode(),
-        headers={"Content-Type": "application/json"}
+    # The gate rejects the stale session while the cooldown is active.
+    allowed, reason = defense.check_access_permission(pre_lockdown_token)
+    assert not allowed, "Pre-lockdown session must be denied after a security event"
+    assert "REVOKED" in reason or "LOCKED" in reason or "RATE_LIMITED" in reason, (
+        f"Unexpected denial reason: {reason}"
     )
-    with urllib.request.urlopen(req_restore) as r:
-        pass
-    print("  -> PASSED: /api/chat fail-closed with 423/401 during lockdown.")
+    print("  -> PASSED: explicit revocation + epoch invalidation both enforced.")
 
 
 def test_anti_replay_challenge_mode():
-    print("[INTRUDER TEST 4/9] Verifying Single-Use Anti-Replay Challenge Protection...")
+    """A challenge nonce must be consumable exactly once (replay rejected)."""
+    print("[INTRUDER TEST 3/8] Verifying Single-Use Anti-Replay Challenge Protection...")
     defense = IntruderDefenseEngine()
-    chal = defense.generate_challenge(ttl_seconds=60)
-    assert len(chal) > 20
+    challenge = defense.generate_challenge(ttl_seconds=60)
+    assert len(challenge) > 20, "Challenge nonce must carry at least 128 bits of entropy"
 
-    # First verification must succeed and consume the challenge
-    first_ok = defense.verify_and_consume_challenge(chal)
-    assert first_ok is True, "First presentation of valid challenge must succeed"
+    assert defense.verify_and_consume_challenge(challenge) is True, (
+        "First presentation of a fresh challenge must succeed"
+    )
+    assert defense.verify_and_consume_challenge(challenge) is False, (
+        "Replay of a consumed challenge MUST be rejected"
+    )
+    print("  -> PASSED: challenge consumed immediately on first presentation; replay rejected.")
 
-    # Second presentation (Replay attack) must fail immediately
-    second_ok = defense.verify_and_consume_challenge(chal)
-    assert second_ok is False, "Replay of consumed challenge MUST be rejected"
-    print("  -> PASSED: Anti-replay verified: challenge consumed immediately upon presentation.")
 
-
-def test_biometric_hardware_policy_rejection_of_webcam():
-    print("[INTRUDER TEST 5/9] Verifying Biometric Hardware Policy (Rejecting RGB Webcam Proof)...")
+def test_biometric_hardware_policy_rejects_webcam():
+    """The policy must reject ordinary RGB webcam faces and require a platform sensor."""
+    print("[INTRUDER TEST 4/8] Verifying Biometric Hardware Policy (Rejecting RGB Webcam Proof)...")
     defense = IntruderDefenseEngine()
     policy = defense.get_hardware_biometric_policy()
 
-    # Fingerprint: Synaptics Touch Sensor must be verified
-    fp = policy["fingerprint_sensor"]
-    assert fp["supported"] is True
-    assert "Synaptics" in fp["device_name"]
-    assert fp["trust_level"] == "PLATFORM_ENCLAVE_VERIFIED"
-
-    # Facial Biometrics: Ordinary webcam MUST be rejected
     face = policy["facial_recognition"]
-    assert face["supported"] is False
+    assert face["supported"] is False, "Ordinary RGB webcam facial recognition MUST be rejected"
     assert face["trust_level"] == "UNTRUSTED_ORDINARY_RGB"
-    assert "RGB" in face["reason"]
-    print("  -> PASSED: Standard RGB webcam rejected as untrusted; only Synaptics platform sensor permitted.")
+    assert "RGB" in face["reason"], f"Rejection must explain the RGB spoofing risk: {face['reason']}"
+    assert policy.get("policy") == "FAIL_CLOSED_HARDWARE_BOUND"
+
+    fingerprint = policy["fingerprint_sensor"]
+    if fingerprint["supported"] is True:
+        assert fingerprint["trust_level"] == "PLATFORM_ENCLAVE_VERIFIED"
+        print(f"  -> PASSED: webcam rejected; platform sensor '{fingerprint['device_name']}' permitted.")
+        return
+
+    # The policy resolves the fingerprint sensor through CIM/PnP enumeration, which
+    # can be access-denied in a restricted process even when WinBio sees the sensor.
+    # Cross-check with the authoritative WinBio probe before calling it a failure.
+    winbio = get_windows_hello_availability()
+    if winbio.get("supported") is True:
+        skip(
+            "environment",
+            "CIM/PnP biometric enumeration is unavailable in this restricted process "
+            f"(policy reports no sensor) while WinBio reports '{winbio.get('deviceName')}'; "
+            "webcam-rejection policy is still fully verified",
+        )
+        print("  -> PASSED: webcam-rejection policy enforced; fingerprint policy check skipped (restricted WMI).")
+    else:
+        skip(
+            "environment",
+            "no biometric fingerprint sensor is detectable in this environment; "
+            "webcam-rejection policy is still fully verified",
+        )
 
 
 def test_encrypted_security_audit_log_and_hmac_chain():
-    print("[INTRUDER TEST 6/9] Verifying Encrypted Security Audit Log & HMAC Chaining...")
+    """The audit ledger must be encrypted at rest and HMAC-chained in memory."""
+    print("[INTRUDER TEST 5/8] Verifying Encrypted Security Audit Log & HMAC Chaining...")
     defense = IntruderDefenseEngine()
-    # Log several events
-    e1 = defense.log_event("POLICY_CHECK", {"status": "ok"})
-    e2 = defense.log_event("SESSION_CREATED", {"user": "primary_user"})
+    defense.log_event("POLICY_CHECK", {"status": "ok"})
+    defense.log_event("SESSION_CREATED", {"user": "primary_user"})
 
-    assert os.path.exists(AUDIT_LOG_FILE), "Audit log file must exist on disk"
+    assert os.path.exists(AUDIT_LOG_FILE), f"Audit log file must exist on disk at {AUDIT_LOG_FILE}"
 
-    # Verify that the file on disk is an encrypted ciphertext ledger
-    with open(AUDIT_LOG_FILE, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    with open(AUDIT_LOG_FILE, "r", encoding="utf-8") as handle:
+        ledger = json.load(handle)
 
-    assert "sealed_ledger" in data
-    assert data["sealed_ledger"].startswith("A"), "Audit ledger must be an encrypted envelope"
-    assert "POLICY_CHECK" not in str(data), "Plaintext event names must not leak to disk!"
+    assert "sealed_ledger" in ledger, "Audit ledger must be a sealed ciphertext envelope"
+    assert ledger["sealed_ledger"].startswith("A"), "Audit ledger must use the versioned ciphertext format"
+    assert "POLICY_CHECK" not in str(ledger), "Plaintext event names must not leak to disk!"
+    assert "SESSION_CREATED" not in str(ledger), "Plaintext event names must not leak to disk!"
 
-    # Verify HMAC chain linkage
     trail = defense.get_audit_trail()
-    assert len(trail) >= 2
-    assert trail[-1]["prev_hash"] == trail[-2]["hash"]
-    print(f"  -> PASSED: Audit ledger encrypted with AES-256-GCM. HMAC chain linkage verified across {len(trail)} events.")
+    assert len(trail) >= 2, f"Audit trail must contain the logged events, got {len(trail)}"
+    assert trail[-1]["prev_hash"] == trail[-2]["hash"], (
+        "HMAC chain broken: each event must reference the previous event's hash"
+    )
+    print(f"  -> PASSED: ledger is AES-256-GCM ciphertext; HMAC chain linked across {len(trail)} events.")
 
 
 def test_tamper_detection_in_audit_log():
-    print("[INTRUDER TEST 7/9] Verifying Tamper Detection on Audit Ledger...")
+    """A 1-bit corruption of the on-disk ledger must fail closed on next load."""
+    print("[INTRUDER TEST 6/8] Verifying Tamper Detection on Audit Ledger...")
     defense = IntruderDefenseEngine()
-    ev = defense.log_event("SENSITIVE_AUDIT_ACTION", {"auth": "pass"})
+    defense.log_event("SENSITIVE_AUDIT_ACTION", {"auth": "pass"})
 
-    # Save original ledger content to restore after test
-    with open(AUDIT_LOG_FILE, "r", encoding="utf-8") as f:
-        original_content = f.read()
+    with open(AUDIT_LOG_FILE, "r", encoding="utf-8") as handle:
+        original_content = handle.read()
 
     try:
-        ledger_data = json.loads(original_content)
-        raw_sealed = bytearray(base64.urlsafe_b64decode(ledger_data["sealed_ledger"]))
-        raw_sealed[-1] ^= 0x01  # Flip 1 bit in ciphertext
-        ledger_data["sealed_ledger"] = base64.urlsafe_b64encode(raw_sealed).decode()
+        ledger = json.loads(original_content)
+        raw_sealed = bytearray(base64.urlsafe_b64decode(ledger["sealed_ledger"]))
+        raw_sealed[-1] ^= 0x01  # Flip exactly one bit inside the sealed ledger
+        ledger["sealed_ledger"] = base64.urlsafe_b64encode(bytes(raw_sealed)).decode()
+        with open(AUDIT_LOG_FILE, "w", encoding="utf-8") as handle:
+            json.dump(ledger, handle)
 
-        with open(AUDIT_LOG_FILE, "w", encoding="utf-8") as f:
-            json.dump(ledger_data, f)
-
-        # Re-initialize defense instance from tampered disk file
         tamper_caught = False
         try:
             tampered_defense = IntruderDefenseEngine()
-            if tampered_defense._status in ("CHALLENGE_MODE", "LOCKDOWN"):
-                tamper_caught = True
-        except (PermissionError, Exception):
-            tamper_caught = True
-
-        assert tamper_caught, "Tampered audit log must trigger defensive lockdown or rejection!"
+            tamper_caught = tampered_defense.get_status()["defense_state"] in ("CHALLENGE_MODE", "LOCKDOWN")
+        except Exception as exc:  # The loader fails closed by raising PermissionError.
+            tamper_caught = isinstance(exc, PermissionError) or "TAMPER" in str(exc).upper()
+        assert tamper_caught, "Tampered audit log MUST trigger a defensive lockdown or rejection!"
     finally:
-        # Restore valid ledger
-        with open(AUDIT_LOG_FILE, "w", encoding="utf-8") as f:
-            f.write(original_content)
-    print("  -> PASSED: 1-bit tampering on audit log detected and blocked.")
+        # Always restore the valid ledger, even if an assertion above failed.
+        with open(AUDIT_LOG_FILE, "w", encoding="utf-8") as handle:
+            handle.write(original_content)
+
+    # Prove the restore actually produced a loadable ledger again.
+    reloaded = IntruderDefenseEngine()
+    assert reloaded.get_status()["defense_state"] == "NORMAL", "Restored ledger must load in a clean state"
+    print("  -> PASSED: 1-bit ledger tampering detected/blocked; original ledger restored.")
 
 
 def test_rate_limiting_progressive_backoff():
-    print("[INTRUDER TEST 8/9] Verifying Progressive Rate Limiting & Cooldown Escalation...")
+    """Cooldown must escalate 5s -> 30s -> 300s across consecutive failures."""
+    print("[INTRUDER TEST 7/8] Verifying Progressive Rate Limiting & Cooldown Escalation...")
     defense = IntruderDefenseEngine()
-    defense._consecutive_failures = 0
+    defense._consecutive_failures = 0  # Defensive reset: start the escalation from zero.
 
-    # 1st fail -> 5s cooldown
-    f1 = defense.record_failed_authentication("fail_1")
-    assert f1["consecutive_failures"] == 1
-    assert 4.0 <= f1["cooldown_remaining"] <= 5.0
+    first = defense.record_failed_authentication("fail_1")
+    assert first["consecutive_failures"] == 1
+    assert 4.0 <= first["cooldown_remaining"] <= 5.0, f"1st cooldown must be ~5s, got {first['cooldown_remaining']}"
 
-    # 2nd fail -> 30s cooldown
-    f2 = defense.record_failed_authentication("fail_2")
-    assert f2["consecutive_failures"] == 2
-    assert 28.0 <= f2["cooldown_remaining"] <= 30.0
+    second = defense.record_failed_authentication("fail_2")
+    assert second["consecutive_failures"] == 2
+    assert 28.0 <= second["cooldown_remaining"] <= 30.0, f"2nd cooldown must be ~30s, got {second['cooldown_remaining']}"
 
-    # 3rd fail -> 300s (5-minute) cooldown
-    f3 = defense.record_failed_authentication("fail_3")
-    assert f3["consecutive_failures"] == 3
-    assert 295.0 <= f3["cooldown_remaining"] <= 300.0
+    third = defense.record_failed_authentication("fail_3")
+    assert third["consecutive_failures"] == 3
+    assert 295.0 <= third["cooldown_remaining"] <= 300.0, f"3rd cooldown must be ~300s, got {third['cooldown_remaining']}"
 
-    # Check that access permission strictly fails with rate limit
-    allowed, reason = defense.check_access_permission()
-    assert not allowed
-    assert "RATE_LIMITED" in reason or "SYSTEM_LOCKED" in reason
+    allowed, reason = defense.check_access_permission(None)
+    assert not allowed, "Access must be denied while the rate limit is engaged"
+    assert "RATE_LIMITED" in reason or "SYSTEM_LOCKED" in reason, f"Unexpected denial reason: {reason}"
 
-    # Restore
-    defense.record_successful_authentication("test_recovery")
-    print("  -> PASSED: Progressive cooldown escalation (5s -> 30s -> 300s) verified.")
+    defense.record_successful_authentication("test_recovery")  # Restore NORMAL state.
+    print("  -> PASSED: progressive cooldown escalation (5s -> 30s -> 300s) verified.")
 
 
 def test_inactivity_auto_lockout():
-    print("[INTRUDER TEST 9/9] Verifying Inactivity Auto-Lockout Enforcement...")
+    """More than 120 seconds of idle time must force a CHALLENGE_MODE lockout."""
+    print("[INTRUDER TEST 8/8] Verifying Inactivity Auto-Lockout Enforcement...")
     defense = IntruderDefenseEngine()
     defense.record_successful_authentication("test")
 
-    # Simulate 121 seconds of idle time without user heartbeat
+    # Simulate 125 seconds of idle time without a user activity heartbeat.
     defense._last_activity_time = time.time() - 125
 
-    allowed, reason = defense.check_access_permission()
+    allowed, reason = defense.check_access_permission(None)
     assert not allowed, "Access must be denied after 120s of inactivity"
-    assert "INACTIVITY_TIMEOUT" in reason or "CHALLENGE_MODE" in defense._status
-    print("  -> PASSED: Inactivity auto-lockout triggered after 2 minutes of idle time.")
+    assert "INACTIVITY_TIMEOUT" in reason, f"Expected INACTIVITY_TIMEOUT, got: {reason}"
+    assert defense.get_status()["defense_state"] == "CHALLENGE_MODE", (
+        "Idle timeout must place the engine in CHALLENGE_MODE"
+    )
+    print("  -> PASSED: inactivity auto-lockout triggered after 2 minutes of idle time.")
 
 
-def run_all_intruder_tests():
+def main():
+    """Runs the in-process intruder-defense audit and returns the exit code."""
     print("\n=======================================================")
     print("   ADAPTIVE INTRUDER DEFENSE & AUDIT VERIFICATION")
+    print("   (LOCAL-ONLY: in-process primitives, no HTTP auth gating)")
     print("=======================================================\n")
 
-    test_immediate_lockout_on_first_failure()
-    test_active_session_revocation()
-    test_api_chat_blocked_in_lockdown()
-    test_anti_replay_challenge_mode()
-    test_biometric_hardware_policy_rejection_of_webcam()
-    test_encrypted_security_audit_log_and_hmac_chain()
-    test_tamper_detection_in_audit_log()
-    test_rate_limiting_progressive_backoff()
-    test_inactivity_auto_lockout()
+    tests = [
+        ("immediate lockdown on first failure", test_immediate_lockout_on_first_failure),
+        ("session revocation & epoch", test_session_revocation_and_epoch),
+        ("anti-replay challenge nonce", test_anti_replay_challenge_mode),
+        ("biometric hardware policy", test_biometric_hardware_policy_rejects_webcam),
+        ("encrypted audit ledger & HMAC chain", test_encrypted_security_audit_log_and_hmac_chain),
+        ("audit ledger tamper detection", test_tamper_detection_in_audit_log),
+        ("progressive rate limiting", test_rate_limiting_progressive_backoff),
+        ("inactivity auto-lockout", test_inactivity_auto_lockout),
+    ]
+
+    for label, test_fn in tests:
+        try:
+            test_fn()
+        except Exception as exc:  # noqa: BLE001 - report all failures, then exit nonzero
+            print(f"  -> FAILED ({label}): {exc}")
+            traceback.print_exc()
+            FAILED.append(f"{label}: {exc}")
 
     print("\n=======================================================")
-    print("   ALL 9 INTRUDER DEFENSE TESTS PASSED (100%)!")
-    print("   ADAPTIVE ZERO-TRUST DEFENSE RIGOROUSLY VERIFIED")
+    if FAILED:
+        print(f"   INTRUDER DEFENSE: {len(FAILED)} FAILURE(S)")
+        for entry in FAILED:
+            print(f"   [FAIL] {entry}")
+        if SKIPPED:
+            for entry in SKIPPED:
+                print(f"   [SKIP] {entry}")
+        print("=======================================================\n")
+        return 1
+
+    print("   ALL INTRUDER DEFENSE CHECKS PASSED")
+    if SKIPPED:
+        print(f"   Precondition-dependent checks skipped: {len(SKIPPED)}")
+        for entry in SKIPPED:
+            print(f"   [SKIP] {entry}")
+    print("   LOCKDOWN · REVOCATION EPOCH · HMAC AUDIT · BACKOFF VERIFIED")
     print("=======================================================\n")
+    return 0
 
 
 if __name__ == "__main__":
-    run_all_intruder_tests()
+    sys.exit(main())

@@ -56,6 +56,10 @@ class CommunicationEngine(BaseEngine):
                "subject": subject, "body": body, "status": "queued", "ts": time.time()}
         async with self._lock:
             self._outbox.append(msg)
+            # The outbox previously grew without bound (every sent message kept
+            # its full body forever); trim it like the other engine histories.
+            if len(self._outbox) > 5000:
+                self._outbox = self._outbox[-2500:]
         await self.bus.publish("communication.queued", msg, source=self.name)
         return {"status": "queued", "id": msg["id"]}
 
@@ -73,8 +77,10 @@ class CommunicationEngine(BaseEngine):
             return {"id": str(uuid.uuid4()), "engine": self.name, "status": "ok", **r}
         if action == "summarize_meeting":
             text = payload.get("transcript", "")
+            # Transcript may be null/object from the UI; re.split needs text.
+            if not isinstance(text, str):
+                text = "" if text is None else str(text)
             # simple summary: first 2 sentences
-            import re
             sents = re.split(r"[.!?]", text)
             summary = ". ".join(s.strip() for s in sents[:2] if s.strip())
             return {"id": str(uuid.uuid4()), "engine": self.name, "status": "ok", "summary": summary}

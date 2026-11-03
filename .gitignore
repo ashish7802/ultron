@@ -29,6 +29,15 @@ yarn-error.log*
 .env*
 !.env.example
 
+# OAuth / account secrets — never commit credentials
+credentials.json
+service_account.json
+token.json
+client_secret*.json
+
+# local scratch space for verification scripts/build probes
+.tmp/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

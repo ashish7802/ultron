@@ -8,20 +8,24 @@ Purpose: Adaptive Intruder Defense, Anti-Replay, Session Revocation & Audit Chai
 Architectural Role & Security Guarantees:
 - Enforces adaptive intrusion detection and progressive defense policies:
   1. Immediate Lockdown on First Failure: Any single failed biometric authentication
-     attempt immediately places the system into CHALLENGE_MODE, revokes all active
-     session tokens, and locks down AI, memory, and sensitive data access.
+     attempt immediately places the system into CHALLENGE_MODE, invalidates every
+     session token issued before the failure (revocation epoch), and locks down AI,
+     memory, and sensitive data access.
   2. Anti-Replay Protection: Challenges are single-use 32-byte CSPRNG nonces tied to a
      60-second validity window and invalidated immediately upon first presentation.
+     Expired nonces are pruned so the pending-challenge table cannot grow unbounded.
   3. Strict Rate Limiting & Cooldown: Progressive backoff delays (5s, 30s, 300s) on
      repeated failures to prevent automated credential or sensor attacks.
   4. Encrypted & HMAC-Chained Security Audit Log: All security events are logged into
      an encrypted, tamper-evident audit ledger (`security_audit.enc`) using AES-256-GCM
-     and cryptographic SHA-256 HMAC chaining.
+     and cryptographic SHA-256 HMAC chaining. The ledger is written atomically so a
+     crash cannot leave a partially-written (unloadable) security log.
   5. Biometric Policy: Strictly rejects ordinary RGB webcam images as biometric proof.
      Only verified platform hardware (Windows Hello Synaptics fingerprint sensor /
      certified IR depth camera) is permitted.
   6. Fail-Closed Enforcement: In any failure, timeout, or ambiguous condition, access
-     is strictly denied.
+     is strictly denied. Only credential-bearing requests refresh the user-activity
+     heartbeat, so unauthenticated polling cannot indefinitely defeat idle auto-lock.
 ===============================================================================
 """
 
@@ -36,7 +40,7 @@ import secrets
 from typing import Any, Dict, List, Optional, Tuple
 
 from .crypto import default_crypto
-from .secure_vault import default_vault, detect_biometric_hardware
+from .secure_vault import default_vault, detect_biometric_hardware, write_json_atomic
 
 AUDIT_LOG_FILE = os.path.join(default_vault.vault_dir, "security_audit.enc")
 
@@ -55,6 +59,11 @@ class IntruderDefenseEngine:
         self._consecutive_failures = 0
         self._lockout_until = 0.0
         self._revoked_tokens: set = set()
+        # Revocation epoch: every session token whose `iat` is <= this timestamp is
+        # treated as revoked. Incremented on the first failed biometric attempt so
+        # "revoke all active sessions" is actually enforced, even for tokens this
+        # process never enumerated.
+        self._tokens_invalidated_at = 0.0
         self._active_challenges: Dict[str, float] = {}  # challenge -> exp_timestamp
         self._last_audit_hash = "0" * 64
         self._audit_events: List[Dict[str, Any]] = []
@@ -112,8 +121,9 @@ class IntruderDefenseEngine:
             "sealed_ledger": sealed,
             "updated_at": time.time(),
         }
-        with open(AUDIT_LOG_FILE, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2)
+        # Atomic write: a crash during the write must not truncate the only copy of
+        # the tamper-evident audit chain (a truncated ledger fails closed at startup).
+        write_json_atomic(AUDIT_LOG_FILE, payload)
 
     def log_event(self, event_type: str, details: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -172,6 +182,11 @@ class IntruderDefenseEngine:
         """
         self._consecutive_failures += 1
         self._status = "CHALLENGE_MODE"
+        # Enforce the documented "revoke all active session tokens" policy: advance
+        # the revocation epoch to now, which invalidates every token issued earlier
+        # (see is_token_revoked). New tokens minted after a fresh biometric success
+        # carry a later `iat` and therefore remain usable.
+        self._tokens_invalidated_at = max(self._tokens_invalidated_at, time.time())
 
         # Progressive cooldown: 1st fail: 5s, 2nd: 30s, 3rd+: 300s
         if self._consecutive_failures == 1:
@@ -204,7 +219,12 @@ class IntruderDefenseEngine:
 
     def record_successful_authentication(self, auth_method: str = "windows_hello_fingerprint") -> Dict[str, Any]:
         """
-        Resolves challenge mode and resets failure counter upon verified biometric proof.
+        Resolves challenge mode and resets the failure counter upon verified biometric proof.
+
+        Note:
+            The revocation epoch is intentionally NOT cleared. Sessions issued before
+            the last failed attempt stay invalid; the caller must mint a fresh token
+            after this successful verification.
 
         Args:
             auth_method (str): Authenticator method.
@@ -220,42 +240,131 @@ class IntruderDefenseEngine:
         self.log_event(
             "CHALLENGE_RESOLVED",
             {
-                "auth_method": auth_method,
+                "auth_method": str(auth_method),
                 "status_restored": "NORMAL",
                 "timestamp": time.time(),
+                "prior_sessions_revoked_before": self._tokens_invalidated_at,
             },
         )
 
         return {"status": "NORMAL", "consecutive_failures": 0}
 
+    def _token_issued_at(self, token: str) -> Optional[float]:
+        """
+        Best-effort extraction of a session token's `iat` claim.
+
+        Why: session revocation needs to know whether a token predates the last
+        security lockdown. Only the payload timestamp is read here; authenticity is
+        verified separately by the crypto/token layer (SecurityEngine/MemoryEngine).
+
+        Args:
+            token (str): Session token in `[PAYLOAD_B64].[SIGNATURE_HEX]` format.
+
+        Returns:
+            Optional[float]: Issued-at UNIX timestamp, or None if the token is
+            malformed / carries no numeric `iat` claim.
+        """
+        try:
+            payload_b64 = token.split(".", 1)[0]
+            # Re-pad: URL-safe Base64 from older clients may omit trailing '='.
+            padded = payload_b64 + "=" * (-len(payload_b64) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
+            iat = payload.get("iat")
+            if isinstance(iat, (int, float)) and not isinstance(iat, bool):
+                return float(iat)
+        except Exception:
+            return None
+        return None
+
     def revoke_token(self, token: str, reason: str = "security_lockdown") -> None:
         """
         Adds a session token to the revocation blacklist.
+
+        Args:
+            token (str): Token to revoke. Non-string/empty values are ignored instead
+                of raising, because revocation is best-effort cleanup and must not
+                crash the security event path.
+            reason (str): Audit description of why the session was revoked.
         """
-        if token and "." in token:
-            self._revoked_tokens.add(token)
-            self.log_event("SESSION_REVOKED", {"reason": reason, "token_prefix": token[:16]})
+        if not token or not isinstance(token, str):
+            return
+        self._revoked_tokens.add(token)
+        self.log_event("SESSION_REVOKED", {"reason": reason, "token_prefix": token[:16]})
 
     def is_token_revoked(self, token: str) -> bool:
         """
         Checks whether a session token has been revoked.
+
+        A token is revoked when it is on the explicit blacklist OR when it was issued
+        at or before the most recent failed-authentication revocation epoch (i.e. it
+        was an "active session" at the moment of lockdown).
+
+        Args:
+            token (str): Session token to test.
+
+        Returns:
+            bool: True when the token must not be accepted.
         """
-        return token in self._revoked_tokens
+        if not token or not isinstance(token, str):
+            return False
+        if token in self._revoked_tokens:
+            return True
+        issued_at = self._token_issued_at(token)
+        return issued_at is not None and issued_at <= self._tokens_invalidated_at
+
+    def _prune_expired_challenges(self) -> None:
+        """
+        Drops expired challenge nonces from the pending table.
+
+        Why: challenges are only removed when presented, so an abandoned/expired
+        challenge would otherwise leak memory forever (slow DoS). Pruning on every
+        mint keeps the table bounded by the number of still-valid challenges.
+        """
+        now = time.time()
+        for challenge in [c for c, exp in self._active_challenges.items() if exp < now]:
+            self._active_challenges.pop(challenge, None)
 
     def generate_challenge(self, ttl_seconds: int = 60) -> str:
         """
         Generates a single-use 32-byte CSPRNG challenge token.
+
+        Args:
+            ttl_seconds (int): Validity window; clamped to a sane 1..300s range so a
+                caller cannot mint effectively eternal anti-replay nonces.
+
+        Returns:
+            str: URL-safe challenge nonce to be verified exactly once.
         """
+        self._prune_expired_challenges()
+        try:
+            ttl = int(ttl_seconds)
+        except (TypeError, ValueError):
+            ttl = 60
+        ttl = max(1, min(ttl, 300))
+
         chal = secrets.token_urlsafe(32)
-        self._active_challenges[chal] = time.time() + ttl_seconds
+        self._active_challenges[chal] = time.time() + ttl
         return chal
 
     def verify_and_consume_challenge(self, challenge: str) -> bool:
         """
-        Anti-Replay Verification: Validates and immediately consumes challenge nonce.
+        Anti-Replay Verification: Validates and immediately consumes a challenge nonce.
+
+        The nonce is removed from the pending table before the expiry check so a
+        replayed or expired challenge can never be reused.
+
+        Args:
+            challenge (str): Challenge presented by the caller.
+
+        Returns:
+            bool: True only for a live, unexpired, previously unseen challenge.
         """
-        if not challenge or challenge not in self._active_challenges:
-            self.log_event("CHALLENGE_REPLAY_ATTEMPT", {"challenge_preview": challenge[:8] if challenge else "none"})
+        if not isinstance(challenge, str) or not challenge:
+            self.log_event("CHALLENGE_REPLAY_ATTEMPT", {"challenge_preview": "none"})
+            return False
+
+        if challenge not in self._active_challenges:
+            self.log_event("CHALLENGE_REPLAY_ATTEMPT", {"challenge_preview": challenge[:8]})
             return False
 
         exp = self._active_challenges.pop(challenge)
@@ -267,10 +376,17 @@ class IntruderDefenseEngine:
 
     def check_access_permission(self, token: Optional[str] = None) -> Tuple[bool, str]:
         """
-        Fail-Closed Access Gate: Validates lockdown status, rate limit, and token revocation.
+        Fail-Closed Access Gate: Validates lockdown status, rate limit, token
+        revocation, and the inactivity timeout.
+
+        Args:
+            token (str, optional): Session token presented by the caller. `None`
+                means an unauthenticated/public request (allowed only while the
+                system is NORMAL); malformed non-string tokens are rejected.
 
         Returns:
-            (allowed: bool, reason: str)
+            Tuple[bool, str]: `(allowed, reason)` where reason is a stable diagnostic
+            string suitable for audit logs and API error bodies.
         """
         now = time.time()
 
@@ -283,7 +399,11 @@ class IntruderDefenseEngine:
         if self._status in ("CHALLENGE_MODE", "LOCKDOWN"):
             return False, f"SYSTEM_LOCKED: {self._status} active. Fresh Windows Hello biometric verification required."
 
-        # 3. Check token revocation
+        # 2b. Unvalidated input guard: never treat a non-string token as "no token".
+        if token is not None and not isinstance(token, str):
+            return False, "TOKEN_INVALID: Session token must be a string."
+
+        # 3. Check token revocation (explicit blacklist + revocation epoch)
         if token and self.is_token_revoked(token):
             return False, "TOKEN_REVOKED: Session was revoked due to security event."
 
@@ -293,8 +413,11 @@ class IntruderDefenseEngine:
             self.log_event("INACTIVITY_LOCKOUT", {"idle_seconds": round(now - self._last_activity_time)})
             return False, "INACTIVITY_TIMEOUT: System automatically locked after 2 minutes of idle time."
 
-        # Refresh activity timestamp
-        self._last_activity_time = now
+        # Refresh the activity heartbeat only for credential-bearing requests.
+        # Refreshing on unauthenticated/public calls would let any polling loop hold
+        # the idle auto-lock open forever and defeat the control entirely.
+        if token and self._token_issued_at(token) is not None:
+            self._last_activity_time = now
         return True, "ACCESS_GRANTED"
 
     def record_activity_heartbeat(self) -> None:
@@ -333,12 +456,14 @@ class IntruderDefenseEngine:
     def get_status(self) -> Dict[str, Any]:
         """Returns full live defense telemetry."""
         now = time.time()
+        self._prune_expired_challenges()
         return {
             "defense_state": self._status,
             "consecutive_failures": self._consecutive_failures,
             "lockout_remaining_seconds": max(0.0, round(self._lockout_until - now, 2)),
             "active_challenges_count": len(self._active_challenges),
             "revoked_tokens_count": len(self._revoked_tokens),
+            "tokens_revoked_at": self._tokens_invalidated_at,
             "audit_events_count": len(self._audit_events),
             "idle_timeout_seconds": self._idle_timeout_seconds,
             "biometric_policy": self.get_hardware_biometric_policy(),

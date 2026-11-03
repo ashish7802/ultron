@@ -31,7 +31,9 @@ class IntelligenceEngine(BaseEngine):
         pass
 
     def classify_intent(self, text: str) -> Dict:
-        low = text.lower()
+        # Callers (HTTP payloads, other engines) may pass None/numbers; a plain
+        # `.lower()` would raise AttributeError on those, so normalize first.
+        low = (text if isinstance(text, str) else ("" if text is None else str(text))).lower()
         scores = {}
         for intent, pats in INTENT_PATTERNS.items():
             s = 0
@@ -55,6 +57,10 @@ class IntelligenceEngine(BaseEngine):
 
     def reason(self, text: str, context: dict = None) -> Dict:
         ctx = context or {}
+        # `len(text)` below needs a string; coerce for direct (non-process)
+        # callers that pass None or non-string payload data.
+        if not isinstance(text, str):
+            text = "" if text is None else str(text)
         intent = self.classify_intent(text)
         # reasoning chain
         chain = []

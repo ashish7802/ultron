@@ -28,6 +28,8 @@ class PersonalityEngine(BaseEngine):
         pass
 
     def detect_emotion(self, text: str) -> str:
+        if not isinstance(text, str):
+            text = "" if text is None else str(text)
         low = (text or "").lower()
         scores = {e: sum(1 for w in ws if w in low) for e, ws in EMOTION_KEYWORDS.items()}
         best = max(scores, key=lambda k: scores[k])
@@ -35,6 +37,8 @@ class PersonalityEngine(BaseEngine):
 
     def apply_persona(self, text: str, emotion: str = "neutral") -> dict:
         # concise: trim to first sentence if long
+        if not isinstance(text, str):
+            text = "" if text is None else str(text)
         s = (text or "").strip()
         if len(s) > 200:
             # cut at first sentence boundary

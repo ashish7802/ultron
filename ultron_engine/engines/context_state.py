@@ -28,6 +28,10 @@ class ContextStateEngine(BaseEngine):
         await self.bus.publish("context.task_changed", {"task": task}, source=self.name)
 
     async def set_environment(self, patch):
+        # Environment patches come from JSON and may be null/scalar; only a
+        # mapping can be merged (`.update` on a string/list raised TypeError).
+        if not isinstance(patch, dict):
+            patch = {}
         async with self._lock:
             self._env.update(patch)
         await self.state.set("environment", dict(self._env))

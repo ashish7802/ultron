@@ -182,6 +182,7 @@ Click **GESTURES OFF** on the HUD (or press `G`) and allow camera access:
 
 ### 🎙️ Voice Interaction
 - Click the microphone icon or press `V`.
+- Voice turns combine recognition fragments across natural pauses; Hindi browser locales use Hindi recognition (`hi-IN`), while other locales use their configured language.
 - Speak naturally in English, Hindi, or Hinglish:
   - *"Check CPU and RAM usage"* $\rightarrow$ Live hardware telemetry.
   - *"List open windows"* $\rightarrow$ Native Windows UIA desktop discovery.
@@ -245,4 +246,3 @@ This project is licensed under the **MIT License** — see the [LICENSE](LICENSE
 ## 📄 License
 
 This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
-

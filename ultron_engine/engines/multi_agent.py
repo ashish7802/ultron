@@ -11,6 +11,10 @@ class Agent:
 
     async def run(self, task: str, context: dict = None) -> dict:
         ctx = context or {}
+        # Agents can be driven directly by other subsystems; normalize the task
+        # so `.replace()` on a non-string goal cannot raise.
+        if not isinstance(task, str):
+            task = "" if task is None else str(task)
         if self.role == "planner":
             steps = [s.strip() for s in task.replace(";", ",").split(",") if s.strip()]
             if not steps:
@@ -66,6 +70,10 @@ class MultiAgentEngine(BaseEngine):
                "agents_used": list(self.agents.keys()), "ts": time.time()}
         async with self._lock:
             self._runs.append(out)
+            # Each run stores the whole plan + per-step research/code output;
+            # without a cap a long-lived daemon grows this list without bound.
+            if len(self._runs) > 5000:
+                self._runs = self._runs[-2500:]
         await self.bus.publish("multi_agent.completed", out, source=self.name)
         return out
 
@@ -73,6 +81,10 @@ class MultiAgentEngine(BaseEngine):
         if not isinstance(payload, dict):
             payload = {"goal": str(payload or "")}
         goal = payload.get("goal") or payload.get("task", "")
+        # A JSON object/number in `goal` would reach Agent.run and crash on
+        # string operations; normalize at the public boundary.
+        if not isinstance(goal, str):
+            goal = "" if goal is None else str(goal)
         ctx = payload.get("context", {})
         if payload.get("action") == "list_agents":
             return {"id": str(uuid.uuid4()), "engine": self.name, "status": "ok",

@@ -44,7 +44,8 @@ export const DEFAULT_AUDIO_CONFIG: AudioProcessorConfig = {
 export class AudioProcessor {
   private _audioCtx: AudioContext | null = null;
   private _analyser: AnalyserNode | null = null;
-  private _bandpassFilter: BiquadFilterNode | null = null;
+  private _highpassFilter: BiquadFilterNode | null = null;
+  private _lowpassFilter: BiquadFilterNode | null = null;
   private _stream: MediaStream | null = null;
   private _source: MediaStreamAudioSourceNode | null = null;
   
@@ -56,6 +57,17 @@ export class AudioProcessor {
   private _timeDomainBuffer: Uint8Array<ArrayBuffer> | null = null;
   private _freqBuffer: Uint8Array<ArrayBuffer> | null = null;
 
+  /**
+   * Monotonic init/dispose generation counter.
+   *
+   * @description `initialize()` awaits `AudioContext.resume()`, so a dispose (or a
+   * newer voice session calling initialize again) can happen while the previous
+   * graph is still being built. Each initialize captures the generation after the
+   * internal dispose; if it changed while awaiting, the half-built graph is thrown
+   * away instead of resurrecting a closed context.
+   */
+  private _generation = 0;
+
   constructor(config: Partial<AudioProcessorConfig> = {}) {
     this._config = { ...DEFAULT_AUDIO_CONFIG, ...config };
   }
@@ -66,27 +78,46 @@ export class AudioProcessor {
 
   /**
    * Initializes Web Audio context and connects bandpass speech filtering pipeline.
+   *
+   * @param stream - Live microphone MediaStream to analyse. The processor does not
+   *   take ownership of the stream; the caller remains responsible for stopping its
+   *   tracks when the voice session ends.
+   * @throws {Error} If the browser cannot create/resume an AudioContext.
    */
   public async initialize(stream: MediaStream): Promise<void> {
+    // Re-initialization (e.g. after a microphone switch) must not leak the previous
+    // AudioContext/MediaStreamSource graph.
+    this.dispose();
+    const generation = this._generation;
+
     this._stream = stream;
     const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    this._audioCtx = new AudioContextClass();
-    await this._audioCtx.resume();
+    const audioCtx = new AudioContextClass();
+    this._audioCtx = audioCtx;
+    await audioCtx.resume();
 
-    this._source = this._audioCtx.createMediaStreamSource(stream);
+    // A dispose()/newer initialize() may have run while we were awaiting resume.
+    if (generation !== this._generation) {
+      if (audioCtx.state !== "closed") void audioCtx.close().catch(() => {});
+      return;
+    }
+
+    this._source = audioCtx.createMediaStreamSource(stream);
 
     // 1. High-pass filter to strip AC hum, mic handling rumble (< 85Hz)
-    const highpass = this._audioCtx.createBiquadFilter();
+    const highpass = audioCtx.createBiquadFilter();
     highpass.type = "highpass";
-    highpass.frequency.setValueAtTime(this._config.speechBandLowHz, this._audioCtx.currentTime);
+    highpass.frequency.setValueAtTime(this._config.speechBandLowHz, audioCtx.currentTime);
+    this._highpassFilter = highpass;
 
     // 2. Low-pass filter to strip keyboard clicks, fan hiss (> 3400Hz)
-    const lowpass = this._audioCtx.createBiquadFilter();
+    const lowpass = audioCtx.createBiquadFilter();
     lowpass.type = "lowpass";
-    lowpass.frequency.setValueAtTime(this._config.speechBandHighHz, this._audioCtx.currentTime);
+    lowpass.frequency.setValueAtTime(this._config.speechBandHighHz, audioCtx.currentTime);
+    this._lowpassFilter = lowpass;
 
     // 3. High-resolution FFT Analyser
-    this._analyser = this._audioCtx.createAnalyser();
+    this._analyser = audioCtx.createAnalyser();
     this._analyser.fftSize = 1024;
     this._analyser.smoothingTimeConstant = 0.2;
 
@@ -206,16 +237,46 @@ export class AudioProcessor {
     return { matched: false, phrase: "", confidence: 0 };
   }
 
+  /**
+   * Tears down the analyser graph, AudioContext and cached buffers.
+   *
+   * @description Safe to call multiple times and while `initialize()` is still
+   * in flight: incrementing the generation counter invalidates the pending init.
+   * The caller-owned MediaStream is intentionally NOT stopped here.
+   */
   public dispose(): void {
-    if (this._source) {
+    this._generation += 1;
+
+    const nodes: Array<AudioNode | null> = [
+      this._source,
+      this._highpassFilter,
+      this._lowpassFilter,
+      this._analyser,
+    ];
+    for (const node of nodes) {
+      if (!node) continue;
       try {
-        this._source.disconnect();
-      } catch {}
-      this._source = null;
+        node.disconnect();
+      } catch {
+        // Node already disconnected or its context closed — nothing to clean up.
+      }
     }
-    if (this._audioCtx && this._audioCtx.state !== "closed") {
-      void this._audioCtx.close();
-      this._audioCtx = null;
+
+    const audioCtx = this._audioCtx;
+    this._audioCtx = null;
+    this._source = null;
+    this._highpassFilter = null;
+    this._lowpassFilter = null;
+    this._analyser = null;
+    this._stream = null;
+    this._timeDomainBuffer = null;
+    this._freqBuffer = null;
+    this._isAssistantSpeaking = false;
+
+    if (audioCtx && audioCtx.state !== "closed") {
+      // close() rejects if the context is already closing; swallow to avoid an
+      // unhandled promise rejection during page teardown.
+      void audioCtx.close().catch(() => {});
     }
   }
 }
