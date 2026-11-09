@@ -135,20 +135,21 @@ class KnowledgeResearchEngine(BaseEngine):
         if not HAS_WEB:
             return {"error": "web libs missing"}
         try:
-            async with httpx.AsyncClient(timeout=15, headers={"User-Agent": "ULTRON-Research/1.0"}, follow_redirects=True) as client:
-                resp = await client.get(url)
-                content_type = resp.headers.get("content-type", "")
-                if "text/html" in content_type and BeautifulSoup:
-                    soup = BeautifulSoup(resp.text, "html.parser")
-                    # remove script/style
-                    for s in soup(["script", "style", "nav", "footer", "header"]):
-                        s.decompose()
-                    text = soup.get_text(separator=" ", strip=True)
-                    return {"url": url, "text": text[:8000], "status": resp.status_code}
-                else:
-                    return {"url": url, "text": resp.text[:8000], "status": resp.status_code}
-        except Exception as e:
-            return {"error": str(e)}
+            from ..quantum_research_agent import QuantumResearchAgent
+
+            resp = await QuantumResearchAgent()._fetch_with_safe_redirects(url)
+            if resp is None:
+                return {"error": "unsafe or unreachable URL"}
+            content_type = resp.headers.get("content-type", "")
+            if "text/html" in content_type and BeautifulSoup:
+                soup = BeautifulSoup(resp.text, "html.parser")
+                for tag in soup(["script", "style", "nav", "footer", "header"]):
+                    tag.decompose()
+                text = soup.get_text(separator=" ", strip=True)
+                return {"url": str(resp.url), "text": text[:8000], "status": resp.status_code}
+            return {"url": str(resp.url), "text": resp.text[:8000], "status": resp.status_code}
+        except Exception:
+            return {"error": "web fetch failed"}
 
     async def research(self, query, max_results=8):
         # search web + rank + optionally fetch top results

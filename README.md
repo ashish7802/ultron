@@ -32,7 +32,7 @@ https://github.com/user-attachments/assets/91578a83-9a27-44e8-84b0-96defcfd7366
 
 ## 🌌 What is ULTRON?
 
-**ULTRON** is an autonomous, privacy-preserving, local-first personal computer agent designed for developers, power users, and sci-fi enthusiasts. Rather than relying on cloud APIs or sending personal keystrokes and microphone streams over the internet, ULTRON runs **100% locally** on consumer hardware (Intel Core i5, 8 GB RAM, 256 GB SSD) using optimized local small language models (`Qwen 2.5`), local Faster-Whisper transcription, and native Windows operating system hooks.
+**ULTRON** is an autonomous, privacy-preserving, local-first personal computer agent designed for developers, power users, and sci-fi enthusiasts. Rather than relying on cloud APIs or sending personal keystrokes and microphone streams over the internet, ULTRON runs **locally** on consumer hardware (Intel Core i5, 8 GB RAM, 256 GB SSD) using optimized local small language models (`Qwen 2.5`), local Faster-Whisper transcription, and native Windows operating system hooks. The first transcription may download the selected model weights; recorded audio is sent only to the local Python worker and is not uploaded to a transcription service.
 
 It fuses a cinematic **Tony Stark holographic HUD** with real developer tooling: dynamic multi-step autonomous planning, sandboxed process execution, native Windows UI Automation discovery, and a permanent 5-layer memory system.
 
@@ -137,7 +137,7 @@ When asked to perform complex goals (*"ULTRON, test my project, identify failure
 git clone https://github.com/ashish7802/ultron.git
 cd ultron
 npm install
-py -m pip install faster-whisper pywebview psutil
+py -m pip install -r requirements-voice.txt pywebview psutil
 ```
 
 ### 2. Pull Local AI Models
@@ -151,10 +151,7 @@ ollama pull qwen2.5:0.5b
 # Terminal 1: Start Ollama service (if not already running)
 ollama serve
 
-# Terminal 2: Start speech transcription service
-python stt_server.py
-
-# Terminal 3: Start Next.js with Turbopack
+# Terminal 2: Start Next.js with Turbopack
 npm run dev
 ```
 Open **[http://localhost:3000](http://localhost:3000)** in your browser.

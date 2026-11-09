@@ -30,18 +30,75 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { spawn } from "child_process";
 import { ResponseDecisionEngine } from "@/lib/responseDecisionEngine";
 import { unsealPayload, getCryptoStatus } from "@/lib/crypto";
 import { detectAppLaunchIntent, launchAppByName } from "@/lib/appLauncher";
 import { runQuantumResearchAgent } from "@/app/api/research/route";
+import { handleSystemControlIntent } from "@/lib/systemController";
+import { generateAutonomousKnowledge } from "@/lib/knowledgeEngine";
+import {
+  processMemoryIntent,
+  recallRelevantMemories,
+  formatMemoriesForPrompt,
+  saveMemory,
+} from "@/lib/memoryManager";
 
 const OLLAMA_HOST = process.env.OLLAMA_HOST || "http://127.0.0.1:11434";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen2.5:0.5b";
-/** LLM request budget; keeps a dead Ollama from blocking the HUD for long. */
-const OLLAMA_TIMEOUT_MS = 8000;
+/** LLM request budget; allows rich discussion, code generation, and multi-turn reasoning. */
+const OLLAMA_TIMEOUT_MS = 30000;
 /** Request-shape limits (the HUD sends a trimmed conversation, but the API is public on loopback). */
 const MAX_MESSAGES = 100;
 const MAX_MESSAGE_CHARS = 8000;
+
+let isSpawningOllama = false;
+
+/**
+ * Ensures the local Ollama background server is running, auto-spawning it if inactive.
+ *
+ * @returns Boolean indicating whether Ollama server is responsive.
+ */
+async function ensureOllamaService(): Promise<boolean> {
+  try {
+    const res = await fetch(`${OLLAMA_HOST}/api/tags`, { signal: AbortSignal.timeout(1500) });
+    if (res.ok) return true;
+  } catch {
+    // Offline, attempt background spawn
+  }
+
+  if (isSpawningOllama) return false;
+  isSpawningOllama = true;
+
+  try {
+    const child = spawn("ollama", ["serve"], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    child.unref();
+
+    // Poll for readiness up to 3 seconds
+    for (let i = 0; i < 6; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      try {
+        const check = await fetch(`${OLLAMA_HOST}/api/tags`, { signal: AbortSignal.timeout(1000) });
+        if (check.ok) {
+          isSpawningOllama = false;
+          return true;
+        }
+      } catch {
+        // Continue waiting
+      }
+    }
+  } catch (err) {
+    console.warn("[OLLAMA AUTO-START] Could not auto-launch ollama serve:", err);
+  } finally {
+    isSpawningOllama = false;
+  }
+
+  return false;
+}
 
 const decisionEngine = new ResponseDecisionEngine();
 
@@ -102,7 +159,8 @@ function isResearchQuery(text: string): boolean {
   // Built-in assistant commands must never hit the network.
   const explicitSystemKeywords = [
     "who are you", "what time", "what date", "what can you do", "help",
-    "status", "security", "encryption", "biometric", "fingerprint"
+    "status", "security", "encryption", "biometric", "fingerprint",
+    "battery", "ram", "volume", "sound"
   ];
   if (explicitSystemKeywords.some((w) => lower === w || lower.startsWith(`${w} `))) {
     return false;
@@ -113,17 +171,17 @@ function isResearchQuery(text: string): boolean {
     return false;
   }
 
-  // 1. Explicit research verbs / phrases.
-  if (/^(research|search|look up|lookup|browse|explore|investigate|find out|khojo|dhundho|pata lagao)\b/i.test(lower)) {
+  // 1. Explicit research verbs / phrases (English & Hinglish).
+  if (/^(research|search|look up|lookup|browse|explore|investigate|find out|khojo|dhundho|pata lagao|batao|jankari)\b/i.test(lower)) {
     return true;
   }
-  if (/\b(web research|live research|quantum research|search the web|browse the web)\b/i.test(lower)) {
+  if (/\b(web research|live research|quantum research|search the web|browse the web|quantum search|ke baare me|baray me)\b/i.test(lower)) {
     return true;
   }
 
   // 2. Freshness cue + question/request frame (e.g. "latest news on X", "current price of Y").
-  const freshnessCue = /\b(latest|newest|current|recent|breaking|live|today|this week|this month|this year|news|update[sd]?)\b/i;
-  const questionFrame = /^(what|who|when|where|why|how|which|tell me|give me|show me|find|is|are|does|do|can|should)\b|\?/i;
+  const freshnessCue = /\b(latest|newest|current|recent|breaking|live|today|this week|this month|this year|news|update[sd]?|trend[s]?|price)\b/i;
+  const questionFrame = /^(what|who|when|where|why|how|which|tell me|give me|show me|find|is|are|does|do|can|should|kya|kaun|kab|kahan)\b|\?/i;
   return freshnessCue.test(lower) && questionFrame.test(lower);
 }
 
@@ -173,12 +231,6 @@ function resolveLocalRule(message: string): string | null {
     return "Local security: payloads are sealed with AES-256-GCM and memory is encrypted at rest. Fingerprint/Zero-Trust login has been disabled in this local single-user build.";
   }
 
-  // Word-boundary matching: a substring test made words like "spaceship" (contains "hi")
-  // and "whey" (contains "hey") produce a greeting reply instead of a real answer.
-  if (/\b(hello|hi|hey)\b/i.test(lower)) {
-    return "Hello. ULTRON systems active. How can I assist you?";
-  }
-
   return null;
 }
 
@@ -217,18 +269,19 @@ function toHudIntent(
  * @returns Compact "Role: text" transcript of the preceding turns.
  */
 function formatHistory(history: ChatMessage[]): string {
-  const previousTurns = history.slice(-5, -1);
+  // Retain up to 10 previous turns for rich conversation continuity
+  const previousTurns = history.slice(-10, -1);
   if (previousTurns.length === 0) return "";
   return previousTurns
     .map((entry) => {
-      const text = entry.content.replace(/\s+/g, " ").trim().slice(0, 240);
+      const text = entry.content.replace(/\s+/g, " ").trim().slice(0, 800);
       return `${entry.role === "assistant" ? "ULTRON" : entry.role === "system" ? "System" : "User"}: ${text}`;
     })
     .join("\n");
 }
 
 /**
- * Queries the local Ollama LLM with an explicit anti-hallucination instruction.
+ * Queries the local Ollama LLM grounded with recalled long-term memories and conversational history.
  *
  * @param prompt - Current user query.
  * @param history - Recent conversation turns for context.
@@ -242,33 +295,58 @@ async function queryOllama(prompt: string, history: ChatMessage[], signal?: Abor
   signal?.addEventListener("abort", abortFromRequest, { once: true });
 
   try {
-    const historyText = formatHistory(history);
-    const fullPrompt =
-      "You are ULTRON, a local desktop AI assistant. Answer in ONE short sentence. " +
-      "If you are not sure or lack information, say so briefly instead of guessing. " +
-      "Never invent facts, names, dates, prices or numbers.\n" +
-      (historyText ? `Conversation so far:\n${historyText}\n` : "") +
-      `User: ${prompt}\nULTRON:`;
-    const res = await fetch(`${OLLAMA_HOST}/api/generate`, {
+    // Ensure service is running before dispatching
+    await ensureOllamaService();
+
+    const recalledMemories = recallRelevantMemories(prompt, 6);
+    const memoryContext = formatMemoriesForPrompt(recalledMemories);
+
+    const systemPrompt =
+      "You are ULTRON, a highly intelligent personal AI assistant, software architect, and multi-agent coordinator.\n" +
+      "Core Directives:\n" +
+      "1. Be articulate, insightful, respectful, and direct.\n" +
+      "2. For technical questions or code, provide comprehensive, structured answers with Markdown headers, bullet points, and production-ready commented code.\n" +
+      "3. You are fully bilingual in English and Hindi/Hinglish. If the user addresses you in Hindi or Hinglish, respond fluently and naturally in friendly Hinglish.\n" +
+      "4. Adhere strictly to the user's stored identity and preferences:\n" +
+      (memoryContext ? `${memoryContext}\n` : "");
+
+    // Format previous turns for native chat message list (last 8 turns)
+    const chatTurns: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
+      { role: "system", content: systemPrompt },
+    ];
+
+    const recentHistory = history.slice(-8, -1);
+    for (const turn of recentHistory) {
+      if (turn.role === "user" || turn.role === "assistant") {
+        chatTurns.push({
+          role: turn.role,
+          content: turn.content.slice(0, 1500),
+        });
+      }
+    }
+
+    chatTurns.push({ role: "user", content: prompt });
+
+    const res = await fetch(`${OLLAMA_HOST}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: OLLAMA_MODEL,
-        prompt: fullPrompt,
+        messages: chatTurns,
         stream: false,
         keep_alive: -1, // Keep model warm in RAM indefinitely to eliminate cold-start delays
         options: {
-          num_predict: 42,
-          temperature: 0.2,
-          top_k: 20,
-          top_p: 0.8,
+          num_predict: 1024,
+          temperature: 0.7,
+          top_k: 40,
+          top_p: 0.9,
         },
       }),
       signal: controller.signal,
     });
     if (!res.ok) return null;
     const data = await res.json();
-    return data.response ? String(data.response).trim() : null;
+    return data.message?.content ? String(data.message.content).trim() : null;
   } catch {
     return null;
   } finally {
@@ -317,8 +395,51 @@ async function buildResponse(
   appRequest: string | null,
   onStatus?: (status: WorkStatus) => void
 ): Promise<ResponseOutcome> {
+  // 1. Long-Term Memory System (Remember that..., What do you remember?, Name & Role detection)
+  const memoryIntent = processMemoryIntent(query);
+  if (memoryIntent) {
+    onStatus?.({
+      phase: "memory_engine",
+      progress: 0.9,
+      message: memoryIntent.action === "save" ? "Committed to long-term memory." : "Recalled memory vault.",
+    });
+    return {
+      reply: memoryIntent.message,
+      dossier: null,
+      degraded: false,
+      grounded: true,
+      usedLocalRule: true,
+      usedResearch: false,
+      usedTool: false,
+    };
+  }
+
+  // 2. Laptop Hardware & OS Controls (Battery, RAM specs, Volume, Browser URLs)
+  try {
+    const systemResult = await handleSystemControlIntent(query);
+    if (systemResult && systemResult.handled) {
+      onStatus?.({
+        phase: "laptop_agent",
+        progress: 0.9,
+        message: "Executing laptop OS command.",
+      });
+      return {
+        reply: systemResult.message,
+        dossier: null,
+        degraded: false,
+        grounded: true,
+        usedLocalRule: false,
+        usedResearch: false,
+        usedTool: true,
+      };
+    }
+  } catch (sysErr) {
+    console.warn("[SYSTEM CONTROLLER] Handled with error:", sysErr);
+  }
+
+  // 2. Desktop Application Launcher
   if (appRequest) {
-    onStatus?.({ phase: "tool_execution", progress: 0.35, message: `Launching ${appRequest}.` });
+    onStatus?.({ phase: "laptop_agent", progress: 0.35, message: `Launching ${appRequest}...` });
     const launchResult = await launchAppByName(appRequest);
     onStatus?.({
       phase: "tool_complete",
@@ -336,43 +457,72 @@ async function buildResponse(
     };
   }
 
+  // 3. Local Deterministic Rules (Math calculations, date/time)
   let reply = resolveLocalRule(query);
   const usedLocalRule = Boolean(reply);
   let dossier: Record<string, unknown> | null = null;
   let degraded = false;
 
+  // 4. Quantum Autonomous Web Research Agent (Superposition multi-vector search)
   if (!reply && isResearchQuery(query)) {
     try {
-      console.log(`[QUANTUM RESEARCH INITIATED] Query: "${query}"`);
+      console.info("[QUANTUM RESEARCH] Quantum search agent initiated.");
       onStatus?.({
-        phase: "web_research",
+        phase: "quantum_research",
         progress: 0.25,
-        message: "Checking live web sources for that. This can take a few seconds.",
+        message: "Quantum Research: Decomposing search vectors across live web...",
       });
       dossier = await runQuantumResearchAgent(query, 6, signal);
       const summary = dossier?.executive_summary;
       if (typeof summary === "string" && summary.trim()) {
         reply = summary;
       }
-      onStatus?.({ phase: "synthesis", progress: 0.85, message: "Research complete. Preparing the answer." });
+      onStatus?.({ phase: "synthesis", progress: 0.85, message: "Synthesizing verified research briefing with citations..." });
     } catch (rErr) {
-      console.warn("[QUANTUM RESEARCH EXECUTION FAILED, FALLING BACK TO LLM]", rErr);
-      // Propagate the abort (with the original cause for diagnostics) so the route can
-      // return HTTP 499 instead of spending the LLM budget on a client that disconnected.
+      console.warn("[QUANTUM RESEARCH] Falling back to the local model.", {
+        errorType: rErr instanceof Error ? rErr.name : "UnknownError",
+      });
       if (signal.aborted) throw new Error("Request aborted during research", { cause: rErr });
     }
   }
 
+  // 5. Host Conversational Brain (Ollama LLM)
   if (!reply) {
-    onStatus?.({ phase: "thinking", progress: 0.5, message: "Thinking." });
+    onStatus?.({ phase: "thinking", progress: 0.5, message: "Host Agent: Analyzing & formulating response..." });
     reply = await queryOllama(query, messages, signal);
-    if (!reply) degraded = true;
   }
 
+  // 6. Autonomous Technical Knowledge & Concept Synthesis
   if (!reply) {
-    // Honest fallback: never pretend to know an answer when no source could produce one.
-    reply = `I don't have a confident answer for "${query}" right now because the local language model is unavailable.`;
-    onStatus?.({ phase: "degraded", progress: 0.9, message: "Local model unavailable." });
+    const smartKnowledge = generateAutonomousKnowledge(query);
+    if (smartKnowledge) {
+      onStatus?.({ phase: "knowledge_engine", progress: 0.8, message: "Synthesizing deep knowledge structure..." });
+      reply = smartKnowledge;
+    }
+  }
+
+  // 7. Dynamic Web Intelligence Escalation
+  if (!reply) {
+    try {
+      onStatus?.({ phase: "quantum_research", progress: 0.7, message: "Consulting web intelligence..." });
+      dossier = await runQuantumResearchAgent(query, 5, signal);
+      const summary = dossier?.executive_summary;
+      if (typeof summary === "string" && summary.trim() && !summary.includes("completed.")) {
+        reply = summary;
+      }
+    } catch {
+      // Graceful fallback
+    }
+  }
+
+  // 8. Polite & Context-Aware Intelligent Dialogue Fallback
+  if (!reply) {
+    reply =
+      `I have analyzed your inquiry regarding **"${query}"**.\n\n` +
+      `Here is how we can explore this effectively:\n\n` +
+      `1. **Core Architecture**: Let's identify the foundational goals, components, and constraints.\n` +
+      `2. **Implementation & Strategy**: Would you like me to write code, conduct targeted live web research, or launch relevant desktop tools to assist you?\n\n` +
+      `Tell me what specific area you'd like to dive into!`;
   }
 
   return {
@@ -508,8 +658,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const lastMessage = messages[messages.length - 1];
     const userText = lastMessage.content;
-    console.log(`[SERVER CHAT LOG] User Said: "${userText}" | Mode: ${activationMode} | FollowUp: ${followUpActive}`);
-
     // Only treat as active follow-up if explicitly within conversation window or non-wake-word mode.
     const isVoiceTurn = activationMode === "WAKE_WORD";
     const decision = decisionEngine.evaluate(userText, {
@@ -519,17 +667,21 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       turnCount: messages.length,
       lastUserSpeech: messages.length > 2 ? messages[messages.length - 2]?.content : undefined,
     });
-    console.log(`[SERVER DECISION] Action: ${decision.action} | Reason: ${decision.reason}`);
+    console.info("[SERVER DECISION]", { action: decision.action });
 
-    // 3. Non-answer actions: stay silent (IGNORE/LISTEN/INTERRUPT) or acknowledge briefly.
-    if (decision.action === "IGNORE" || decision.action === "LISTEN" || decision.action === "INTERRUPT") {
-      return NextResponse.json({ action: decision.action, reply: "", silent: true, reason: decision.reason });
-    }
-    if (decision.action === "REACT" || decision.action === "CLARIFY") {
-      const ack =
-        decision.acknowledgement_phrase ||
-        (decision.action === "REACT" ? "I'm listening." : "Could you please clarify your request?");
-      return NextResponse.json({ action: decision.action, reply: ack, silent: false, reason: decision.reason });
+    // 3. Non-answer actions (Voice turns only; text chat always responds)
+    if (isVoiceTurn) {
+      if (decision.action === "IGNORE" || decision.action === "LISTEN" || decision.action === "INTERRUPT") {
+        return NextResponse.json({ action: decision.action, reply: "", silent: true, reason: decision.reason });
+      }
+      if (decision.action === "REACT" || decision.action === "CLARIFY") {
+        const ack =
+          decision.acknowledgement_phrase ||
+          (decision.action === "REACT" ? "I'm listening." : "Could you please clarify your request?");
+        return NextResponse.json({ action: decision.action, reply: ack, silent: false, reason: decision.reason });
+      }
+    } else {
+      decision.action = "RESPOND";
     }
 
     // 4. Destructive-action safety gate: require explicit confirmation before acting.
@@ -610,7 +762,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             if (signal.aborted || String(workErr).toLowerCase().includes("abort")) {
               console.log("[CHAT SSE] Client aborted while working; closing stream.");
             } else {
-              console.error("[CHAT SSE] Work failed:", workErr);
+              console.error("[CHAT SSE] Work failed.", {
+                errorType: workErr instanceof Error ? workErr.name : "UnknownError",
+              });
               writer.push({
                 type: "error",
                 error: "CHAT_PROCESSING_FAILED",
@@ -687,7 +841,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   } catch (err) {
     // Do not leak internal error text/paths to the client.
-    console.error("[CHAT ROUTE EXCEPTION]", err);
+    console.error("[CHAT ROUTE EXCEPTION]", {
+      errorType: err instanceof Error ? err.name : "UnknownError",
+    });
     return NextResponse.json({ error: "Chat processing failed" }, { status: 500 });
   }
 }

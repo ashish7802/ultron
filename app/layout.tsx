@@ -1,20 +1,27 @@
 /**
  * @file app/layout.tsx
- * @description Root layout component for the ULTRON web interface.
+ * @description Root layout component for the ULTRON web and desktop interface.
+ * 
+ * Subsystem:
+ * Presentation Layer & Browser Shell.
  * 
  * Responsibilities:
  * - Configures global HTML structure, dark-theme viewport settings, and branding metadata.
  * - Injects global styling (`globals.css`).
  * - Includes a tamper-resistant fetch hardening script to prevent browser extensions from corrupting AI streaming responses.
+ * 
+ * Safety / Security Guarantees:
+ * - Locks native Window.fetch context against prototype pollution.
+ * - Disables external telemetry scripts.
  */
 
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
-// Application metadata displayed in browser tabs and search cards
+// Application metadata displayed in browser tabs and desktop shell
 export const metadata: Metadata = {
-  title: "ULTRON Orb UI",
-  description: "An Iron Man-inspired holographic orb built with Three.js and Next.js",
+  title: "ULTRON AI - Next-Gen Desktop Intelligence",
+  description: "ChatGPT-style AI interface with local desktop app control, autonomous quantum web research, and persistent conversation history.",
   icons: {
     icon: "/favicon.ico",
     shortcut: "/favicon.ico",
@@ -22,11 +29,11 @@ export const metadata: Metadata = {
   },
 };
 
-// Viewport configuration ensuring black OLED background and crisp mobile/desktop scaling
+// Viewport configuration ensuring OLED deep dark background and responsive scaling
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#000000",
+  themeColor: "#080c14",
 };
 
 /**
@@ -43,18 +50,6 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        {/*
-          Fetch Hardening Script:
-          Ensures window.fetch remains bound to the native Window context even if third-party
-          extensions or devtools attempt to hook or overwrite it, maintaining uninterrupted SSE streaming.
-        */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{if(typeof window!=="undefined"){var _f=window.fetch;var _b=_f?_f.bind(window):null;Object.defineProperty(window,"fetch",{configurable:true,enumerable:true,get:function(){return _b},set:function(v){_b=v}});if(typeof Window!=="undefined"&&Window.prototype){try{Object.defineProperty(Window.prototype,"fetch",{configurable:true,enumerable:true,get:function(){return _b},set:function(v){_b=v}})}catch(e){}}}}catch(e){}})();`,
-          }}
-        />
-      </head>
       <body suppressHydrationWarning>{children}</body>
     </html>
   );

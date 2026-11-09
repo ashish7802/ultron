@@ -140,7 +140,6 @@ export default function UltronOrb() {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  const speechRecognitionRef = useRef<any>(null);
   const speechTurnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeAudioRef = useRef<HTMLAudioElement | null>(null);
   const startVoiceSystemRef = useRef<(() => Promise<void>) | null>(null);
@@ -207,11 +206,6 @@ export default function UltronOrb() {
       activeAudioRef.current = null;
     }
     void fetch("/api/tts", { method: "DELETE" }).catch(() => {});
-    if (speechRecognitionRef.current) {
-      try {
-        speechRecognitionRef.current.abort();
-      } catch {}
-    }
     speechQueueRef.current = [];
     isPlayingQueueRef.current = false;
     isSpeakingRef.current = false;
@@ -467,7 +461,6 @@ export default function UltronOrb() {
         return;
       }
 
-      console.info("[ULTRON STT]", transcript);
       setVoiceLabel(`HEARD: "${transcript.slice(0, 18)}…"`);
       setError(null);
       scheduleVoiceTurn(transcript, sessionId);
@@ -508,12 +501,6 @@ export default function UltronOrb() {
       speechTurnTimerRef.current = null;
     }
     conversationMgrRef.current.finalizeTurn();
-    if (speechRecognitionRef.current) {
-      try {
-        speechRecognitionRef.current.stop();
-      } catch {}
-      speechRecognitionRef.current = null;
-    }
     mediaRecorderRef.current = null;
     audioChunksRef.current = [];
     recordingStartedAtRef.current = null;
@@ -639,72 +626,6 @@ export default function UltronOrb() {
         console.warn("[ULTRON VAD] Spectral analyser unavailable:", vadErr);
       });
 
-      // Native SpeechRecognition for instant 0ms streaming transcription
-      if (typeof window !== "undefined" && ("webkitSpeechRecognition" in window || "SpeechRecognition" in window)) {
-        try {
-          const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-          const rec = new SpeechRec();
-          rec.continuous = true;
-          rec.maxAlternatives = 1;
-          rec.onend = () => {
-            // Auto-restart only while THIS recognition instance still owns the current
-            // voice session. Restarting from a superseded/stopped recogniser would
-            // resurrect a second microphone listener with a stale session id.
-            if (
-              speechRecognitionRef.current === rec &&
-              voiceActiveRef.current &&
-              sessionId === voiceSessionRef.current &&
-              !isSpeakingRef.current
-            ) {
-              try { rec.start(); } catch {}
-            }
-          };
-          rec.interimResults = true;
-          const browserLanguage = (navigator.language || "en-US").toLowerCase();
-          rec.lang = browserLanguage.startsWith("hi")
-            ? "hi-IN"
-            : browserLanguage === "en-in"
-              ? "en-IN"
-              : navigator.language || "en-US";
-          rec.onresult = (evt: any) => {
-            if (!voiceActiveRef.current || sessionId !== voiceSessionRef.current) return;
-            // Full-Duplex Speech Interruption (Barge-In): user speaking halts ongoing playback immediately
-            if (isSpeakingRef.current) {
-              console.info("[ULTRON BARGE-IN] User speech detected during assistant playback. Halting speech!");
-              cancelOngoingAction();
-            }
-            let interim = "";
-            let final = "";
-            for (let i = evt.resultIndex; i < evt.results.length; ++i) {
-              if (evt.results[i].isFinal) {
-                final += evt.results[i][0].transcript;
-              } else {
-                interim += evt.results[i][0].transcript;
-              }
-            }
-            if (interim) {
-              setVoiceLabel(`HEARING: "${interim.slice(0, 16)}…"`);
-            }
-            if (final.trim() && !isChatBusyRef.current) {
-              const spokenText = final.trim();
-              console.info("[ULTRON NATIVE STT]", spokenText);
-              setVoiceLabel(`HEARD: "${spokenText.slice(0, 18)}..."`);
-              updateVisualState("thinking");
-              scheduleVoiceTurn(spokenText, sessionId);
-            }
-          };
-          rec.onerror = (recErr: any) => {
-            console.debug("Native speech notice:", recErr?.error);
-          };
-          try {
-            rec.start();
-            speechRecognitionRef.current = rec;
-          } catch {}
-        } catch (e) {
-          console.debug("Native speech rec bypassed:", e);
-        }
-      }
-
       const audioTrack = stream.getAudioTracks()[0];
       console.info("[ULTRON MIC]", {
         input: audioTrack?.label || "system default",
@@ -785,13 +706,7 @@ export default function UltronOrb() {
               // Instant zero-delay feedback: Switch to thinking state immediately upon speech completion
               setVoiceLabel("THINKING…");
               updateVisualState("thinking");
-              // Chromium streams transcripts through the native SpeechRecognition
-              // engine above (lower latency). Browsers without that API (Firefox,
-              // Safari) fall back to uploading the captured blob for transcription
-              // instead of silently discarding the recording.
-              if (!speechRecognitionRef.current) {
-                void processAudioBlob(blob, sessionId);
-              }
+              void processAudioBlob(blob, sessionId);
             } else if (
               voiceActiveRef.current &&
               sessionId === voiceSessionRef.current &&
