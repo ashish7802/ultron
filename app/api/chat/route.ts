@@ -42,6 +42,7 @@ import {
   recallRelevantMemories,
   formatMemoriesForPrompt,
   saveMemory,
+  loadAllMemories,
 } from "@/lib/memoryManager";
 
 const OLLAMA_HOST = process.env.OLLAMA_HOST || "http://127.0.0.1:11434";
@@ -200,6 +201,15 @@ function resolveLocalRule(message: string): string | null {
     }
   }
 
+  // Instant greeting resolution for common greetings/typos (e.g. "hey", "hay", "hello", "hi", "hlo", "yo")
+  const greetingMatch = /^(?:hey|hay|hello|hi|hlo|heyy|namaste|yo)(?:\s+ultron|\s+there|\s+buddy)?$/i.exec(lower);
+  if (greetingMatch) {
+    const memories = loadAllMemories();
+    const nameMem = memories.find((m) => m.key === "user_name");
+    const name = nameMem ? nameMem.content.replace(/^user's name is\s+/i, "").trim() : "Ashish";
+    return `Hello ${name}! How can I assist you today?`;
+  }
+
   // Instant sub-millisecond math calculator
   const mathMatch = lower.match(/(?:what is|calculate|solve)?\s*(\d+)\s*([-+*/])\s*(\d+)/i);
   if (mathMatch) {
@@ -280,6 +290,106 @@ function formatHistory(history: ChatMessage[]): string {
     .join("\n");
 }
 
+interface LanguageDirective {
+  language: string;
+  instruction: string;
+}
+
+/**
+ * Detects the language of the user input and crafts a prompt instruction so ULTRON
+ * mirrors the client's language or defaults to English/Hinglish for Ashish.
+ *
+ * @param text - User query string.
+ * @returns Detected language name and model instruction.
+ */
+function detectUserLanguage(text: string): LanguageDirective {
+  const lower = text.toLowerCase().trim();
+
+  // 1. Script-based detection
+  if (/[\u0900-\u097F]/.test(text)) {
+    return {
+      language: "Hindi",
+      instruction: "The user is communicating in Hindi (Devanagari script). Respond fluently and respectfully in Hindi (Devanagari script)."
+    };
+  }
+  if (/[\u3040-\u30FF\u4E00-\u9FAF]/.test(text)) {
+    return {
+      language: "Japanese",
+      instruction: "The user/client is communicating in Japanese. Respond fluently and politely in Japanese."
+    };
+  }
+  if (/[\uAC00-\uD7AF]/.test(text)) {
+    return {
+      language: "Korean",
+      instruction: "The user/client is communicating in Korean. Respond fluently and politely in Korean."
+    };
+  }
+  if (/[\u4E00-\u9FFF]/.test(text)) {
+    return {
+      language: "Chinese",
+      instruction: "The user/client is communicating in Chinese. Respond fluently and politely in Chinese."
+    };
+  }
+  if (/[\u0400-\u04FF]/.test(text)) {
+    return {
+      language: "Russian",
+      instruction: "The user/client is communicating in Russian. Respond fluently in Russian."
+    };
+  }
+  if (/[\u0600-\u06FF]/.test(text)) {
+    return {
+      language: "Arabic",
+      instruction: "The user/client is communicating in Arabic. Respond fluently in Arabic."
+    };
+  }
+
+  // 2. French cues
+  if (/\b(bonjour|salut|merci|comment allez-vous|comment vas-tu|s'il vous pla[iî]t|au revoir|bonne journ[eé]e)\b/i.test(lower)) {
+    return {
+      language: "French",
+      instruction: "The user/client is speaking French. Respond fluently, naturally, and politely in French."
+    };
+  }
+
+  // 3. German cues
+  if (/\b(guten tag|guten morgen|guten abend|wie geht's|wie geht es|danke sch[oö]n|bitte|auf wiedersehen)\b/i.test(lower)) {
+    return {
+      language: "German",
+      instruction: "The user/client is speaking German. Respond fluently, naturally, and politely in German."
+    };
+  }
+
+  // 4. Spanish cues (multi-word or clear cues; exclude solitary 'hay')
+  if (/\b(hola|c[oó]mo est[aá]s|buenos d[ií]as|buenas tardes|buenas noches|muchas gracias|por favor|hasta luego|qu[eé] tal)\b/i.test(lower) && lower !== "hay") {
+    return {
+      language: "Spanish",
+      instruction: "The user/client is speaking Spanish. Respond fluently, naturally, and politely in Spanish."
+    };
+  }
+
+  // 5. Italian cues
+  if (/\b(buongiorno|buonasera|come stai|grazie mille|per favore|arrivederci)\b/i.test(lower)) {
+    return {
+      language: "Italian",
+      instruction: "The user/client is speaking Italian. Respond fluently, naturally, and politely in Italian."
+    };
+  }
+
+  // 6. Hinglish cues (Hindi words written in Latin alphabet)
+  if (/\b(kya|kaise|karo|karna|kholo|batao|bhai|yaar|sun|suno|nahi|nahin|hai|hain|tha|thi|the|hum|mera|meri|mere|tum|tumhe|aap|aapko|mujhe|kaun|kab|kahan|kyu|kyun|theek|accha|acha|dost|madad)\b/i.test(lower)) {
+    return {
+      language: "Hinglish",
+      instruction: "User is Ashish speaking in natural Hinglish (Hindi written in Roman script). Respond in natural, friendly, and intelligent Hinglish, addressing Ashish."
+    };
+  }
+
+  // Default: English / Friendly Hinglish for Ashish
+  return {
+    language: "English/Hinglish",
+    instruction: "User is Ashish. Respond in articulate English or friendly Hinglish. Words like 'hay', 'heyy', 'hlo', 'hi', 'yo' are informal greetings from Ashish, NOT Spanish or other foreign words."
+  };
+}
+
 /**
  * Queries the local Ollama LLM grounded with recalled long-term memories and conversational history.
  *
@@ -300,13 +410,14 @@ async function queryOllama(prompt: string, history: ChatMessage[], signal?: Abor
 
     const recalledMemories = recallRelevantMemories(prompt, 6);
     const memoryContext = formatMemoriesForPrompt(recalledMemories);
+    const langInfo = detectUserLanguage(prompt);
 
     const systemPrompt =
       "You are ULTRON, a highly intelligent personal AI assistant, software architect, and multi-agent coordinator.\n" +
       "Core Directives:\n" +
       "1. Be articulate, insightful, respectful, and direct.\n" +
       "2. For technical questions or code, provide comprehensive, structured answers with Markdown headers, bullet points, and production-ready commented code.\n" +
-      "3. You are fully bilingual in English and Hindi/Hinglish. If the user addresses you in Hindi or Hinglish, respond fluently and naturally in friendly Hinglish.\n" +
+      `3. Language Policy: ${langInfo.instruction}\n` +
       "4. Adhere strictly to the user's stored identity and preferences:\n" +
       (memoryContext ? `${memoryContext}\n` : "");
 

@@ -319,7 +319,8 @@ export function parseNameIntent(text: string): { wrong?: string; right: string; 
     const stopwords = new Set([
       "not", "here", "ready", "fine", "doing", "trying", "ultron", "assistant",
       "today", "going", "back", "sorry", "happy", "listening", "good", "bad",
-      "feeling", "sure", "a", "an", "the"
+      "feeling", "sure", "a", "an", "the", "your", "you", "my", "me", "it",
+      "name", "what", "is", "this", "that", "there", "who", "why", "how", "user"
     ]);
     if (!stopwords.has(candidate)) {
       return { right: candidate, type: "direct" };
