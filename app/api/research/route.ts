@@ -29,6 +29,7 @@ import { promisify } from "util";
 import path from "path";
 import { getCryptoStatus } from "@/lib/crypto";
 import { resolvePythonExecutable } from "@/lib/pythonRuntime";
+import { validateDesktopSession, createAuthErrorResponse } from "@/lib/sessionGate";
 
 export { resolvePythonExecutable };
 
@@ -169,6 +170,11 @@ function describeResearchFailure(err: unknown): { code: string; message: string;
  * @returns NextResponse with structured research dossier or SSE telemetry stream.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const auth = validateDesktopSession(req);
+  if (!auth.valid) {
+    return createAuthErrorResponse(auth);
+  }
+
   try {
     let body: ResearchRequestBody;
     try {

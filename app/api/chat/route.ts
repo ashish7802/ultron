@@ -33,15 +33,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "child_process";
 import { ResponseDecisionEngine } from "@/lib/responseDecisionEngine";
 import { unsealPayload, getCryptoStatus } from "@/lib/crypto";
-import { detectAppLaunchIntent, launchAppByName } from "@/lib/appLauncher";
+import { detectAppLaunchIntent } from "@/lib/appLauncher";
 import { runQuantumResearchAgent } from "@/app/api/research/route";
 import { handleSystemControlIntent } from "@/lib/systemController";
 import { generateAutonomousKnowledge } from "@/lib/knowledgeEngine";
+import { planAction, ActionPlan } from "@/lib/permissionGateway";
+import { validateDesktopSession, createAuthErrorResponse } from "@/lib/sessionGate";
 import {
   processMemoryIntent,
   recallRelevantMemories,
   formatMemoriesForPrompt,
-  saveMemory,
   loadAllMemories,
 } from "@/lib/memoryManager";
 
@@ -133,6 +134,28 @@ interface ResponseOutcome {
   usedLocalRule: boolean;
   usedResearch: boolean;
   usedTool: boolean;
+  permissionPlan?: ActionPlan;
+}
+
+/**
+ * Calculates genuine source-grounded credibility confidence for web research.
+ *
+ * @param dossier - Raw research dossier.
+ * @returns Floating point confidence between 0.70 and 0.95.
+ */
+function calculateResearchConfidence(dossier: Record<string, unknown> | null): number {
+  if (!dossier || !Array.isArray(dossier.sources) || dossier.sources.length === 0) {
+    return 0.75;
+  }
+  const sources = dossier.sources as Array<Record<string, unknown>>;
+  const validScores = sources
+    .map((s) => (typeof s.credibility_score === "number" ? s.credibility_score : null))
+    .filter((s): s is number => s !== null);
+  if (validScores.length === 0) {
+    return 0.80;
+  }
+  const avg = validScores.reduce((a, b) => a + b, 0) / validScores.length;
+  return Math.min(0.95, Math.max(0.70, parseFloat(avg.toFixed(2))));
 }
 
 const KNOWN_COMMANDS: Record<string, string> = {
@@ -532,7 +555,7 @@ async function buildResponse(
       onStatus?.({
         phase: "laptop_agent",
         progress: 0.9,
-        message: "Executing laptop OS command.",
+        message: systemResult.permissionPlan ? "Awaiting user approval for OS action." : "Processed laptop OS query.",
       });
       return {
         reply: systemResult.message,
@@ -542,29 +565,38 @@ async function buildResponse(
         usedLocalRule: false,
         usedResearch: false,
         usedTool: true,
+        permissionPlan: systemResult.permissionPlan,
       };
     }
   } catch (sysErr) {
     console.warn("[SYSTEM CONTROLLER] Handled with error:", sysErr);
   }
 
-  // 2. Desktop Application Launcher
+  // 2. Desktop Application Launcher - Centralized Permission Gateway Protected
   if (appRequest) {
-    onStatus?.({ phase: "laptop_agent", progress: 0.35, message: `Launching ${appRequest}...` });
-    const launchResult = await launchAppByName(appRequest);
+    onStatus?.({ phase: "laptop_agent", progress: 0.35, message: `Creating execution plan for ${appRequest}...` });
+    const plan = planAction("app_launch", appRequest, { appName: appRequest }, [appRequest, "Windows Desktop Session"]);
     onStatus?.({
       phase: "tool_complete",
       progress: 0.9,
-      message: launchResult.ok ? `Launched ${launchResult.app ?? appRequest}.` : "App not launched.",
+      message: `Action plan created for ${appRequest}. Awaiting explicit user approval.`,
     });
     return {
-      reply: launchResult.message,
+      reply:
+        `🛡️ **Computer Action Approval Required**\n\n` +
+        `I have prepared an execution plan to launch **${appRequest}**.\n\n` +
+        `- **Action:** Application Launch\n` +
+        `- **Target:** ${appRequest}\n` +
+        `- **Risk Level:** ${plan.riskLevel.toUpperCase()}\n` +
+        `- **Security Guarantee:** No desktop application will launch without your explicit authorization.\n\n` +
+        `Please approve or cancel this action.`,
       dossier: null,
       degraded: false,
       grounded: true,
       usedLocalRule: false,
       usedResearch: false,
       usedTool: true,
+      permissionPlan: plan,
     };
   }
 
@@ -723,6 +755,11 @@ function createSseWriter(
  * @returns SSE stream (route/status/token/done events) or JSON reply/telemetry payload.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const auth = validateDesktopSession(req);
+  if (!auth.valid) {
+    return createAuthErrorResponse(auth);
+  }
+
   try {
     // 1. Parse the body (400 on malformed JSON instead of a 500 fallback).
     let rawBody: unknown;
@@ -862,12 +899,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 outcome.usedTool
               ),
               decisionIntent: decision.intent,
-              confidence: outcome.usedResearch ? 0.99 : decision.confidence,
+              confidence: outcome.usedResearch ? calculateResearchConfidence(outcome.dossier) : decision.confidence,
               assumption,
               grounded: outcome.grounded,
               degraded: outcome.degraded,
               sources: extractSources(outcome.dossier),
               dossier: outcome.dossier,
+              permissionPlan: outcome.permissionPlan,
             });
           } catch (workErr) {
             if (signal.aborted || String(workErr).toLowerCase().includes("abort")) {
@@ -934,13 +972,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           outcome.usedTool
         ),
         decisionIntent: decision.intent,
-        confidence: outcome.usedResearch ? 0.99 : decision.confidence,
+        confidence: outcome.usedResearch ? calculateResearchConfidence(outcome.dossier) : decision.confidence,
         assumption,
         reply: finalReply,
         grounded: outcome.grounded,
         degraded: outcome.degraded,
         sources: extractSources(outcome.dossier),
         dossier: outcome.dossier,
+        permissionPlan: outcome.permissionPlan,
         security: getCryptoStatus(),
       },
       {

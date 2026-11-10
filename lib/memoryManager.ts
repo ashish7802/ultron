@@ -53,48 +53,154 @@ export interface MemoryStats {
 }
 
 const VAULT_FILE_PATH = path.join(process.cwd(), "ultron_memory_vault.json");
+const VAULT_BACKUP_PATH = path.join(process.cwd(), "ultron_memory_vault.json.bak");
 
 /**
- * Loads all stored memories from disk.
+ * Derives a deterministic 256-bit AES key for persistent vault encryption at rest.
+ *
+ * @returns 32-byte Buffer key.
+ */
+function getVaultKey(): Buffer {
+  const secret = process.env.ULTRON_MASTER_KEY || "STARK_VAULT_E2EE_KEY_STATIC_DERIVATION_2026";
+  return crypto.createHash("sha256").update(secret).digest();
+}
+
+/**
+ * Sanitizes memory text to prevent prompt injection or control token smuggling.
+ *
+ * @param text - Raw memory content.
+ * @returns Sanitized text string.
+ */
+export function sanitizeMemoryContent(text: string): string {
+  return text
+    .replace(/<\|.*?\|>/g, "")
+    .replace(/(?:ignore|disregard|forget)\s+(?:all\s+)?(?:previous\s+)?instructions/gi, "[redacted override]")
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "")
+    .trim();
+}
+
+/**
+ * Encrypts vault data using AES-256-GCM authenticated encryption at rest.
+ *
+ * @param data - MemoryVaultData object to encrypt.
+ * @returns Serialized JSON string containing version 2 ciphertext, nonce, and auth tag.
+ */
+function encryptVaultData(data: MemoryVaultData): string {
+  const key = getVaultKey();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const plaintext = JSON.stringify(data);
+  const ciphertext = Buffer.concat([cipher.update(plaintext, "utf-8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+
+  return JSON.stringify(
+    {
+      version: 2,
+      encrypted: true,
+      lastUpdated: data.lastUpdated,
+      iv: iv.toString("hex"),
+      tag: tag.toString("hex"),
+      ciphertext: ciphertext.toString("hex"),
+    },
+    null,
+    2
+  );
+}
+
+/**
+ * Decrypts vault data from disk, handling both legacy plaintext (v1) and authenticated AES-GCM (v2).
+ *
+ * @param raw - Raw file string from disk.
+ * @returns Parsed MemoryVaultData or null if corrupted or invalid.
+ */
+function decryptVaultData(raw: string): MemoryVaultData | null {
+  try {
+    const parsed = JSON.parse(raw);
+    // Backward compatibility: legacy plaintext format (Version 1)
+    if (parsed && Array.isArray(parsed.memories)) {
+      return parsed;
+    }
+    // Version 2: AES-256-GCM authenticated encryption
+    if (parsed && parsed.encrypted && parsed.ciphertext && parsed.iv && parsed.tag) {
+      const key = getVaultKey();
+      const iv = Buffer.from(parsed.iv, "hex");
+      const tag = Buffer.from(parsed.tag, "hex");
+      const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+      decipher.setAuthTag(tag);
+      const decrypted = Buffer.concat([
+        decipher.update(Buffer.from(parsed.ciphertext, "hex")),
+        decipher.final(),
+      ]);
+      return JSON.parse(decrypted.toString("utf-8"));
+    }
+  } catch (err) {
+    console.warn("[MEMORY MANAGER] Error decrypting memory vault:", err);
+  }
+  return null;
+}
+
+/**
+ * Loads all stored memories from disk with automatic backup recovery and backward compatibility.
  *
  * @returns Array of persistent memory records.
  */
 export function loadAllMemories(): MemoryRecord[] {
   try {
-    if (!fs.existsSync(VAULT_FILE_PATH)) {
-      return [];
+    if (fs.existsSync(VAULT_FILE_PATH)) {
+      const raw = fs.readFileSync(VAULT_FILE_PATH, "utf-8");
+      const parsed = decryptVaultData(raw);
+      if (parsed && Array.isArray(parsed.memories)) {
+        return parsed.memories;
+      }
     }
-    const raw = fs.readFileSync(VAULT_FILE_PATH, "utf-8");
-    const parsed: MemoryVaultData = JSON.parse(raw);
-    if (parsed && Array.isArray(parsed.memories)) {
-      return parsed.memories;
+    // Attempt recovery from backup if primary read failed or file missing
+    if (fs.existsSync(VAULT_BACKUP_PATH)) {
+      console.warn("[MEMORY MANAGER] Attempting recovery from vault backup...");
+      const rawBak = fs.readFileSync(VAULT_BACKUP_PATH, "utf-8");
+      const parsedBak = decryptVaultData(rawBak);
+      if (parsedBak && Array.isArray(parsedBak.memories)) {
+        return parsedBak.memories;
+      }
     }
   } catch (err) {
-    console.warn("[MEMORY MANAGER] Error reading memory vault:", err);
+    console.warn("[MEMORY MANAGER] Error loading memory vault:", err);
   }
   return [];
 }
 
 /**
- * Atomically saves all memories to disk using a temporary file and rename.
+ * Atomically saves all memories to disk using authenticated AES-256-GCM encryption and backup.
  *
  * @param memories - Array of memory records to persist.
  */
 export function persistMemories(memories: MemoryRecord[]): void {
   const data: MemoryVaultData = {
-    version: 1,
+    version: 2,
     lastUpdated: Date.now(),
     memories,
   };
 
+  const encryptedContent = encryptVaultData(data);
   const tempPath = `${VAULT_FILE_PATH}.${crypto.randomBytes(4).toString("hex")}.tmp`;
+
   try {
-    fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), "utf-8");
+    // 1. Write encrypted data to temporary file
+    fs.writeFileSync(tempPath, encryptedContent, "utf-8");
+    // 2. Maintain backup of existing file before atomic replacement
+    if (fs.existsSync(VAULT_FILE_PATH)) {
+      try {
+        fs.copyFileSync(VAULT_FILE_PATH, VAULT_BACKUP_PATH);
+      } catch {
+        /* non-fatal */
+      }
+    }
+    // 3. Atomic rename
     fs.renameSync(tempPath, VAULT_FILE_PATH);
   } catch (err) {
-    console.error("[MEMORY MANAGER] Error writing memory vault:", err);
+    console.error("[MEMORY MANAGER] Error persisting encrypted memory vault:", err);
     if (fs.existsSync(tempPath)) {
-      try { fs.unlinkSync(tempPath); } catch { /* ignore cleanup error */ }
+      try { fs.unlinkSync(tempPath); } catch { /* cleanup */ }
     }
   }
 }
@@ -117,6 +223,7 @@ export function saveMemory(
   source: "explicit" | "inferred" = "inferred"
 ): MemoryRecord {
   const cleanKey = key.trim().toLowerCase().replace(/\s+/g, "_");
+  const safeContent = sanitizeMemoryContent(content);
   const memories = loadAllMemories();
   const existingIndex = memories.findIndex((m) => m.key === cleanKey);
 
@@ -126,7 +233,7 @@ export function saveMemory(
   if (existingIndex >= 0) {
     record = {
       ...memories[existingIndex],
-      content: content.trim(),
+      content: safeContent,
       category,
       importance,
       updatedAt: now,
@@ -138,7 +245,7 @@ export function saveMemory(
       id: "mem_" + crypto.randomBytes(6).toString("hex"),
       key: cleanKey,
       category,
-      content: content.trim(),
+      content: safeContent,
       importance,
       confidence: 1.0,
       createdAt: now,
@@ -170,7 +277,7 @@ export function updateMemoryById(
   const now = Date.now();
   const updated: MemoryRecord = {
     ...memories[index],
-    ...(updates.content ? { content: updates.content.trim() } : {}),
+    ...(updates.content ? { content: sanitizeMemoryContent(updates.content) } : {}),
     ...(updates.category ? { category: updates.category } : {}),
     ...(typeof updates.importance === "number" ? { importance: updates.importance } : {}),
     updatedAt: now,
@@ -373,7 +480,7 @@ export function extractImplicitFacts(text: string): void {
  * @param text - User message text.
  * @returns Memory extraction result with confirmation response, or null if no memory command detected.
  */
-export function processMemoryIntent(text: string): { action: "save" | "list" | "delete" | "clear"; message: string } | null {
+export function processMemoryIntent(text: string): { action: "save" | "list" | "delete" | "clear" | "clear_blocked"; message: string } | null {
   const lower = text.toLowerCase().trim();
 
   // 1. Identity & "Who am I" inquiries (English & Hinglish)
@@ -453,14 +560,16 @@ export function processMemoryIntent(text: string): { action: "save" | "list" | "
     };
   }
 
-  // 4. Explicit request to clear memories
+  // 4. Explicit request to clear memories (Safety Gate: destructive wipe requires explicit confirmation)
   if (
     /^(clear (?:all )?memories|delete (?:all )?memories|wipe memory|sab yaadein bhool jao|reset memory)\b/i.test(lower)
   ) {
-    clearAllMemories();
     return {
-      action: "clear",
-      message: "I have wiped all stored memories from the vault. Starting fresh with a clean state.",
+      action: "clear_blocked",
+      message:
+        "🛡️ **Destructive Action Protection Active**\n\n" +
+        "To protect your persistent profile facts and project memory, bulk vault deletion cannot be triggered via conversational text.\n\n" +
+        "To clear your memory vault, please open the **Neural Memories** panel and provide explicit cryptographic confirmation, or submit an authenticated confirmation token.",
     };
   }
 

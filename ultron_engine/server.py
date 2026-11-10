@@ -29,12 +29,14 @@ from typing import Any, Optional
 
 try:
     # Optional dependency: desktop/audit environments intentionally do not install it.
-    from fastapi import FastAPI
+    from fastapi import FastAPI, HTTPException, Request
     from fastapi.middleware.cors import CORSMiddleware
 
     HAS_FASTAPI = True
 except ImportError:  # pragma: no cover - exercised only when the web stack is absent
     FastAPI = None
+    HTTPException = None
+    Request = None
     CORSMiddleware = None
     HAS_FASTAPI = False
 
@@ -119,8 +121,19 @@ def create_app():
     async def health():
         return await orch.broadcast_health()
 
+    def _verify_auth(req: Request):
+        import os
+        expected = os.environ.get("ULTRON_ENGINE_SECRET") or os.environ.get("ULTRON_SESSION_SECRET")
+        if not expected:
+            return True
+        secret = req.headers.get("x-ultron-secret") or req.headers.get("authorization", "").replace("Bearer ", "")
+        if secret != expected:
+            raise HTTPException(status_code=403, detail="Forbidden: Invalid engine authorization secret")
+        return True
+
     @app.post("/dispatch")
-    async def dispatch(body: dict):
+    async def dispatch(body: dict, request: Request):
+        _verify_auth(request)
         return await orch.dispatch(body.get("intent", ""), body.get("payload", {}))
 
     @app.get("/state")
@@ -128,7 +141,8 @@ def create_app():
         return await state.snapshot()
 
     @app.post("/engine/{name}/process")
-    async def process(name: str, body: dict):
+    async def process(name: str, body: dict, request: Request):
+        _verify_auth(request)
         e = orch.engines.get(name)
         if not e:
             return {"error": "unknown engine"}

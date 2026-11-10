@@ -1,22 +1,25 @@
 /**
  * @file app/api/memory/route.ts
- * @description RESTful API Endpoint for ULTRON Persistent Memory Vault Management.
+ * @description Hardened RESTful API Endpoint for ULTRON Persistent Memory Vault Management.
  * 
  * Subsystem:
  * Long-Term Episodic Memory & User Profile Management.
  * 
  * Key Responsibilities:
  * - GET: Retrieves all persistent memory records, grouped by category with statistics.
- * - POST: Allows saving a new memory or updating an existing memory record.
- * - DELETE: Allows deleting a memory by unique ID or clearing all memories.
+ * - POST: Allows saving a new memory or updating an existing memory record with schema validation.
+ * - DELETE: Allows deleting a memory by unique ID or clearing all memories with cryptographic confirmation token.
  * 
  * Architectural Role & Interactions:
  * - Backs the frontend "Neural Memories" management modal in `components/UltronChat.tsx`.
  * - Communicates with `lib/memoryManager.ts` to read and write to `ultron_memory_vault.json`.
+ * - Protected by `lib/sessionGate.ts` to reject unauthorized cross-origin calls and CSRF.
  * 
  * Safety / Security Guarantees:
- * - Local-only single-tenant operation.
- * - Sanitizes all incoming memory keys and contents to prevent injection.
+ * - Session token & loopback origin validation on all methods (fail-closed).
+ * - Maximum payload size limitation (64 KB) to prevent memory-exhaustion denial-of-service.
+ * - Cryptographic single-use action token required for bulk memory deletion (`clear_all`).
+ * - Strict schema validation on keys, categories, content length, and numeric bounds.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -29,13 +32,27 @@ import {
   getMemoryStats,
   MemoryCategory,
 } from "@/lib/memoryManager";
+import {
+  validateDesktopSession,
+  createAuthErrorResponse,
+  consumeSingleUseActionToken,
+} from "@/lib/sessionGate";
+
+const MAX_PAYLOAD_BYTES = 64 * 1024; // 64 KB limit
+const VALID_CATEGORIES: Set<string> = new Set(["profile", "preference", "project", "fact", "instruction"]);
 
 /**
  * Handles GET requests to list all stored memories and vault statistics.
  *
+ * @param req - Incoming NextRequest.
  * @returns JSON response containing memories array and stats.
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = validateDesktopSession(req);
+  if (!auth.valid) {
+    return createAuthErrorResponse(auth);
+  }
+
   try {
     const memories = loadAllMemories();
     const stats = getMemoryStats();
@@ -58,29 +75,78 @@ export async function GET() {
  * @returns JSON response with the saved memory record.
  */
 export async function POST(req: NextRequest) {
+  const auth = validateDesktopSession(req);
+  if (!auth.valid) {
+    return createAuthErrorResponse(auth);
+  }
+
   try {
-    const body = await req.json();
+    const rawBody = await req.text();
+    if (rawBody.length > MAX_PAYLOAD_BYTES) {
+      return NextResponse.json(
+        { ok: false, error: "Payload exceeds maximum allowed size of 64KB" },
+        { status: 413 }
+      );
+    }
+
+    let body: Record<string, unknown>;
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      return NextResponse.json({ ok: false, error: "Invalid JSON format" }, { status: 400 });
+    }
+
     const { action, id, key, content, category, importance } = body;
 
+    // Handle memory update
     if (action === "update" && id) {
-      const updated = updateMemoryById(id, { content, category, importance });
+      if (typeof id !== "string" || !/^mem_[a-zA-Z0-9_-]+$/.test(id)) {
+        return NextResponse.json({ ok: false, error: "Invalid memory ID format" }, { status: 400 });
+      }
+
+      const updateData: { content?: string; category?: MemoryCategory; importance?: number } = {};
+      if (typeof content === "string" && content.trim().length > 0) {
+        if (content.length > 5000) {
+          return NextResponse.json({ ok: false, error: "Memory content exceeds maximum length (5000 chars)" }, { status: 400 });
+        }
+        updateData.content = content.trim();
+      }
+      if (typeof category === "string" && VALID_CATEGORIES.has(category)) {
+        updateData.category = category as MemoryCategory;
+      }
+      if (typeof importance === "number") {
+        updateData.importance = Math.max(1, Math.min(5, Math.round(importance)));
+      }
+
+      const updated = updateMemoryById(id, updateData);
       if (!updated) {
         return NextResponse.json({ ok: false, error: "Memory record not found" }, { status: 404 });
       }
       return NextResponse.json({ ok: true, memory: updated });
     }
 
+    // Handle new memory creation
     if (!content || typeof content !== "string" || !content.trim()) {
       return NextResponse.json({ ok: false, error: "Memory content cannot be empty" }, { status: 400 });
     }
 
-    const memoryKey = key && typeof key === "string" ? key : "fact_" + Date.now();
-    const memoryCat: MemoryCategory = category && ["profile", "preference", "project", "fact", "instruction"].includes(category)
-      ? category
-      : "fact";
-    const memoryImportance = typeof importance === "number" ? Math.max(1, Math.min(5, importance)) : 3;
+    if (content.length > 5000) {
+      return NextResponse.json({ ok: false, error: "Memory content exceeds maximum length (5000 chars)" }, { status: 400 });
+    }
 
-    const record = saveMemory(memoryKey, content, memoryCat, memoryImportance, "explicit");
+    const memoryKey = typeof key === "string" && key.trim().length > 0 && key.length <= 100
+      ? key.trim().replace(/[^a-zA-Z0-9_-]/g, "_")
+      : "fact_" + Date.now();
+
+    const memoryCat: MemoryCategory = typeof category === "string" && VALID_CATEGORIES.has(category)
+      ? (category as MemoryCategory)
+      : "fact";
+
+    const memoryImportance = typeof importance === "number"
+      ? Math.max(1, Math.min(5, Math.round(importance)))
+      : 3;
+
+    const record = saveMemory(memoryKey, content.trim(), memoryCat, memoryImportance, "explicit");
 
     return NextResponse.json({ ok: true, memory: record });
   } catch (err) {
@@ -96,18 +162,49 @@ export async function POST(req: NextRequest) {
  * @returns JSON response with deletion status.
  */
 export async function DELETE(req: NextRequest) {
+  const auth = validateDesktopSession(req);
+  if (!auth.valid) {
+    return createAuthErrorResponse(auth);
+  }
+
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
     const clearAll = searchParams.get("clearAll") === "true";
 
+    // Destructive bulk wipe: requires confirmation token and confirmation parameter
     if (clearAll) {
+      const confirmationToken =
+        searchParams.get("actionToken") ||
+        req.headers.get("x-ultron-action-token");
+      const confirmPhrase = searchParams.get("confirm");
+
+      if (confirmPhrase !== "CONFIRM_CLEAR_VAULT") {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "Destructive action blocked: Parameter confirm=CONFIRM_CLEAR_VAULT is required to clear vault.",
+          },
+          { status: 400 }
+        );
+      }
+
+      if (!confirmationToken || !consumeSingleUseActionToken(confirmationToken, "CONFIRM_CLEAR_VAULT")) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "Action Authorization Required: A valid single-use action token is required to clear all memories.",
+          },
+          { status: 403 }
+        );
+      }
+
       clearAllMemories();
-      return NextResponse.json({ ok: true, message: "All memories cleared" });
+      return NextResponse.json({ ok: true, message: "All memories cleared securely" });
     }
 
-    if (!id) {
-      return NextResponse.json({ ok: false, error: "Memory ID is required" }, { status: 400 });
+    if (!id || typeof id !== "string" || !/^mem_[a-zA-Z0-9_-]+$/.test(id)) {
+      return NextResponse.json({ ok: false, error: "Valid Memory ID is required" }, { status: 400 });
     }
 
     const deleted = deleteMemory(id);

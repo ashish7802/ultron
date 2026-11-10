@@ -23,6 +23,7 @@
 
 import { exec, spawn } from "child_process";
 import os from "os";
+import { planAction, ActionPlan } from "./permissionGateway";
 
 export interface SystemTelemetry {
   batteryPercent: number | null;
@@ -42,6 +43,7 @@ export interface SystemActionResult {
   handled: boolean;
   message: string;
   telemetry?: Partial<SystemTelemetry>;
+  permissionPlan?: ActionPlan;
 }
 
 /**
@@ -209,16 +211,28 @@ export async function handleSystemControlIntent(query: string): Promise<SystemAc
 
   // 3. Audio Volume Control: "volume badhao", "volume up", "volume kam karo", "mute karo"
   if (/\b(volume\s*(up|badhao|increase|badha\s*do)|sound\s*up)\b/i.test(lower)) {
-    await controlAudioVolume("up");
-    return { handled: true, message: "Increasing system audio volume." };
+    const plan = planAction("volume_change", "Volume Increase", { volumeAction: "up" }, ["Windows Audio Endpoint"]);
+    return {
+      handled: true,
+      message: `🛡️ **Computer Action Approval Required**\n\nI have prepared an execution plan to increase audio volume.\n\n- **Target:** System Volume UP\n- **Risk Level:** LOW\n\nPlease approve or cancel this action.`,
+      permissionPlan: plan,
+    };
   }
   if (/\b(volume\s*(down|kam|decrease|ghatao)|sound\s*down)\b/i.test(lower)) {
-    await controlAudioVolume("down");
-    return { handled: true, message: "Lowering system audio volume." };
+    const plan = planAction("volume_change", "Volume Decrease", { volumeAction: "down" }, ["Windows Audio Endpoint"]);
+    return {
+      handled: true,
+      message: `🛡️ **Computer Action Approval Required**\n\nI have prepared an execution plan to lower audio volume.\n\n- **Target:** System Volume DOWN\n- **Risk Level:** LOW\n\nPlease approve or cancel this action.`,
+      permissionPlan: plan,
+    };
   }
   if (/\b(mute|unmute|sound\s*band|awaaz\s*band)\b/i.test(lower)) {
-    await controlAudioVolume("mute");
-    return { handled: true, message: "Toggled audio mute state." };
+    const plan = planAction("volume_change", "Volume Mute Toggle", { volumeAction: "mute" }, ["Windows Audio Endpoint"]);
+    return {
+      handled: true,
+      message: `🛡️ **Computer Action Approval Required**\n\nI have prepared an execution plan to toggle audio mute.\n\n- **Target:** Audio Mute Toggle\n- **Risk Level:** LOW\n\nPlease approve or cancel this action.`,
+      permissionPlan: plan,
+    };
   }
 
   // 4. Web URLs / Popular Services: "open youtube", "open github", "youtube kholo", "open google"
@@ -239,8 +253,12 @@ export async function handleSystemControlIntent(query: string): Promise<SystemAc
     const siteKey = webMatch[1].toLowerCase();
     if (urlPatterns[siteKey]) {
       const targetUrl = urlPatterns[siteKey];
-      await openUrlInBrowser(targetUrl);
-      return { handled: true, message: `Opening **${siteKey.toUpperCase()}** in your default browser.` };
+      const plan = planAction("browser_open", targetUrl, { targetUrl }, ["Default Web Browser", "Windows Shell"]);
+      return {
+        handled: true,
+        message: `🛡️ **Computer Action Approval Required**\n\nI have prepared an execution plan to open **${siteKey.toUpperCase()}** (${targetUrl}) in your default browser.\n\n- **Target:** ${targetUrl}\n- **Risk Level:** LOW\n\nPlease approve or cancel this action.`,
+        permissionPlan: plan,
+      };
     }
   }
 

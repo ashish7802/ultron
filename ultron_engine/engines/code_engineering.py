@@ -33,7 +33,27 @@ class CodeEngineeringEngine(BaseEngine):
         return {"ok": True, "error": None, "note": "syntax check not implemented for " + str(lang)}
 
     def run_tests(self, cwd=None, cmd=None):
+        # Allowlist enforcement: only sanctioned test runners are permitted
+        ALLOWED_BINARIES = {"python", "pytest", "npm", "node"}
         cmd = cmd or ["python", "-m", "pytest", "-q"]
+        if not isinstance(cmd, list) or len(cmd) == 0:
+            return {"returncode": -1, "error": "cmd must be a non-empty list of arguments", "passed": False}
+
+        bin_name = os.path.basename(str(cmd[0])).lower()
+        if bin_name.endswith(".exe"):
+            bin_name = bin_name[:-4]
+
+        if bin_name not in ALLOWED_BINARIES:
+            return {
+                "returncode": -1,
+                "error": f"Security violation: binary '{bin_name}' is not in the test execution allowlist",
+                "passed": False,
+            }
+
+        # Prevent traversal outside allowed workspace
+        if cwd and (".." in str(cwd) or str(cwd).startswith("C:\\Windows")):
+            return {"returncode": -1, "error": "Security violation: cwd outside permitted workspace", "passed": False}
+
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=120, cwd=cwd)
             return {"returncode": r.returncode, "stdout": r.stdout[-2000:], "stderr": r.stderr[-2000:],

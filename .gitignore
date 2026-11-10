@@ -51,6 +51,7 @@ next-env.d.ts
 .qpanda/
 .andromity/
 ultron_engine/secure_vault/
+docs/audit/GATEWAY_AUDIT_LOG.json
 .vscode/
 
 desktop.ini
