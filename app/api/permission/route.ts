@@ -134,17 +134,17 @@ export async function POST(req: NextRequest) {
       if (plan.actionType === "app_launch") {
         const appName = String(plan.params.appName || plan.target);
         executionOutcome = await executeApprovedAction(planId, grantToken, async () => {
-          return await launchAppByName(appName);
+          return await launchAppByName(appName, { planId, grantToken });
         });
       } else if (plan.actionType === "volume_change") {
         const volAction = plan.params.volumeAction as "up" | "down" | "mute";
         executionOutcome = await executeApprovedAction(planId, grantToken, async () => {
-          return await controlAudioVolume(volAction);
+          return await controlAudioVolume(volAction, { planId, grantToken });
         });
       } else if (plan.actionType === "browser_open") {
         const targetUrl = String(plan.params.targetUrl || plan.target);
         executionOutcome = await executeApprovedAction(planId, grantToken, async () => {
-          return await openUrlInBrowser(targetUrl);
+          return await openUrlInBrowser(targetUrl, { planId, grantToken });
         });
       } else {
         return NextResponse.json(

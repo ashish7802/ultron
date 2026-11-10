@@ -136,7 +136,11 @@ class MemoryEngine(BaseEngine):
             tier = "long"
         h = self._hash(content)
         cur = self._conn.execute("SELECT id FROM memory WHERE hash=?", (h,))
-        if cur.fetchone():
+        existing = cur.fetchone()
+        if existing:
+            # Refresh timestamp on re-storage so recently referenced memories remain active
+            self._conn.execute("UPDATE memory SET ts=? WHERE id=?", (time.time(), existing[0]))
+            self._conn.commit()
             return {"stored": False, "reason": "duplicate", "hash": h}
 
         mid = str(__import__("uuid").uuid4())
@@ -199,7 +203,8 @@ class MemoryEngine(BaseEngine):
             sql += " WHERE tier=?"
             params.append(tier)
         sql += " ORDER BY ts DESC LIMIT ?"
-        params.append(limit * 2)
+        scan_limit = max(limit * 5, 200) if query else limit * 2
+        params.append(scan_limit)
 
         rows = self._conn.execute(sql, params).fetchall()
         out = []

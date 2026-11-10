@@ -25,6 +25,7 @@
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
+import { getActiveMasterSecret } from "./crypto.ts";
 
 export type MemoryCategory = "profile" | "preference" | "project" | "fact" | "instruction";
 
@@ -38,6 +39,11 @@ export interface MemoryRecord {
   createdAt: number;
   updatedAt: number;
   source: "explicit" | "inferred";
+  projectId?: string;
+  provenance?: {
+    origin: string;
+    timestamp: number;
+  };
 }
 
 export interface MemoryVaultData {
@@ -55,13 +61,17 @@ export interface MemoryStats {
 const VAULT_FILE_PATH = path.join(process.cwd(), "ultron_memory_vault.json");
 const VAULT_BACKUP_PATH = path.join(process.cwd(), "ultron_memory_vault.json.bak");
 
+/** Legacy migration key retained strictly for one-time decryption of historical vaults. */
+const LEGACY_VAULT_MIGRATION_SECRET = "STARK_VAULT_E2EE_KEY_STATIC_DERIVATION_2026";
+
 /**
- * Derives a deterministic 256-bit AES key for persistent vault encryption at rest.
+ * Derives a dynamic 256-bit AES key for persistent vault encryption at rest.
+ * Uses the CSPRNG platform-backed master secret; NEVER hardcoded static strings.
  *
  * @returns 32-byte Buffer key.
  */
 function getVaultKey(): Buffer {
-  const secret = process.env.ULTRON_MASTER_KEY || "STARK_VAULT_E2EE_KEY_STATIC_DERIVATION_2026";
+  const secret = getActiveMasterSecret();
   return crypto.createHash("sha256").update(secret).digest();
 }
 
@@ -82,6 +92,7 @@ export function sanitizeMemoryContent(text: string): string {
 
 /**
  * Encrypts vault data using AES-256-GCM authenticated encryption at rest.
+ * Uses a dynamic CSPRNG key and fresh 96-bit nonce.
  *
  * @param data - MemoryVaultData object to encrypt.
  * @returns Serialized JSON string containing version 2 ciphertext, nonce, and auth tag.
@@ -109,7 +120,8 @@ function encryptVaultData(data: MemoryVaultData): string {
 }
 
 /**
- * Decrypts vault data from disk, handling both legacy plaintext (v1) and authenticated AES-GCM (v2).
+ * Decrypts vault data from disk, handling legacy plaintext (v1), active dynamic AES-GCM (v2),
+ * and one-time migration of historical encrypted vaults.
  *
  * @param raw - Raw file string from disk.
  * @returns Parsed MemoryVaultData or null if corrupted or invalid.
@@ -123,16 +135,30 @@ function decryptVaultData(raw: string): MemoryVaultData | null {
     }
     // Version 2: AES-256-GCM authenticated encryption
     if (parsed && parsed.encrypted && parsed.ciphertext && parsed.iv && parsed.tag) {
-      const key = getVaultKey();
       const iv = Buffer.from(parsed.iv, "hex");
       const tag = Buffer.from(parsed.tag, "hex");
-      const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
-      decipher.setAuthTag(tag);
-      const decrypted = Buffer.concat([
-        decipher.update(Buffer.from(parsed.ciphertext, "hex")),
-        decipher.final(),
-      ]);
-      return JSON.parse(decrypted.toString("utf-8"));
+      const ciphertext = Buffer.from(parsed.ciphertext, "hex");
+
+      // Attempt 1: Decrypt with active dynamic CSPRNG master key
+      try {
+        const primaryKey = getVaultKey();
+        const decipher = crypto.createDecipheriv("aes-256-gcm", primaryKey, iv);
+        decipher.setAuthTag(tag);
+        const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+        return JSON.parse(decrypted.toString("utf-8"));
+      } catch {
+        // Attempt 2: Fallback migration key for historical vaults
+        const legacyKey = crypto.createHash("sha256").update(LEGACY_VAULT_MIGRATION_SECRET).digest();
+        const fallbackDecipher = crypto.createDecipheriv("aes-256-gcm", legacyKey, iv);
+        fallbackDecipher.setAuthTag(tag);
+        const migratedDecrypted = Buffer.concat([fallbackDecipher.update(ciphertext), fallbackDecipher.final()]);
+        const migratedData: MemoryVaultData = JSON.parse(migratedDecrypted.toString("utf-8"));
+        // Asynchronously re-encrypt with the active key to complete migration
+        setImmediate(() => {
+          persistMemories(migratedData.memories);
+        });
+        return migratedData;
+      }
     }
   } catch (err) {
     console.warn("[MEMORY MANAGER] Error decrypting memory vault:", err);
@@ -151,7 +177,13 @@ export function loadAllMemories(): MemoryRecord[] {
       const raw = fs.readFileSync(VAULT_FILE_PATH, "utf-8");
       const parsed = decryptVaultData(raw);
       if (parsed && Array.isArray(parsed.memories)) {
-        return parsed.memories;
+        return parsed.memories.map((m) => ({
+          ...m,
+          provenance: m.provenance || {
+            origin: "user_conversation",
+            timestamp: m.updatedAt || m.createdAt || Date.now(),
+          },
+        }));
       }
     }
     // Attempt recovery from backup if primary read failed or file missing
@@ -160,7 +192,13 @@ export function loadAllMemories(): MemoryRecord[] {
       const rawBak = fs.readFileSync(VAULT_BACKUP_PATH, "utf-8");
       const parsedBak = decryptVaultData(rawBak);
       if (parsedBak && Array.isArray(parsedBak.memories)) {
-        return parsedBak.memories;
+        return parsedBak.memories.map((m) => ({
+          ...m,
+          provenance: m.provenance || {
+            origin: "vault_backup",
+            timestamp: m.updatedAt || m.createdAt || Date.now(),
+          },
+        }));
       }
     }
   } catch (err) {

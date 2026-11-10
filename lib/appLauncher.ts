@@ -29,6 +29,12 @@ import { spawn } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { verifyGatewayExecutionGrant } from "./permissionGateway.ts";
+
+export interface GatewayAuthContext {
+  planId: string;
+  grantToken: string;
+}
 
 /** How long a discovered app list stays cached (ms). */
 const APP_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -333,11 +339,25 @@ function isSafeAppName(request: string): boolean {
 
 /**
  * Resolves and launches an application requested by voice.
+ * Enforces mandatory authorization via Universal Computer Action Permission Gateway.
+ * Direct invocation without a valid gateway grant is blocked.
  *
  * @param request - Spoken app name (e.g. "chrome", "notepad", "visual studio code").
+ * @param gatewayAuth - Cryptographic execution authorization context from permission gateway.
  * @returns Honest launch result; on failure it includes suggestions and never claims success.
  */
-export async function launchAppByName(request: string): Promise<LaunchResult> {
+export async function launchAppByName(
+  request: string,
+  gatewayAuth?: GatewayAuthContext
+): Promise<LaunchResult> {
+  // Enforce Universal Permission Gateway authorization
+  if (!gatewayAuth || !verifyGatewayExecutionGrant(gatewayAuth.planId, gatewayAuth.grantToken)) {
+    return {
+      ok: false,
+      message: "Security Policy Enforcement: Direct execution blocked. All application launches must route through the Universal Permission Gateway.",
+    };
+  }
+
   if (process.platform !== "win32") {
     return { ok: false, message: "App launching is only supported on Windows." };
   }

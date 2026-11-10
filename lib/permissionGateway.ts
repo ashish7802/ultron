@@ -47,6 +47,7 @@ export type ActionRiskLevel = "low" | "medium" | "high" | "critical";
 export type ActionPlanStatus =
   | "pending"
   | "approved"
+  | "executing"
   | "rejected"
   | "executed"
   | "cancelled"
@@ -274,6 +275,25 @@ export function approveActionPlan(
 }
 
 /**
+ * Verifies that a valid, single-use execution grant is currently active for a plan.
+ * Used by executors (e.g. appLauncher, systemController) to guarantee that they are
+ * never invoked directly outside the gateway.
+ *
+ * @param planId - Plan ID.
+ * @param grantToken - Grant token presented by executor.
+ * @returns True if authorized; false otherwise.
+ */
+export function verifyGatewayExecutionGrant(planId: string, grantToken: string): boolean {
+  if (!planId || !grantToken) return false;
+  const plan = activePlans.get(planId);
+  return Boolean(
+    plan &&
+    (plan.status === "approved" || plan.status === "executing") &&
+    plan.executionGrantToken === grantToken
+  );
+}
+
+/**
  * Rejects or cancels a pending action plan.
  *
  * @param planId - ID of plan to cancel.
@@ -295,7 +315,8 @@ export function cancelActionPlan(planId: string, reason: string = "User rejected
  *
  * Lifecycle Phase 6 (EXECUTE), Phase 7 (VERIFY RESULT), & Phase 8 (AUDIT LOG):
  * Validates execution token, re-computes action hash to guarantee zero modification,
- * runs the executor function, logs the audit record without secrets, and cleans up the plan.
+ * runs the executor function within an active execution scope, logs the audit record
+ * without secrets, and cleans up the plan and token immediately after completion.
  *
  * @param planId - ID of approved plan.
  * @param executionGrantToken - Single-use execution grant token.
@@ -329,21 +350,23 @@ export async function executeApprovedAction<T>(
     return { success: false, error: "Security Violation: Action parameters tampered with post-approval." };
   }
 
-  // Invalidate grant token immediately (single-use guarantee)
-  plan.executionGrantToken = null;
+  // Set status to executing during execution run
+  plan.status = "executing";
 
   try {
     const result = await executor();
     plan.status = "executed";
     logAuditEvent(plan, "executed", true, "Action executed successfully.");
-    activePlans.delete(planId);
     return { success: true, result };
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     plan.status = "executed";
     logAuditEvent(plan, "executed", false, `Execution failure: ${errorMsg}`);
-    activePlans.delete(planId);
     return { success: false, error: errorMsg };
+  } finally {
+    // Single-use guarantee: Invalidate grant token and remove plan immediately
+    plan.executionGrantToken = null;
+    activePlans.delete(planId);
   }
 }
 

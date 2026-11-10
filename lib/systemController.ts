@@ -23,7 +23,7 @@
 
 import { exec, spawn } from "child_process";
 import os from "os";
-import { planAction, ActionPlan } from "./permissionGateway";
+import { planAction, verifyGatewayExecutionGrant, type ActionPlan } from "./permissionGateway.ts";
 
 export interface SystemTelemetry {
   batteryPercent: number | null;
@@ -110,12 +110,21 @@ export async function getSystemTelemetry(): Promise<SystemTelemetry> {
 
 /**
  * Adjusts laptop audio volume using standard Windows Shell virtual keycodes.
+ * Enforces mandatory authorization via Universal Computer Action Permission Gateway.
  *
  * @param action - "up", "down", or "mute".
+ * @param gatewayAuth - Cryptographic authorization grant from permission gateway.
  * @returns Boolean indicating whether key simulation was dispatched.
  */
-export async function controlAudioVolume(action: "up" | "down" | "mute"): Promise<boolean> {
+export async function controlAudioVolume(
+  action: "up" | "down" | "mute",
+  gatewayAuth?: { planId: string; grantToken: string }
+): Promise<boolean> {
   if (process.platform !== "win32") return false;
+  if (!gatewayAuth || !verifyGatewayExecutionGrant(gatewayAuth.planId, gatewayAuth.grantToken)) {
+    console.warn("[SYSTEM CONTROLLER] Blocked direct volume change without permission gateway grant.");
+    return false;
+  }
 
   // Keycode 175 = Volume Up, 174 = Volume Down, 173 = Mute Toggle
   const charCode = action === "up" ? 175 : action === "down" ? 174 : 173;
@@ -135,11 +144,21 @@ export async function controlAudioVolume(action: "up" | "down" | "mute"): Promis
 
 /**
  * Opens any verified website URL in the user's default browser.
+ * Enforces mandatory authorization via Universal Computer Action Permission Gateway.
  *
  * @param url - Destination web address.
+ * @param gatewayAuth - Cryptographic authorization grant from permission gateway.
  * @returns Boolean indicating success.
  */
-export async function openUrlInBrowser(url: string): Promise<boolean> {
+export async function openUrlInBrowser(
+  url: string,
+  gatewayAuth?: { planId: string; grantToken: string }
+): Promise<boolean> {
+  if (!gatewayAuth || !verifyGatewayExecutionGrant(gatewayAuth.planId, gatewayAuth.grantToken)) {
+    console.warn("[SYSTEM CONTROLLER] Blocked direct browser navigation without permission gateway grant.");
+    return false;
+  }
+
   return new Promise((resolve) => {
     let cleanUrl = url.trim();
     if (!/^https?:\/\//i.test(cleanUrl)) {

@@ -222,60 +222,66 @@ def test_live_web_harvesting():
 
 def test_local_access_research_contract():
     """
-    Replaces the removed Zero-Trust gating test with the current local-only contract.
+    Validates the authenticated desktop session boundary contract for research.
 
-    Contract (no token / no 401 / no 423 gating exists anymore):
-    - An empty query must reach input validation and be rejected with HTTP 400.
-      A 401/403/423 here would mean the removed auth layer leaked back in.
-    - A valid query must be accepted: 2xx on success, or an honest 502/503/504 when
-      live web research is unavailable (documented by the route as an upstream
-      execution failure, not silently swallowed behind a 200).
-    - A supplied arbitrary Authorization header must be ignored (not rejected).
+    Contract:
+    - Unauthenticated request is rejected with HTTP 401 (fail closed).
+    - Authenticated request with session token from /api/auth/session succeeds:
+      - An empty query reaches input validation and is rejected with HTTP 400.
+      - A valid query is accepted: 2xx on success, or an honest 502/503/504 when
+        live web research is unavailable upstream.
+    - Tampered session token is rejected with HTTP 401.
     """
-    print("\n--- TEST 5: Local-Access Research API Contract (Loopback, No Auth) ---")
+    print("\n--- TEST 5: Local-Access Research API Contract (Authenticated Desktop Session) ---")
     wait_for_server()
     url = f"{BASE_URL}/api/research"
 
-    # 1. Empty query -> validation layer answers 400 (proves the request reached the handler).
-    status, _, data, _ = http_json(url, {"query": ""}, timeout=20)
+    # 1. Unauthenticated request -> must fail closed with 401
+    status_unauth, _, unauth_data, _ = http_json(url, {"query": ""}, timeout=20)
+    assert status_unauth == 401, (
+        f"Unauthenticated request to /api/research must be rejected with 401, got {status_unauth}: {unauth_data}"
+    )
+
+    # 2. Retrieve valid desktop session token
+    auth_status, _, auth_data, _ = http_json(f"{BASE_URL}/api/auth/session", timeout=10)
+    assert auth_status == 200, f"GET /api/auth/session must succeed, got {auth_status}: {auth_data}"
+    session_token = auth_data.get("sessionToken")
+    assert session_token, f"Session endpoint must return session token: {auth_data}"
+    auth_headers = {"X-ULTRON-Session-Token": session_token}
+
+    # 3. Empty query with session token -> input validation answers 400.
+    status, _, data, _ = http_json(url, {"query": ""}, headers=auth_headers, timeout=20)
     assert status == 400, (
-        f"Empty query must be rejected by input validation with HTTP 400 (local routes are "
-        f"open on loopback), got {status}: {data}"
+        f"Empty query must be rejected by input validation with HTTP 400, got {status}: {data}"
     )
 
-    # 2. An arbitrary Authorization header must be ignored, not enforced.
-    status_ignored, _, ignored_data, _ = http_json(
-        url,
-        {"query": ""},
-        headers={"Authorization": "Bearer irrelevant.local.header"},
-        timeout=20,
-    )
-    assert status_ignored == 400, (
-        f"Local research route must not enforce Authorization (no auth layer remains); "
-        f"expected 400 validation for empty query, got {status_ignored}: {ignored_data}"
-    )
+    # 4. Tampered session token -> 401
+    bad_headers = {"X-ULTRON-Session-Token": "tampered_session_token_12345"}
+    status_bad, _, bad_data, _ = http_json(url, {"query": "quantum"}, headers=bad_headers, timeout=20)
+    assert status_bad == 401, f"Tampered session token must be rejected with 401, got {status_bad}: {bad_data}"
 
-    # 3. Valid query -> 2xx, or a documented 502/503/504 when live web research is down.
+    # 5. Valid query with session token -> 2xx, or a documented 502/503/504 when live web research is down.
     status_valid, _, valid_data, raw = http_json(
         url,
         {"query": "quantum computing decoherence"},
+        headers=auth_headers,
         timeout=120,
     )
     if status_valid in (502, 503, 504):
         skip(
             "network",
             f"live research unavailable (HTTP {status_valid}: {valid_data.get('error')}); "
-            f"request was accepted by the open local route and the failure is honestly reported",
+            f"request was accepted by authenticated session and the failure is honestly reported",
         )
         log_test_result(
             "Local-Access Research Contract",
             True,
-            "empty query -> 400; valid query -> documented upstream failure (network unavailable)",
+            "unauth -> 401; empty query -> 400; valid query -> documented upstream failure (network unavailable)",
         )
         return
 
     assert 200 <= status_valid < 300, (
-        f"Valid query must be accepted by the open local route, got {status_valid}: "
+        f"Valid query must be accepted by authenticated session, got {status_valid}: "
         f"{valid_data or raw[:200]!r}"
     )
     assert valid_data.get("success") is True, f"Research response must report success=true: {valid_data}"
@@ -285,7 +291,7 @@ def test_local_access_research_contract():
     log_test_result(
         "Local-Access Research Contract",
         True,
-        "empty query -> 400; bogus Authorization ignored -> 400; valid query -> 200 with dossier",
+        "unauth -> 401; empty query -> 400; tampered -> 401; valid query -> 200 with dossier",
     )
 
 

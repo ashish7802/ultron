@@ -121,13 +121,16 @@ def create_app():
     async def health():
         return await orch.broadcast_health()
 
+    import secrets
+    _active_secret = (
+        os.environ.get("ULTRON_ENGINE_SECRET")
+        or os.environ.get("ULTRON_SESSION_SECRET")
+        or secrets.token_hex(32)
+    )
+
     def _verify_auth(req: Request):
-        import os
-        expected = os.environ.get("ULTRON_ENGINE_SECRET") or os.environ.get("ULTRON_SESSION_SECRET")
-        if not expected:
-            return True
         secret = req.headers.get("x-ultron-secret") or req.headers.get("authorization", "").replace("Bearer ", "")
-        if secret != expected:
+        if not secret or secret != _active_secret:
             raise HTTPException(status_code=403, detail="Forbidden: Invalid engine authorization secret")
         return True
 
@@ -137,7 +140,8 @@ def create_app():
         return await orch.dispatch(body.get("intent", ""), body.get("payload", {}))
 
     @app.get("/state")
-    async def get_state():
+    async def get_state(request: Request):
+        _verify_auth(request)
         return await state.snapshot()
 
     @app.post("/engine/{name}/process")

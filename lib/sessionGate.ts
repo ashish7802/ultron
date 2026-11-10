@@ -49,9 +49,11 @@ interface RateLimitBucket {
 
 /** In-memory active sessions store. */
 const activeSessions = new Map<string, SessionInfo>();
+/** In-memory set of explicitly revoked session tokens. */
+const revokedSessions = new Set<string>();
 /** In-memory short-lived single-use action tokens store. */
 const singleUseActionTokens = new Map<string, ActionToken>();
-/** In-memory sliding-window rate limit buckets mapped by IP or session. */
+/** In-memory sliding-window rate limit buckets mapped by session or connection IP. */
 const rateLimitBuckets = new Map<string, RateLimitBucket>();
 
 /** Master server-side ephemeral secret used to sign session tickets. */
@@ -101,6 +103,49 @@ export function getOrCreatePrimarySessionToken(): string {
   activeSessions.set(token, session);
   primaryDesktopSessionToken = token;
   return token;
+}
+
+/**
+ * Revokes a desktop session token immediately.
+ *
+ * @param token - Session token to revoke.
+ * @returns True if session was revoked; false if not found.
+ */
+export function revokeSessionToken(token: string): boolean {
+  if (!token) return false;
+  revokedSessions.add(token);
+  if (primaryDesktopSessionToken === token) {
+    primaryDesktopSessionToken = null;
+  }
+  return activeSessions.delete(token);
+}
+
+/**
+ * Rotates an existing valid session token to a fresh CSPRNG token.
+ *
+ * @param oldToken - Currently active session token.
+ * @returns The new session token, or null if old token was invalid.
+ */
+export function rotateSessionToken(oldToken: string): string | null {
+  if (!oldToken || revokedSessions.has(oldToken)) return null;
+  const existing = activeSessions.get(oldToken);
+  if (!existing || existing.expiresAt < Date.now()) return null;
+
+  revokeSessionToken(oldToken);
+  const newToken = crypto.randomBytes(32).toString("hex");
+  const now = Date.now();
+
+  const session: SessionInfo = {
+    sessionId: existing.sessionId,
+    token: newToken,
+    createdAt: now,
+    expiresAt: now + SESSION_TTL_MS,
+    lastActiveAt: now,
+  };
+
+  activeSessions.set(newToken, session);
+  primaryDesktopSessionToken = newToken;
+  return newToken;
 }
 
 /**
@@ -244,9 +289,14 @@ export function validateDesktopSession(
     };
   }
 
-  // 3. Rate Limiting Check
-  const clientIp = req.headers.get("x-forwarded-for") || "loopback";
-  if (!checkRateLimit(clientIp)) {
+  // 3. Rate Limiting Check (derives bucket without trusting spoofed forwarding headers)
+  const token =
+    req.headers.get("x-ultron-session-token") ||
+    req.cookies?.get("ultron_session")?.value ||
+    req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+
+  const rateLimitKey = token ? `tok_${token.slice(0, 16)}` : "loopback_desktop";
+  if (!checkRateLimit(rateLimitKey)) {
     return {
       valid: false,
       error: "Rate limit exceeded. Please throttle requests to ULTRON desktop core.",
@@ -259,32 +309,19 @@ export function validateDesktopSession(
     return { valid: true };
   }
 
-  // 4. Session Token & Caller Identification
-  const token =
-    req.headers.get("x-ultron-session-token") ||
-    req.cookies.get("ultron_session")?.value ||
-    req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-
-  const userAgent = (req.headers.get("user-agent") || "").toLowerCase();
-  const isDirectLoopbackProcess =
-    !origin &&
-    !referer &&
-    !secFetchSite &&
-    (userAgent.includes("python") ||
-      userAgent.includes("node") ||
-      userAgent.includes("curl") ||
-      userAgent.includes("wget") ||
-      userAgent.includes("go-http-client"));
-
-  if (isDirectLoopbackProcess) {
-    // Direct local process / CLI runner on loopback host (not a web browser)
-    return { valid: true };
-  }
-
+  // 4. Strict Session Token Validation (Zero User-Agent trust sniffing)
   if (!token) {
     return {
       valid: false,
       error: "Unauthorized: Missing X-ULTRON-Session-Token header or session cookie.",
+      status: 401,
+    };
+  }
+
+  if (revokedSessions.has(token)) {
+    return {
+      valid: false,
+      error: "Unauthorized: Desktop session token has been revoked.",
       status: 401,
     };
   }

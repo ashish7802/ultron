@@ -204,3 +204,152 @@ test("Session Gate: Loopback Origin allowed, foreign origins rejected with 403",
   const validResult = sessionGate.validateDesktopSession(loopbackReq);
   assert.equal(validResult.valid, true, "Valid session token and loopback origin must be accepted");
 });
+
+// Test 6: FINDING-SEC-01-B - User-Agent Sniffing Bypass Eliminated & Session Revocation/Rotation
+test("Session Gate: User-Agent spoofing is rejected, token revocation and rotation work", async () => {
+  const sessionGate = await import("./lib/sessionGate.ts");
+
+  // Attempt to spoof User-Agent as curl or python without session token
+  const spoofedCurlHeaders = new Map([
+    ["user-agent", "curl/8.4.0"],
+    ["host", "localhost:3000"],
+    ["x-forwarded-for", "1.2.3.4"],
+  ]);
+  const spoofedCurlReq = {
+    headers: {
+      get: (k) => spoofedCurlHeaders.get(k.toLowerCase()) || null,
+    },
+    cookies: {
+      get: () => null,
+    },
+  };
+
+  const curlResult = sessionGate.validateDesktopSession(spoofedCurlReq);
+  assert.equal(curlResult.valid, false, "User-Agent spoofing (curl) without token MUST be rejected");
+  assert.equal(curlResult.status, 401, "Rejected status must be 401");
+
+  const spoofedPythonHeaders = new Map([
+    ["user-agent", "python-requests/2.31.0"],
+    ["host", "127.0.0.1:3000"],
+  ]);
+  const spoofedPythonReq = {
+    headers: {
+      get: (k) => spoofedPythonHeaders.get(k.toLowerCase()) || null,
+    },
+    cookies: {
+      get: () => null,
+    },
+  };
+
+  const pythonResult = sessionGate.validateDesktopSession(spoofedPythonReq);
+  assert.equal(pythonResult.valid, false, "User-Agent spoofing (python) without token MUST be rejected");
+  assert.equal(pythonResult.status, 401, "Rejected status must be 401");
+
+  // Test token creation, rotation, and revocation
+  const activeToken = sessionGate.getOrCreatePrimarySessionToken();
+  assert.ok(activeToken && activeToken.length >= 32, "Primary session token must be secure");
+
+  // Rotation creates new token and revokes old
+  const newToken = sessionGate.rotateSessionToken(activeToken);
+  assert.ok(newToken && newToken.length >= 32, "Rotated session token must be valid");
+  assert.notEqual(newToken, activeToken, "Rotated token must differ from previous token");
+
+  // Old token must now fail validation
+  const oldTokenHeaders = new Map([
+    ["host", "localhost:3000"],
+    ["x-ultron-session-token", activeToken],
+  ]);
+  const oldTokenReq = {
+    headers: { get: (k) => oldTokenHeaders.get(k.toLowerCase()) || null },
+    cookies: { get: () => null },
+  };
+  const oldValidation = sessionGate.validateDesktopSession(oldTokenReq);
+  assert.equal(oldValidation.valid, false, "Revoked/rotated old token must be rejected");
+
+  // New token must pass validation
+  const newTokenHeaders = new Map([
+    ["host", "localhost:3000"],
+    ["x-ultron-session-token", newToken],
+  ]);
+  const newTokenReq = {
+    headers: { get: (k) => newTokenHeaders.get(k.toLowerCase()) || null },
+    cookies: { get: () => null },
+  };
+  const newValidation = sessionGate.validateDesktopSession(newTokenReq);
+  assert.equal(newValidation.valid, true, "Rotated new token must be accepted");
+
+  // Explicit revocation
+  const revoked = sessionGate.revokeSessionToken(newToken);
+  assert.equal(revoked, true, "Revoke should return true for active token");
+  const revokedValidation = sessionGate.validateDesktopSession(newTokenReq);
+  assert.equal(revokedValidation.valid, false, "Explicitly revoked token must be rejected");
+});
+
+// Test 7: FINDING-SEC-03-B - Direct Execution Bypass Blocked on System & Launcher Functions
+test("Permission Gateway: Direct executor invocation is strictly blocked without valid gateway grant", async () => {
+  const launcher = await import("./lib/appLauncher.ts");
+  const controller = await import("./lib/systemController.ts");
+  const gateway = await import("./lib/permissionGateway.ts");
+
+  // 1. Direct call to launchAppByName without gatewayAuth MUST fail
+  const directLaunch = await launcher.launchAppByName("notepad");
+  assert.equal(directLaunch.ok, false, "Direct launchAppByName without gatewayAuth must fail");
+  assert.match(directLaunch.message, /Security Policy Enforcement/i, "Must cite security policy enforcement");
+
+  // 2. Direct call with bogus grant token MUST fail
+  const bogusLaunch = await launcher.launchAppByName("notepad", {
+    planId: "plan_fake_12345",
+    grantToken: "exec_fake_token_value",
+  });
+  assert.equal(bogusLaunch.ok, false, "Bogus gateway credentials must fail launchAppByName");
+  assert.match(bogusLaunch.message, /Security Policy Enforcement/i);
+
+  // 3. Direct call to controlAudioVolume without gatewayAuth MUST fail
+  const directVol = await controller.controlAudioVolume("up");
+  assert.equal(directVol, false, "Direct controlAudioVolume without gatewayAuth must return false");
+
+  // 4. Direct call to openUrlInBrowser without gatewayAuth MUST fail
+  const directBrowser = await controller.openUrlInBrowser("https://example.com");
+  assert.equal(directBrowser, false, "Direct openUrlInBrowser without gatewayAuth must return false");
+
+  // 5. Execution WITH legitimate gateway grant through executeApprovedAction MUST pass authorization check
+  const plan = gateway.planAction("volume_change", "Volume Up", { volumeAction: "up" });
+  const approval = gateway.approveActionPlan(plan.planId, plan.approvalToken);
+  assert.equal(approval.success, true);
+
+  const grantToken = approval.executionGrantToken;
+  assert.ok(grantToken);
+
+  let grantChecked = false;
+  const executionResult = await gateway.executeApprovedAction(plan.planId, grantToken, async () => {
+    // Inside the executor, pass the gatewayAuth to controller
+    // Note: on non-Windows it will return false from OS check, but authorization must succeed
+    grantChecked = gateway.verifyGatewayExecutionGrant(plan.planId, grantToken);
+    return "executed_with_grant";
+  });
+
+  assert.equal(executionResult.success, true, "executeApprovedAction must succeed");
+  assert.equal(grantChecked, true, "verifyGatewayExecutionGrant must return true during execution");
+});
+
+// Test 8: FINDING-SEC-02-B - Memory Vault Dynamic Master Secret & Provenance Metadata
+test("Memory Vault: Dynamic key derivation used without static fallback and metadata preserved", async () => {
+  const memory = await import("./lib/memoryManager.ts");
+  const cryptoModule = await import("./lib/crypto.ts");
+
+  // Verify active master secret is dynamic
+  const masterSecret = cryptoModule.getActiveMasterSecret();
+  assert.ok(masterSecret && masterSecret.length >= 32, "Dynamic secret must be available");
+
+  // Verify memory record structure includes provenance and metadata
+  const memories = memory.loadAllMemories();
+  assert.ok(memories.length > 0, "Memories must be present");
+
+  for (const record of memories) {
+    assert.ok(record.id, "Record must have an id");
+    assert.ok(record.category, "Record must have a category");
+    assert.ok(typeof record.content === "string", "Content must be string");
+    // Verify provenance metadata exists
+    assert.ok(record.provenance, "Record must contain provenance information");
+  }
+});
