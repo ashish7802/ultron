@@ -261,13 +261,19 @@ def stage_ai_inference():
     """
     print("\n[VOICE STAGE 4/6] Verifying AI Inference & Intent Routing Latency...")
 
+    # Retrieve desktop session token for authenticated loopback session
+    auth_status, _, auth_data, _ = http_json(f"{BASE_URL}/api/auth/session", timeout=10)
+    assert auth_status == 200, f"Session handshake failed: {auth_status}"
+    session_token = auth_data.get("sessionToken")
+    auth_headers = {"X-ULTRON-Session-Token": session_token} if session_token else {}
+
     # 4a: deterministic local rule (zero-latency fast intent).
     started = time.perf_counter()
     chat_payload = {
         "messages": [{"role": "user", "content": "status"}],
         "activationMode": "CONTINUOUS_CONVERSATION",
     }
-    status, _, rule_data, raw = http_json(f"{BASE_URL}/api/chat", chat_payload, timeout=60)
+    status, _, rule_data, raw = http_json(f"{BASE_URL}/api/chat", chat_payload, headers=auth_headers, timeout=60)
     rule_ms = (time.perf_counter() - started) * 1000
     assert status == 200, f"Local rule inference failed: HTTP {status} {rule_data or raw[:200]!r}"
     reply = rule_data.get("reply") or ""
@@ -281,7 +287,7 @@ def stage_ai_inference():
         "messages": [{"role": "user", "content": "What is the capital of France?"}],
         "activationMode": "CONTINUOUS_CONVERSATION",
     }
-    status, _, llm_data, raw = http_json(f"{BASE_URL}/api/chat", llm_payload, timeout=90)
+    status, _, llm_data, raw = http_json(f"{BASE_URL}/api/chat", llm_payload, headers=auth_headers, timeout=90)
     llm_ms = (time.perf_counter() - started) * 1000
     assert status == 200, f"LLM inference failed: HTTP {status} {llm_data or raw[:200]!r}"
     llm_reply = llm_data.get("reply") or ""
