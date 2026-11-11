@@ -397,46 +397,63 @@ export class InternalDocumentAdapter implements SearchProviderAdapter {
 
   /**
    * Scans existing workspace technical documentation and markdown specifications.
+   * Scopes scanning specifically to `docs/` and known root markdown files to prevent
+   * Next.js Node File Trace (NFT) from traversing the entire repository tree during builds.
    */
   public async discover(input: DiscoveryQueryInput): Promise<NormalizedDiscoveryResult[]> {
     const results: NormalizedDiscoveryResult[] = [];
     const query = input.primaryQuery.toLowerCase();
     const keywords = query.split(/\s+/).filter((w) => w.length > 3);
 
-    const targetDirs = [
-      path.join(process.cwd(), "docs"),
-      process.cwd(), // Root markdown files
-    ];
+    const targetFiles: string[] = [];
+
+    // 1. Scoped scan of docs/ folder
+    const docsDir = path.join(process.cwd(), "docs");
+    if (fs.existsSync(docsDir)) {
+      try {
+        const docFiles = fs.readdirSync(docsDir);
+        for (const f of docFiles) {
+          if (f.endsWith(".md") || f.endsWith(".txt")) {
+            targetFiles.push(path.join(docsDir, f));
+          }
+        }
+      } catch {
+        // Ignore folder read errors gracefully
+      }
+    }
+
+    // 2. Specific root-level documentation files only (avoids process.cwd() unbounded directory walking)
+    const rootDocs = ["README.md", "ARCHITECTURE.md", "AGENTS.md", "CHANGELOG.md", "MISSION.md"];
+    for (const rd of rootDocs) {
+      const fullPath = path.join(/*turbopackIgnore: true*/ process.cwd(), rd);
+      if (fs.existsSync(fullPath)) {
+        targetFiles.push(fullPath);
+      }
+    }
 
     try {
-      for (const dir of targetDirs) {
-        if (!fs.existsSync(dir)) continue;
+      for (const filePath of targetFiles) {
+        const file = path.basename(filePath);
+        const stat = fs.statSync(filePath);
+        if (!stat.isFile()) continue;
 
-        const files = fs.readdirSync(dir);
-        for (const file of files) {
-          if (!file.endsWith(".md") && !file.endsWith(".txt")) continue;
+        const content = fs.readFileSync(filePath, "utf8");
+        const lowerContent = content.toLowerCase();
 
-          const filePath = path.join(dir, file);
-          const stat = fs.statSync(filePath);
-          if (!stat.isFile()) continue;
+        // Count keyword occurrences
+        let matches = 0;
+        for (const kw of keywords) {
+          if (lowerContent.includes(kw)) matches++;
+        }
 
-          const content = fs.readFileSync(filePath, "utf8");
-          const lowerContent = content.toLowerCase();
+        if (matches > 0) {
+          const firstKw = keywords.find((kw) => lowerContent.includes(kw)) || keywords[0];
+          const idx = lowerContent.indexOf(firstKw);
+          const start = Math.max(0, idx - 80);
+          const snippet = content.slice(start, start + 250).replace(/\s+/g, " ").trim();
 
-          // Count keyword occurrences
-          let matches = 0;
-          for (const kw of keywords) {
-            if (lowerContent.includes(kw)) matches++;
-          }
-
-          if (matches > 0) {
-            const firstKw = keywords.find((kw) => lowerContent.includes(kw)) || keywords[0];
-            const idx = lowerContent.indexOf(firstKw);
-            const start = Math.max(0, idx - 80);
-            const snippet = content.slice(start, start + 250).replace(/\s+/g, " ").trim();
-
-            const fileUrl = `file:///${filePath.replace(/\\/g, "/")}`;
-            const { canonicalUrl } = normalizeUrl(fileUrl);
+          const fileUrl = `file:///${filePath.replace(/\\/g, "/")}`;
+          const { canonicalUrl } = normalizeUrl(fileUrl);
 
             results.push({
               discovery_id: crypto.randomUUID(),
@@ -465,7 +482,6 @@ export class InternalDocumentAdapter implements SearchProviderAdapter {
             });
           }
         }
-      }
     } catch {
       // Non-fatal local search error
     }

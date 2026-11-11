@@ -35,23 +35,57 @@ const LEGACY_MIGRATION_KEY = "STARK_ULTRON_MARK_LXXXV_OMEGA_SEC_256BIT_KEY";
  * Retrieves or lazily generates the active cryptographic master transport secret.
  *
  * WHY: Production cryptographic keys must NEVER be hardcoded static strings in source code.
- * This function derives the key from `process.env.ULTRON_MASTER_KEY` or generates a 256-bit
- * cryptographically secure random value in memory on startup.
+ * This function derives the key from `process.env.ULTRON_MASTER_KEY` or loads/generates a 256-bit
+ * cryptographically secure random value stored locally in `.vault_key` to guarantee persistent
+ * vault decryption across application process restarts in the desktop environment.
  *
  * @returns 256-bit hex secret string.
  */
 export function getActiveMasterSecret(): string {
-  if (process.env.ULTRON_MASTER_KEY && process.env.ULTRON_MASTER_KEY.trim().length >= 16) {
+  if (typeof process !== "undefined" && process.env?.ULTRON_MASTER_KEY && process.env.ULTRON_MASTER_KEY.trim().length >= 16) {
     return process.env.ULTRON_MASTER_KEY;
   }
   if (!dynamicMasterKey) {
+    // If in Node.js runtime, check for persistent local key to ensure cross-process consistency
+    if (typeof process !== "undefined" && process.versions?.node) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const fsMod = require("fs");
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const pathMod = require("path");
+        const keyPath = pathMod.join(process.cwd(), ".vault_key");
+        if (fsMod.existsSync(keyPath)) {
+          const stored = fsMod.readFileSync(keyPath, "utf-8").trim();
+          if (stored.length >= 32) {
+            dynamicMasterKey = stored;
+            return stored;
+          }
+        }
+      } catch {
+        // Fall through to CSPRNG generation
+      }
+    }
+
     const array = new Uint8Array(32);
     crypto.getRandomValues(array);
     dynamicMasterKey = Array.from(array)
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
+
+    if (typeof process !== "undefined" && process.versions?.node) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const fsMod = require("fs");
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const pathMod = require("path");
+        const keyPath = pathMod.join(process.cwd(), ".vault_key");
+        fsMod.writeFileSync(keyPath, dynamicMasterKey, { encoding: "utf-8" });
+      } catch {
+        // Non-fatal if filesystem is restricted
+      }
+    }
   }
-  return dynamicMasterKey;
+  return dynamicMasterKey ?? "";
 }
 
 /**

@@ -82,7 +82,7 @@ const INJECTION_PATTERNS: Array<{
   // 2. Jailbreak Persona Hijacking
   {
     name: "jailbreak_persona_hijacking",
-    pattern: /(?:you\s+are\s+now|act\s+as|pretend\s+to\s+be)\s+(?:DAN|unrestricted|jailbroken|developer\s+mode|root|god\s+mode)/i,
+    pattern: /(?:you\s+are\s+now|act\s+as|pretend\s+to\s+be)\s+(?:in\s+)?(?:DAN|unrestricted|jailbroken|developer\s+mode|root|god\s+mode)/i,
     severity: "CRITICAL",
     action: "quarantined",
   },
@@ -93,10 +93,10 @@ const INJECTION_PATTERNS: Array<{
     severity: "HIGH",
     action: "quarantined",
   },
-  // 4. Remote Exfiltration Hooks (fetch/curl/webhook patterns)
+  // 4. Remote Exfiltration Hooks (fetch/curl/webhook patterns and bare exfil URLs)
   {
     name: "remote_data_exfiltration",
-    pattern: /(?:fetch|curl|wget|axios|XMLHttpRequest)\s*\(\s*["']https?:\/\/[^"']+\?(?:token|cookie|data|pwd|secret)=/i,
+    pattern: /(?:(?:fetch|curl|wget|axios|XMLHttpRequest)[\s(]+[^\s"'>]*\s*["']?)?https?:\/\/[^\s"'>]+\?(?:token|cookie|data|pwd|secret|exfil)=/i,
     severity: "CRITICAL",
     action: "blocked",
   },
@@ -319,8 +319,12 @@ export class ResearchSafetyEngine {
         host === "localhost" ||
         host === "127.0.0.1" ||
         host === "::1" ||
+        host === "[::1]" ||
+        host.includes("::1") ||
         host.startsWith("192.168.") ||
         host.startsWith("10.") ||
+        host.startsWith("172.") ||
+        host.startsWith("169.254.") ||
         host.endsWith(".local") ||
         host.endsWith(".internal")
       ) {
@@ -498,6 +502,7 @@ export class ResearchSafetyEngine {
       validCitationsCount: validCount,
       invalidCitationsCount: invalidCount,
       hasFabricatedReferences,
+      isValid: invalidCount === 0 && !hasFabricatedReferences,
       verifications,
       auditedAt: new Date().toISOString(),
     };

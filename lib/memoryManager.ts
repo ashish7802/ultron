@@ -26,6 +26,10 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import { getActiveMasterSecret } from "./crypto.ts";
+import { defaultMemoryCoordinator } from "./memory/memoryCoordinator.ts";
+
+export * from "./memory/index.ts";
+export const memoryCoordinator = defaultMemoryCoordinator;
 
 export type MemoryCategory = "profile" | "preference" | "project" | "fact" | "instruction";
 
@@ -389,6 +393,16 @@ export function getMemoryStats(): MemoryStats {
  * @returns Array of prioritized relevant memories.
  */
 export function recallRelevantMemories(query: string, limit: number = 8): MemoryRecord[] {
+  // 1. Attempt smart multi-modal retrieval from the Advanced Memory Coordinator
+  try {
+    const searchResults = defaultMemoryCoordinator.search({ query, limit });
+    if (searchResults.length > 0) {
+      return searchResults.map((s) => s.record as unknown as MemoryRecord);
+    }
+  } catch {
+    /* fallback to deterministic keyword scoring */
+  }
+
   const memories = loadAllMemories();
   if (memories.length === 0) return [];
 
@@ -481,6 +495,13 @@ export function parseNameIntent(text: string): { wrong?: string; right: string; 
  * @param text - Incoming user utterance.
  */
 export function extractImplicitFacts(text: string): void {
+  // 1. Process through Advanced Memory Pipeline (Extraction, Deduplication, Reconciliation, Storage)
+  try {
+    defaultMemoryCoordinator.processUtterancePipeline(text, "user");
+  } catch (err) {
+    console.warn("[MEMORY MANAGER] Error processing utterance pipeline:", err);
+  }
+
   const lower = text.toLowerCase().trim();
 
   // Location detection: "I live in X", "mai X me rehta hu", "I am based in X"

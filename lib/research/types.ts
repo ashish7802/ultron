@@ -532,6 +532,7 @@ export interface EvidenceRecord {
 export interface ClaimRecord {
   id: string;
   project_id: string;
+  source_id?: string;
   claim_text: string;
   claim_type: string;
   subject?: string;
@@ -1423,6 +1424,7 @@ export interface CitationIntegrityReport {
   validCitationsCount: number;
   invalidCitationsCount: number;
   hasFabricatedReferences: boolean;
+  isValid: boolean;
   verifications: CitationIntegrityVerification[];
   auditedAt: string;
 }

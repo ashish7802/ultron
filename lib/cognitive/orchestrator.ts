@@ -50,12 +50,17 @@ import { assessUncertaintyAndConfidence } from "./uncertaintyEngine.ts";
 import { evaluateCandidateResponse } from "./selfEvaluationEngine.ts";
 import { selectModelForTask } from "./multiModelEngine.ts";
 import { isCoFounderDiscussionRequired, performCoFounderDiscussion } from "./discussionEngine.ts";
+import { defaultMemoryCoordinator } from "../memory/memoryCoordinator.ts";
+import type { AnyMemoryRecord } from "../memory/types.ts";
+import type { MetaMemoryAssessment } from "../memory/metaMemoryEngine.ts";
 
 export interface OrchestrationOptions {
   onStatus?: (status: { phase: string; progress: number; message: string }) => void;
   signal?: AbortSignal;
   installedModels?: ModelRegistryEntry[];
   founderFeedback?: FounderFeedback[];
+  recalledMemories?: AnyMemoryRecord[];
+  projectId?: string;
 }
 
 /**
@@ -186,7 +191,8 @@ export function buildCognitiveSystemPrompt(
   planning?: PlanningIntelligenceResult,
   uncertainty?: UncertaintyAssessmentResult,
   modelSelection?: ModelSelectionResult,
-  discussion?: CoFounderDiscussionResult
+  discussion?: CoFounderDiscussionResult,
+  recalledMemories?: AnyMemoryRecord[]
 ): string {
   const directives: string[] = [
     "You are ULTRON — an analytical, honest, and rigorous AI Co-Founder.",
@@ -307,6 +313,14 @@ export function buildCognitiveSystemPrompt(
     );
   }
 
+  // Inject Grounded Long-Term Memories if available
+  if (recalledMemories && recalledMemories.length > 0) {
+    directives.push(
+      "VERIFIED LONG-TERM MEMORY & HISTORICAL CONTEXT:",
+      ...recalledMemories.slice(0, 5).map((m) => `- [${m.memoryType.toUpperCase()}]: ${m.content}`)
+    );
+  }
+
   if (context.statedAssumptions.length > 0) {
     directives.push(
       "WORKING ASSUMPTIONS FOR THIS TURN:",
@@ -351,7 +365,26 @@ export async function orchestrateCognitivePipeline(
   uncertainty?: UncertaintyAssessmentResult;
   modelSelection?: ModelSelectionResult;
   discussion?: CoFounderDiscussionResult;
+  recalledMemories?: AnyMemoryRecord[];
+  metaMemory?: MetaMemoryAssessment;
 }> {
+  // Retrieve relevant persistent memories for cognitive grounding
+  let recalledMemories: AnyMemoryRecord[] = options.recalledMemories || [];
+  let metaMemory: MetaMemoryAssessment | undefined;
+  try {
+    if (recalledMemories.length === 0) {
+      const searchResults = defaultMemoryCoordinator.search({
+        query,
+        projectId: options.projectId || "default",
+        limit: 5,
+      });
+      recalledMemories = searchResults.map((r) => r.record);
+    }
+    metaMemory = defaultMemoryCoordinator.assessKnowledge(query, options.projectId || "default");
+  } catch {
+    /* non-fatal: offline or empty vault */
+  }
+
   // Phase 1: Context Understanding
   options.onStatus?.({
     phase: "context_understanding",
@@ -470,7 +503,8 @@ export async function orchestrateCognitivePipeline(
     planning,
     uncertainty,
     modelSelection,
-    discussion
+    discussion,
+    recalledMemories
   );
 
   const assistantPrefix = context.statedAssumptions.length > 0
@@ -490,5 +524,7 @@ export async function orchestrateCognitivePipeline(
     uncertainty,
     modelSelection,
     discussion,
+    recalledMemories,
+    metaMemory,
   };
 }

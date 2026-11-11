@@ -56,6 +56,8 @@ import {
   saveMemory,
   loadAllMemories,
   recallRelevantMemories,
+} from "../memoryManager.ts";
+import type {
   MemoryRecord,
   MemoryCategory,
 } from "../memoryManager.ts";

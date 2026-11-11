@@ -298,8 +298,18 @@ export class ResearchRepository {
         }
       }
 
-      // Atomic rename
-      fs.renameSync(tempPath, VAULT_FILE_PATH);
+      // Atomic rename with Windows fallback
+      try {
+        fs.renameSync(tempPath, VAULT_FILE_PATH);
+      } catch {
+        // On Windows, renameSync throws EPERM if the target is briefly locked. Fall back to copy + unlink
+        try {
+          fs.copyFileSync(tempPath, VAULT_FILE_PATH);
+          fs.unlinkSync(tempPath);
+        } catch {
+          // Non-fatal if temporary file cannot be unlinked immediately
+        }
+      }
     } catch (err) {
       console.error("[ResearchRepository] Atomic write failed:", err);
     } finally {

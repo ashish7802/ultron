@@ -170,11 +170,13 @@ export class CrossSourceContradictionEngine {
     }
 
     // Locate source and quality records for both claims
-    const evA = allEvidence.find((e) => e.exact_passage.includes(claimA.claim_text) || e.project_id === projectId);
-    const evB = allEvidence.find((e) => e.exact_passage.includes(claimB.claim_text) || e.project_id === projectId);
+    const sourceAId = claimA.source_id;
+    const sourceBId = claimB.source_id;
+    const sourceA = sourceAId ? sourceMap.get(sourceAId) : undefined;
+    const sourceB = sourceBId ? sourceMap.get(sourceBId) : undefined;
 
-    const sourceA = evA ? sourceMap.get(evA.source_id) : undefined;
-    const sourceB = evB ? sourceMap.get(evB.source_id) : undefined;
+    const evA = sourceAId ? allEvidence.find((e) => e.source_id === sourceAId) : undefined;
+    const evB = sourceBId ? allEvidence.find((e) => e.source_id === sourceBId) : undefined;
 
     const qaA = sourceA ? qualityMap.get(sourceA.id) : undefined;
     const qaB = sourceB ? qualityMap.get(sourceB.id) : undefined;

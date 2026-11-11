@@ -169,8 +169,13 @@ export class FreshnessEngine {
     now: number
   ): SourceFreshnessState {
     const reasons: string[] = [];
-    const lastChecked = source.accessed_at ? new Date(source.accessed_at).getTime() : new Date(source.discovered_at).getTime();
-    const pubDate = source.publication_date ? new Date(source.publication_date).getTime() : null;
+    const rawChecked = source.accessed_at || source.discovered_at || source.created_at;
+    const parsedChecked = rawChecked ? new Date(rawChecked).getTime() : now;
+    const lastChecked = isNaN(parsedChecked) ? now : parsedChecked;
+
+    const rawPub = source.publication_date;
+    const parsedPub = rawPub ? new Date(rawPub).getTime() : NaN;
+    const pubDate = isNaN(parsedPub) ? null : parsedPub;
 
     const daysSinceChecked = Math.max(0, (now - lastChecked) / (1000 * 60 * 60 * 24));
     const daysSincePublished = pubDate ? Math.max(0, (now - pubDate) / (1000 * 60 * 60 * 24)) : null;

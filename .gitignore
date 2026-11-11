@@ -28,6 +28,7 @@ yarn-error.log*
 # env files
 .env*
 !.env.example
+.vault_key
 
 # OAuth / account secrets — never commit credentials
 credentials.json
