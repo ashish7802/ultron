@@ -30,6 +30,8 @@ import path from "path";
 import { getCryptoStatus } from "@/lib/crypto";
 import { resolvePythonExecutable } from "@/lib/pythonRuntime";
 import { validateDesktopSession, createAuthErrorResponse } from "@/lib/sessionGate";
+import { researchPipelineOrchestrator } from "@/lib/research/orchestrator";
+import type { ResearchDepth } from "@/lib/research/types";
 
 export { resolvePythonExecutable };
 
@@ -50,6 +52,11 @@ export interface ResearchRequestBody {
   maxSources?: number;
   sessionToken?: string;
   stream?: boolean;
+  engine?: "v2" | "quantum";
+  pipeline?: boolean;
+  depth?: ResearchDepth;
+  constraints?: string[];
+  exclusions?: string[];
 }
 
 /**
@@ -196,6 +203,109 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
     const maxSources = normalizeMaxSources(requestedMaxSources);
+
+    // Check if client requested the V2 multi-module Research & Verification Pipeline
+    const isV2Pipeline = body.engine === "v2" || body.pipeline === true || Boolean(body.depth);
+
+    if (isV2Pipeline) {
+      try {
+        const pipelineResult = await researchPipelineOrchestrator.executeResearch({
+          query: sanitizedQuery,
+          depth: body.depth,
+          constraints: body.constraints,
+          exclusions: body.exclusions,
+        });
+
+        if (stream) {
+          const encoder = new TextEncoder();
+          const stages = [
+            {
+              stage: "MODULE_01_PLANNING",
+              message: `Formulated research plan: ${pipelineResult.plan.title}`,
+              progress: 25,
+              plan: pipelineResult.plan,
+            },
+            {
+              stage: "MODULE_02_DISCOVERY",
+              message: `Discovered ${pipelineResult.discoveryCount} multi-source references across web, github, and academic repositories`,
+              progress: 60,
+              sourcesCount: pipelineResult.discoveryCount,
+            },
+            {
+              stage: "MODULE_03_EXTRACTION",
+              message: `Extracted ${pipelineResult.extractedClaimsCount} atomic claims and ${pipelineResult.extractedPassagesCount} verbatim evidence passages`,
+              progress: 90,
+              claimsCount: pipelineResult.extractedClaimsCount,
+            },
+            {
+              stage: "COMPLETE",
+              message: "Research & Verification foundation pipeline completed.",
+              progress: 100,
+              result: pipelineResult,
+            },
+          ];
+
+          let cancelled = false;
+          const sseStream = new ReadableStream({
+            start(controller) {
+              try {
+                for (const event of stages) {
+                  if (cancelled || req.signal.aborted) break;
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+                }
+                if (!cancelled) controller.close();
+              } catch (streamErr) {
+                console.warn("[RESEARCH SSE V2] Stream terminated early:", streamErr);
+                try {
+                  controller.close();
+                } catch {
+                  // Controller already closed
+                }
+              }
+            },
+            cancel() {
+              cancelled = true;
+            },
+          });
+
+          return new NextResponse(sseStream, {
+            headers: {
+              "Content-Type": "text/event-stream",
+              "Cache-Control": "no-cache",
+              Connection: "keep-alive",
+              "X-Ultron-Security": "AES-256-GCM",
+              "X-Ultron-Engine-Version": "V2_PIPELINE",
+            },
+          });
+        }
+
+        return NextResponse.json(
+          {
+            success: true,
+            engine: "v2",
+            pipeline: pipelineResult,
+            security: getCryptoStatus(),
+          },
+          {
+            headers: {
+              "X-Ultron-Security": "AES-256-GCM",
+              "X-Ultron-Research-Status": "VERIFIED_LIVE",
+              "X-Ultron-Engine-Version": "V2_PIPELINE",
+            },
+          }
+        );
+      } catch (pipelineErr) {
+        console.error("[RESEARCH V2 PIPELINE EXECUTION ERROR]", pipelineErr);
+        return NextResponse.json(
+          {
+            success: false,
+            error: "PIPELINE_EXECUTION_FAILED",
+            message: pipelineErr instanceof Error ? pipelineErr.message : "Failed to execute research pipeline",
+          },
+          { status: 502 }
+        );
+      }
+    }
 
     // Run the agent BEFORE opening an SSE stream.
     // WHY: HTTP headers (including status) are flushed as soon as the streaming response is
