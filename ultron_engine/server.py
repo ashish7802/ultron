@@ -45,6 +45,7 @@ _FASTAPI_HINT = (
     "service. Install it with: pip install fastapi uvicorn. The engine orchestrator "
     "and audit scripts work without it."
 )
+LOCAL_CORS_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1)(:\d{1,5})?$"
 
 
 class OptionalDependencyError(RuntimeError):
@@ -98,7 +99,13 @@ def create_app():
     orch, _bus_obj, state = _get_orchestrator()
 
     app = FastAPI(title="ULTRON Engine Service")
-    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[],
+        allow_origin_regex=LOCAL_CORS_ORIGIN_REGEX,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Content-Type", "Authorization"],
+    )
 
     @app.on_event("startup")
     async def startup():
@@ -129,6 +136,13 @@ def create_app():
 
     _app = app
     return _app
+
+
+def is_local_cors_origin(origin: str) -> bool:
+    """Checks whether a browser origin is a loopback UI origin."""
+    import re
+
+    return bool(re.fullmatch(LOCAL_CORS_ORIGIN_REGEX, origin))
 
 
 def __getattr__(name: str):

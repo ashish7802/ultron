@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "lastUpdated": 1794197500000,
+  "memories": [
+    {
+      "id": "mem_0758f7efb687",
+      "key": "user_name",
+      "category": "profile",
+      "content": "User's name is Ashish",
+      "importance": 5,
+      "confidence": 1,
+      "createdAt": 1794105280814,
+      "updatedAt": 1794197500000,
+      "source": "explicit"
+    },
+    {
+      "id": "mem_5c30f77289b9",
+      "key": "custom_9d0d98",
+      "category": "fact",
+      "content": "I am building an autonomous AI assistant",
+      "importance": 5,
+      "confidence": 1,
+      "createdAt": 1794105280907,
+      "updatedAt": 1794105280907,
+      "source": "explicit"
+    }
+  ]
+}

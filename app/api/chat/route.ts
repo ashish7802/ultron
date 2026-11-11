@@ -34,6 +34,8 @@ import { ResponseDecisionEngine } from "@/lib/responseDecisionEngine";
 import { unsealPayload, getCryptoStatus } from "@/lib/crypto";
 import { detectAppLaunchIntent, launchAppByName } from "@/lib/appLauncher";
 import { runQuantumResearchAgent } from "@/app/api/research/route";
+import { enqueueTurnExtraction } from "@/lib/memory/asyncQueue";
+import { getHybridMemorySearcher, formatMemoriesForPrompt } from "@/lib/memory/hybridSearch";
 
 const OLLAMA_HOST = process.env.OLLAMA_HOST || "http://127.0.0.1:11434";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen2.5:0.5b";
@@ -235,7 +237,12 @@ function formatHistory(history: ChatMessage[]): string {
  * @param signal - Optional request abort signal; aborts the fetch immediately.
  * @returns Reply text, or null when Ollama is unavailable/timed out/aborted.
  */
-async function queryOllama(prompt: string, history: ChatMessage[], signal?: AbortSignal): Promise<string | null> {
+async function queryOllama(
+  prompt: string,
+  history: ChatMessage[],
+  signal?: AbortSignal,
+  recalledContext?: string
+): Promise<string | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
   const abortFromRequest = () => controller.abort();
@@ -247,6 +254,7 @@ async function queryOllama(prompt: string, history: ChatMessage[], signal?: Abor
       "You are ULTRON, a local desktop AI assistant. Answer in ONE short sentence. " +
       "If you are not sure or lack information, say so briefly instead of guessing. " +
       "Never invent facts, names, dates, prices or numbers.\n" +
+      (recalledContext ? `${recalledContext}\n` : "") +
       (historyText ? `Conversation so far:\n${historyText}\n` : "") +
       `User: ${prompt}\nULTRON:`;
     const res = await fetch(`${OLLAMA_HOST}/api/generate`, {
@@ -343,7 +351,7 @@ async function buildResponse(
 
   if (!reply && isResearchQuery(query)) {
     try {
-      console.log(`[QUANTUM RESEARCH INITIATED] Query: "${query}"`);
+      console.info("[QUANTUM RESEARCH] Research started.");
       onStatus?.({
         phase: "web_research",
         progress: 0.25,
@@ -356,7 +364,9 @@ async function buildResponse(
       }
       onStatus?.({ phase: "synthesis", progress: 0.85, message: "Research complete. Preparing the answer." });
     } catch (rErr) {
-      console.warn("[QUANTUM RESEARCH EXECUTION FAILED, FALLING BACK TO LLM]", rErr);
+      console.warn("[QUANTUM RESEARCH] Falling back to the local model.", {
+        errorType: rErr instanceof Error ? rErr.name : "UnknownError",
+      });
       // Propagate the abort (with the original cause for diagnostics) so the route can
       // return HTTP 499 instead of spending the LLM budget on a client that disconnected.
       if (signal.aborted) throw new Error("Request aborted during research", { cause: rErr });
@@ -365,7 +375,20 @@ async function buildResponse(
 
   if (!reply) {
     onStatus?.({ phase: "thinking", progress: 0.5, message: "Thinking." });
-    reply = await queryOllama(query, messages, signal);
+
+    // Recall relevant contextual memories via hybrid search (<10ms)
+    let memoryContext = "";
+    try {
+      const searcher = getHybridMemorySearcher();
+      const memories = await searcher.search(query, { limit: 4 });
+      if (memories.length > 0) {
+        memoryContext = formatMemoriesForPrompt(memories);
+      }
+    } catch {
+      /* non-fatal if memory search fails */
+    }
+
+    reply = await queryOllama(query, messages, signal, memoryContext);
     if (!reply) degraded = true;
   }
 
@@ -508,8 +531,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const lastMessage = messages[messages.length - 1];
     const userText = lastMessage.content;
-    console.log(`[SERVER CHAT LOG] User Said: "${userText}" | Mode: ${activationMode} | FollowUp: ${followUpActive}`);
-
     // Only treat as active follow-up if explicitly within conversation window or non-wake-word mode.
     const isVoiceTurn = activationMode === "WAKE_WORD";
     const decision = decisionEngine.evaluate(userText, {
@@ -519,7 +540,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       turnCount: messages.length,
       lastUserSpeech: messages.length > 2 ? messages[messages.length - 2]?.content : undefined,
     });
-    console.log(`[SERVER DECISION] Action: ${decision.action} | Reason: ${decision.reason}`);
+    console.info("[SERVER DECISION]", { action: decision.action });
 
     // 3. Non-answer actions: stay silent (IGNORE/LISTEN/INTERRUPT) or acknowledge briefly.
     if (decision.action === "IGNORE" || decision.action === "LISTEN" || decision.action === "INTERRUPT") {
@@ -606,11 +627,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               sources: extractSources(outcome.dossier),
               dossier: outcome.dossier,
             });
+
+            // Asynchronously extract and persist memories in background (non-blocking)
+            enqueueTurnExtraction({
+              utterance: query,
+              assistantReply: finalReply,
+              sessionId: body.sessionId,
+              turnId: `turn_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+              projectId: body.projectId,
+            });
           } catch (workErr) {
             if (signal.aborted || String(workErr).toLowerCase().includes("abort")) {
               console.log("[CHAT SSE] Client aborted while working; closing stream.");
             } else {
-              console.error("[CHAT SSE] Work failed:", workErr);
+              console.error("[CHAT SSE] Work failed.", {
+                errorType: workErr instanceof Error ? workErr.name : "UnknownError",
+              });
               writer.push({
                 type: "error",
                 error: "CHAT_PROCESSING_FAILED",
@@ -658,6 +690,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // 7. Non-streaming JSON branch.
     const outcome = await buildResponse(query, messages, req.signal, appRequest);
     const finalReply = assistantPrefix + outcome.reply;
+
+    // Asynchronously extract and persist memories in background (non-blocking)
+    enqueueTurnExtraction({
+      utterance: query,
+      assistantReply: finalReply,
+      sessionId: body.sessionId,
+      turnId: `turn_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      projectId: body.projectId,
+    });
+
     return NextResponse.json(
       {
         action: decision.action,
@@ -687,7 +729,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   } catch (err) {
     // Do not leak internal error text/paths to the client.
-    console.error("[CHAT ROUTE EXCEPTION]", err);
+    console.error("[CHAT ROUTE EXCEPTION]", {
+      errorType: err instanceof Error ? err.name : "UnknownError",
+    });
     return NextResponse.json({ error: "Chat processing failed" }, { status: 500 });
   }
 }

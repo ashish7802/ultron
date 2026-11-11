@@ -52,6 +52,7 @@ import asyncio
 import hashlib
 import ipaddress
 import socket
+import ssl
 from typing import Dict, List, Any, Optional, Union
 from urllib.parse import urlparse, urljoin
 
@@ -74,10 +75,12 @@ else:  # pragma: no cover - exercised by the /api/research child process
 # Third-party asynchronous HTTP and DOM parsing libraries
 try:
     import httpx
+    import httpcore
     from bs4 import BeautifulSoup
     HAS_WEB_DEPS = True
 except ImportError:
     httpx = None
+    httpcore = None
     BeautifulSoup = None
     HAS_WEB_DEPS = False
 
@@ -137,6 +140,77 @@ MAX_REDIRECT_HOPS = 3
 
 # Union type covering both address families returned by `ipaddress`.
 IPAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
+
+
+class PinnedDNSBackend(httpcore.AsyncNetworkBackend if httpcore else object):
+    """Connects using validated addresses while leaving HTTP Host and TLS names intact."""
+
+    def __init__(self, addresses: Dict[str, tuple[str, ...]], backend: Optional[Any] = None):
+        self.addresses = {host.rstrip(".").lower(): values for host, values in addresses.items()}
+        self.backend = backend or (httpcore.AnyIOBackend() if httpcore else None)
+
+    async def connect_tcp(self, host, port, **kwargs):
+        normalized_host = host.decode("ascii") if isinstance(host, bytes) else str(host)
+        address = self.addresses.get(normalized_host.rstrip(".").lower())
+        if not address:
+            raise OSError("HTTP connection attempted to an unvalidated host")
+        return await self.backend.connect_tcp(address[0], port, **kwargs)
+
+    async def connect_unix_socket(self, path, **kwargs):
+        return await self.backend.connect_unix_socket(path, **kwargs)
+
+    async def sleep(self, seconds):
+        await self.backend.sleep(seconds)
+
+
+class _PinnedResponseStream(httpx.AsyncByteStream if httpx else object):
+    """Adapts the httpcore response stream to HTTPX's async stream interface."""
+
+    def __init__(self, stream):
+        self.stream = stream
+
+    async def __aiter__(self):
+        async for part in self.stream:
+            yield part
+
+    async def aclose(self):
+        await self.stream.aclose()
+
+
+class PinnedHTTPTransport(httpx.AsyncBaseTransport if httpx else object):
+    """HTTPX transport whose socket layer cannot perform another DNS lookup."""
+
+    def __init__(self, addresses: Dict[str, tuple[str, ...]]):
+        self.pool = httpcore.AsyncConnectionPool(
+            ssl_context=ssl.create_default_context(),
+            network_backend=PinnedDNSBackend(addresses),
+            max_connections=4,
+            max_keepalive_connections=0,
+        )
+
+    async def handle_async_request(self, request):
+        core_request = httpcore.Request(
+            method=request.method,
+            url=httpcore.URL(
+                scheme=request.url.raw_scheme,
+                host=request.url.raw_host,
+                port=request.url.port,
+                target=request.url.raw_path,
+            ),
+            headers=request.headers.raw,
+            content=request.stream,
+            extensions=request.extensions,
+        )
+        response = await self.pool.handle_async_request(core_request)
+        return httpx.Response(
+            status_code=response.status,
+            headers=response.headers,
+            stream=_PinnedResponseStream(response.stream),
+            extensions=response.extensions,
+        )
+
+    async def aclose(self):
+        await self.pool.aclose()
 
 
 def _literal_ip(hostname: str) -> Optional[IPAddress]:
@@ -234,7 +308,11 @@ class QuantumResearchAgent:
         """
         try:
             parsed = urlparse(url)
-            if parsed.scheme not in ("http", "https"):
+            if (
+                parsed.scheme not in ("http", "https")
+                or parsed.username is not None
+                or parsed.password is not None
+            ):
                 return False
             hostname = parsed.hostname
             if not hostname:
@@ -257,28 +335,11 @@ class QuantumResearchAgent:
         except Exception:
             return False
 
-    async def _dns_is_public(self, hostname: str) -> bool:
-        """
-        Best-effort DNS-rebinding defence: every resolved address must be public.
-
-        Why: a hostname this process cannot inspect lexically could resolve to a
-        loopback/private address. Resolution failure is treated as unsafe (fail closed).
-
-        Limitation:
-            This is a pre-flight check; a hostile resolver could still answer
-            differently for the real connection (classic DNS-rebinding TOCTOU).
-            Redirects are additionally re-validated hop-by-hop and the HTTP client
-            never follows redirects automatically.
-
-        Args:
-            hostname (str): Host to resolve.
-
-        Returns:
-            bool: True when all resolved addresses are public.
-        """
+    async def _resolve_public_addresses(self, hostname: str) -> tuple[str, ...]:
+        """Resolves a hostname once and returns only a fully public address set."""
         literal = _literal_ip(hostname)
         if literal is not None:
-            return _is_public_ip(literal)
+            return (str(literal),) if _is_public_ip(literal) else ()
 
         try:
             loop = asyncio.get_running_loop()
@@ -287,17 +348,19 @@ class QuantumResearchAgent:
                 timeout=3.0,
             )
         except Exception:
-            return False
+            return ()
 
         resolved = {info[4][0] for info in infos if info and info[4]}
         if not resolved:
-            return False
+            return ()
         try:
-            return all(_is_public_ip(ipaddress.ip_address(addr)) for addr in resolved)
+            if not all(_is_public_ip(ipaddress.ip_address(addr)) for addr in resolved):
+                return ()
+            return tuple(sorted(resolved))
         except ValueError:
-            return False
+            return ()
 
-    async def _fetch_with_safe_redirects(self, url: str, client: httpx.AsyncClient) -> Optional[Any]:
+    async def _fetch_with_safe_redirects(self, url: str) -> Optional[Any]:
         """
         Fetches one URL while validating every redirect hop against the SSRF policy.
 
@@ -307,8 +370,6 @@ class QuantumResearchAgent:
 
         Args:
             url (str): Initial target URL.
-            client (httpx.AsyncClient): Shared HTTP client (timeouts configured here).
-
         Returns:
             Optional[httpx.Response]: Final non-redirect response, or None when any
             hop is unsafe, resolution fails, or the redirect budget is exhausted.
@@ -318,20 +379,36 @@ class QuantumResearchAgent:
             if not self.is_safe_url(current):
                 return None
             hostname = urlparse(current).hostname
-            if not hostname or not await self._dns_is_public(hostname):
+            if not hostname:
                 return None
-
-            resp = await client.get(
-                current,
-                timeout=PAGE_REQUEST_TIMEOUT_SECONDS,
+            addresses = await self._resolve_public_addresses(hostname)
+            if not addresses:
+                return None
+            transport = PinnedHTTPTransport({hostname: addresses})
+            async with httpx.AsyncClient(
+                headers={"User-Agent": self.user_agent},
                 follow_redirects=False,
-            )
-            if resp.is_redirect:
-                location = resp.headers.get("location", "")
-                if not location:
-                    return None
-                current = urljoin(current, location)
-                continue
+                trust_env=False,
+                transport=transport,
+            ) as pinned_client:
+                async with pinned_client.stream(
+                    "GET",
+                    current,
+                    timeout=PAGE_REQUEST_TIMEOUT_SECONDS,
+                    follow_redirects=False,
+                ) as resp:
+                    if resp.is_redirect:
+                        location = resp.headers.get("location", "")
+                        if not location:
+                            return None
+                        current = urljoin(current, location)
+                        continue
+                    content = bytearray()
+                    async for chunk in resp.aiter_bytes():
+                        if len(content) + len(chunk) > MAX_PAGE_BYTES:
+                            return None
+                        content.extend(chunk)
+                    resp._content = bytes(content)
             return resp
         return None
 
@@ -413,14 +490,12 @@ class QuantumResearchAgent:
 
         return results
 
-    async def scrape_page_content(self, url: str, client: httpx.AsyncClient) -> Optional[Dict[str, Any]]:
+    async def scrape_page_content(self, url: str) -> Optional[Dict[str, Any]]:
         """
         Crawls an individual web page, sanitizes the DOM, and extracts high-entropy content.
 
         Args:
             url (str): Target web URL.
-            client (httpx.AsyncClient): Shared persistent HTTP client.
-
         Returns:
             Optional[Dict[str, Any]]: Extracted text content, headings, and metadata.
 
@@ -432,7 +507,7 @@ class QuantumResearchAgent:
             return None
 
         try:
-            resp = await self._fetch_with_safe_redirects(url, client)
+            resp = await self._fetch_with_safe_redirects(url)
             if resp is None or resp.status_code != 200:
                 return None
 
@@ -621,14 +696,11 @@ class QuantumResearchAgent:
         scraped_data_map: Dict[str, Any] = {}
         if HAS_WEB_DEPS and raw_sources:
             targets = [s["url"] for s in raw_sources[:4]]
-            # Redirects are followed manually in `_fetch_with_safe_redirects` so each
-            # hop can be SSRF-validated; never let the client auto-follow them here.
-            async with httpx.AsyncClient(headers={"User-Agent": self.user_agent}, follow_redirects=False) as client:
-                scrape_tasks = [self.scrape_page_content(u, client) for u in targets]
-                scraped_results = await asyncio.gather(*scrape_tasks, return_exceptions=True)
-                for res in scraped_results:
-                    if isinstance(res, dict) and res.get("url"):
-                        scraped_data_map[res["url"]] = res
+            scrape_tasks = [self.scrape_page_content(url) for url in targets]
+            scraped_results = await asyncio.gather(*scrape_tasks, return_exceptions=True)
+            for res in scraped_results:
+                if isinstance(res, dict) and res.get("url"):
+                    scraped_data_map[res["url"]] = res
 
         # Step 4: Credibility scoring and ranking
         enriched_sources: List[Dict[str, Any]] = []
@@ -762,4 +834,3 @@ if __name__ == "__main__":
 
     # Output clean JSON to stdout for child-process consumption
     sys.stdout.buffer.write(json.dumps(result, indent=2).encode("utf-8"))
-

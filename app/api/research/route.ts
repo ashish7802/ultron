@@ -26,9 +26,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { execFile } from "child_process";
 import { promisify } from "util";
-import fs from "fs";
 import path from "path";
 import { getCryptoStatus } from "@/lib/crypto";
+import { resolvePythonExecutable } from "@/lib/pythonRuntime";
+
+export { resolvePythonExecutable };
 
 const execFileAsync = promisify(execFile);
 
@@ -47,44 +49,6 @@ export interface ResearchRequestBody {
   maxSources?: number;
   sessionToken?: string;
   stream?: boolean;
-}
-
-/**
- * Resolves the Python 3 interpreter used to run the research agent.
- *
- * WHY: the old code hard-coded `C:\Users\kelvy\...\Python312\python.exe`, which only works on
- * one machine. Resolution order:
- * 1. `ULTRON_PYTHON_PATH` / `ULTRON_PYTHON` environment override (deployments, CI).
- * 2. Common per-user Windows install locations (if they exist on this host).
- * 3. `python.exe` / `python3` from PATH as the last resort (spawn error is reported clearly).
- *
- * @returns Absolute interpreter path when detected, otherwise a PATH-resolved executable name.
- */
-export function resolvePythonExecutable(): string {
-  const configured = (process.env.ULTRON_PYTHON_PATH || process.env.ULTRON_PYTHON || "").trim();
-  if (configured) return configured;
-
-  const candidates: string[] = [];
-  if (process.platform === "win32") {
-    const localAppData = process.env.LOCALAPPDATA || "";
-    if (localAppData) {
-      for (const version of ["Python313", "Python312", "Python311", "Python310"]) {
-        candidates.push(path.join(localAppData, "Programs", "Python", version, "python.exe"));
-      }
-    }
-  } else {
-    candidates.push("/usr/bin/python3", "/usr/local/bin/python3");
-  }
-
-  for (const candidate of candidates) {
-    try {
-      if (fs.existsSync(candidate)) return candidate;
-    } catch {
-      // A stat failure on one candidate should simply move on to the next one.
-    }
-  }
-
-  return process.platform === "win32" ? "python.exe" : "python3";
 }
 
 /**

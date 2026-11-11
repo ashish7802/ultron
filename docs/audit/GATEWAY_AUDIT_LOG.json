@@ -1,0 +1,35 @@
+[
+  {
+    "auditId": "aud_a7bccb91060004db",
+    "planId": "plan_beda1b69fa05e8703a804890",
+    "actionType": "volume_change",
+    "target": "Volume Up",
+    "riskLevel": "low",
+    "decision": "executed",
+    "executionSuccess": true,
+    "executionMessage": "Action executed successfully.",
+    "timestamp": 1794366509370
+  },
+  {
+    "auditId": "aud_d9acfd92b4cc3896",
+    "planId": "plan_6f02837a4d9dc2f6d7a5153b",
+    "actionType": "volume_change",
+    "target": "Volume Up",
+    "riskLevel": "low",
+    "decision": "executed",
+    "executionSuccess": true,
+    "executionMessage": "Action executed successfully.",
+    "timestamp": 1794366509166
+  },
+  {
+    "auditId": "aud_87ffb570e8f84b73",
+    "planId": "plan_4e5ed174710a40431748bd61",
+    "actionType": "app_launch",
+    "target": "Google Chrome",
+    "riskLevel": "medium",
+    "decision": "rejected",
+    "executionSuccess": false,
+    "executionMessage": "Hash mismatch: Action parameters were modified after approval.",
+    "timestamp": 1794366509157
+  }
+]

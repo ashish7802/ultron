@@ -16,11 +16,14 @@ const path = require("path");
 const fs = require("fs");
 const net = require("net");
 const { spawn } = require("child_process");
+const { randomBytes } = require("node:crypto");
+const { waitForServerReady } = require("./serverStartup");
 
 let mainWindow = null;
 let nextProcess = null;
 let activePort = null;
 let appUrl = null;
+let serverReady = false;
 
 // Preferred local port for the embedded Next.js server. If another process has
 // claimed it (common with dev servers), the next free port in the range is used
@@ -58,7 +61,7 @@ const ALLOWED_APP_PATHS = new Set([
  * @returns {boolean} True when the URL belongs to the local ULTRON server.
  */
 function isAppUrl(url) {
-  if (!url || !activePort) return false;
+  if (!url || !activePort || !serverReady) return false;
   try {
     const parsed = new URL(url);
     const port = parsed.port || (parsed.protocol === "https:" ? "443" : "80");
@@ -111,7 +114,7 @@ function findAvailablePort(startPort) {
  * @param {number} port - Loopback port the server must bind.
  * @returns {boolean} False when the standalone build is missing (caller aborts).
  */
-function startNextServer(port) {
+function startNextServer(port, startupSecret) {
   const standaloneServer = app.isPackaged
     ? path.join(process.resourcesPath, "standalone", "server.js")
     : path.join(__dirname, "..", ".next", "standalone", "server.js");
@@ -121,7 +124,7 @@ function startNextServer(port) {
     return false;
   }
 
-  nextProcess = spawn(process.execPath, [standaloneServer], {
+  const serverProcess = spawn(process.execPath, [standaloneServer], {
     stdio: ["ignore", "pipe", "pipe"],
     cwd: path.dirname(standaloneServer),
     env: {
@@ -133,26 +136,38 @@ function startNextServer(port) {
       // expose the desktop HUD's API routes to the local network.
       HOSTNAME: "127.0.0.1",
       NODE_ENV: "production",
+      ULTRON_DESKTOP_STARTUP_SECRET: startupSecret,
+      ULTRON_TRANSCRIPTION_SCRIPT: app.isPackaged
+        ? path.join(process.resourcesPath, "standalone", "ultron_engine", "voice_transcription.py")
+        : path.join(__dirname, "..", "ultron_engine", "voice_transcription.py"),
     },
   });
+  nextProcess = serverProcess;
 
-  nextProcess.stdout.on("data", (data) => {
+  serverProcess.stdout.on("data", (data) => {
     const line = data.toString().trim();
     if (line) console.log(`[Next.js] ${line}`);
   });
 
-  nextProcess.stderr.on("data", (data) => {
+  serverProcess.stderr.on("data", (data) => {
     const line = data.toString().trim();
     if (line) console.error(`[Next.js ERR] ${line}`);
   });
 
-  nextProcess.on("close", (code) => {
+  serverProcess.on("close", (code) => {
+    serverReady = false;
+    activePort = null;
+    appUrl = null;
     if (code && code !== 0) {
       console.warn(`[Next.js] exited with code ${code}`);
     }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      app.quit();
+    }
   });
 
-  nextProcess.on("error", (error) => {
+  serverProcess.on("error", (error) => {
+    serverProcess.spawnError = error;
     console.error("[Next.js] failed to start:", error);
   });
 
@@ -302,7 +317,8 @@ app.whenReady().then(async () => {
   }
   appUrl = `http://127.0.0.1:${activePort}/`;
 
-  if (!startNextServer(activePort)) {
+  const startupSecret = randomBytes(32).toString("hex");
+  if (!startNextServer(activePort, startupSecret)) {
     dialog.showErrorBox(
       "ULTRON server missing",
       "The Next.js standalone build was not found.\n\nRun `npm run build:next` before starting the desktop app."
@@ -311,8 +327,21 @@ app.whenReady().then(async () => {
     return;
   }
 
-  // Give Next.js a head start; did-fail-load retries cover slower machines.
-  setTimeout(createWindow, 1200);
+  try {
+    await waitForServerReady(activePort, nextProcess, startupSecret);
+    serverReady = true;
+    createWindow();
+  } catch (error) {
+    console.error("[Electron] ULTRON server failed readiness validation.", {
+      errorType: error instanceof Error ? error.name : "UnknownError",
+    });
+    cleanup();
+    dialog.showErrorBox(
+      "ULTRON server failed to start",
+      "The embedded ULTRON server did not become ready. No local page was loaded."
+    );
+    app.quit();
+  }
 });
 
 app.on("window-all-closed", () => {

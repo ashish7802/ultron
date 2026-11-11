@@ -251,45 +251,49 @@ def test_zero_raw_biometrics_and_no_bypass():
 
 def test_loopback_hud_routes_open_without_auth():
     """
-    Validates the local-only HTTP contract the HUD depends on.
-
-    The app intentionally has no token/401/423 gating on loopback, so the HUD
-    routes must answer unauthenticated. An arbitrary Authorization header must be
-    ignored (not rejected): if a 401/403 appeared here, a removed auth layer would
-    have leaked back into the product.
+    Validates the authenticated desktop session boundary contract.
+    1. Wake-word state read is accessible on loopback for HUD polling.
+    2. Sensitive endpoints like /api/chat reject unauthenticated requests (401).
+    3. Authenticated requests with a valid desktop session token succeed (200).
+    4. Requests with tampered/invalid session tokens fail closed (401).
     """
-    print("[ADVERSARIAL 6/6] Verifying HUD-Facing Routes Are Open on Loopback (No Auth Layer)...")
+    print("[ADVERSARIAL 6/6] Verifying HUD Polling & Desktop Session Authenticated Boundary...")
     wait_for_server()
 
-    # 1. Wake-word state read, exactly what the HUD polls.
+    # 1. Wake-word state read, polled by the HUD.
     status, _, wake_data, _ = http_json(f"{BASE_URL}/api/wakeword", timeout=10)
     assert status == 200, f"GET /api/wakeword must be open on loopback, got {status}: {wake_data}"
     assert "status" in wake_data or "mode" in wake_data, f"Unexpected wake-word payload: {wake_data}"
     print(f"  -> PASSED: GET /api/wakeword -> 200 ({wake_data.get('status')}/{wake_data.get('mode')}).")
 
-    # 2. Chat, unauthenticated: the local rule engine must answer without a token.
+    # 2. Chat unauthenticated: must fail closed with 401 Unauthorized (proves no unauthenticated loopback bypass).
     chat_payload = {
         "messages": [{"role": "user", "content": "status"}],
         "activationMode": "CONTINUOUS_CONVERSATION",
     }
     status, _, chat_data, _ = http_json(f"{BASE_URL}/api/chat", chat_payload, timeout=60)
-    assert status == 200, f"POST /api/chat must be open on loopback, got {status}: {chat_data}"
+    assert status == 401, f"POST /api/chat without session token must be rejected (401), got {status}: {chat_data}"
+    print("  -> PASSED: POST /api/chat unauthenticated is rejected with 401 Unauthorized.")
+
+    # 3. Retrieve valid session token from loopback session endpoint
+    auth_status, _, auth_data, _ = http_json(f"{BASE_URL}/api/auth/session", timeout=10)
+    assert auth_status == 200, f"GET /api/auth/session on loopback must succeed, got {auth_status}: {auth_data}"
+    session_token = auth_data.get("sessionToken")
+    assert session_token, f"Session endpoint must return a session token, got: {auth_data}"
+
+    # 4. Chat with valid session token succeeds
+    headers = {"X-ULTRON-Session-Token": session_token}
+    status, _, chat_data, _ = http_json(f"{BASE_URL}/api/chat", chat_payload, headers=headers, timeout=60)
+    assert status == 200, f"POST /api/chat with valid session token must succeed, got {status}: {chat_data}"
     reply = chat_data.get("reply") or ""
     assert isinstance(reply, str) and reply.strip(), f"Chat must return a non-empty reply, got: {chat_data}"
-    print(f"  -> PASSED: POST /api/chat -> 200 with reply: '{reply[:60]}'")
+    print(f"  -> PASSED: POST /api/chat with session token -> 200 with reply: '{reply[:60]}'")
 
-    # 3. A supplied-but-meaningless Authorization header is simply ignored: there is
-    #    no authorization layer left to reject it, which is the documented contract.
-    status, _, chat_data, _ = http_json(
-        f"{BASE_URL}/api/chat",
-        chat_payload,
-        headers={"Authorization": "Bearer irrelevant.local.header"},
-        timeout=60,
-    )
-    assert status == 200, (
-        f"Local route must not enforce Authorization (no auth layer remains), got {status}: {chat_data}"
-    )
-    print("  -> PASSED: arbitrary Authorization header is ignored (no auth gating remains).")
+    # 5. Chat with invalid/tampered token fails closed (401)
+    bad_headers = {"X-ULTRON-Session-Token": "tampered_token_99999"}
+    status, _, bad_data, _ = http_json(f"{BASE_URL}/api/chat", chat_payload, headers=bad_headers, timeout=60)
+    assert status == 401, f"POST /api/chat with tampered token must be rejected (401), got {status}: {bad_data}"
+    print("  -> PASSED: POST /api/chat with invalid token is rejected with 401.")
 
 
 def main():

@@ -26,9 +26,8 @@ Architectural Role & Security Guarantees:
 - Atomic artifact writes: vault.bin and recovery_manifest.json are written to a
   temporary sibling file and atomically renamed, so a crash/power loss can never
   leave a truncated key file (which would lose the only copy of the master key).
-- Honest key-provider reporting: on non-Windows dev/test hosts DPAPI is unavailable,
-  so the vault uses a clearly-labelled local test gate and reports that provider
-  truthfully instead of claiming DPAPI protection.
+- Honest key-provider reporting: a clearly-labelled plaintext key gate is available
+  only when non-Windows tests explicitly opt in; it is never reported as DPAPI-protected.
 - Detects physical biometric hardware (e.g. Synaptics Fingerprint Sensor) via Windows
   PnP Device Management, providing evidence-backed hardware authentication capabilities.
 ===============================================================================
@@ -155,12 +154,20 @@ class SecureVault:
     OS-Backed Cryptographic Vault and Key Lifecycle Manager.
     """
 
-    def __init__(self, vault_dir: str = VAULT_DIR):
+    def __init__(
+        self,
+        vault_dir: str = VAULT_DIR,
+        *,
+        allow_test_fallback: Optional[bool] = None,
+    ):
         """
         Initializes the SecureVault.
 
         Args:
             vault_dir (str): Directory where protected vault artifacts are stored.
+            allow_test_fallback (bool, optional): Explicitly permits plaintext key
+                storage for isolated non-Windows tests only. Never permits fallback
+                on Windows.
         """
         self.vault_dir = vault_dir
         self.vault_file = os.path.join(vault_dir, "vault.bin")
@@ -174,6 +181,11 @@ class SecureVault:
         # key is not OS-protected, and reporting otherwise would be a false claim.
         self._key_provider: str = "Uninitialized"
         self._hardware_bound: bool = False
+        self._allow_test_fallback = (
+            allow_test_fallback
+            if allow_test_fallback is not None
+            else os.environ.get("ULTRON_TEST_ALLOW_PLAINTEXT_VAULT") == "1"
+        )
         self._initialize_vault()
 
     def _initialize_vault(self) -> None:
@@ -197,8 +209,12 @@ class SecureVault:
         recovery_passphrase = secrets.token_urlsafe(24)
         self._recovery_passphrase = recovery_passphrase
 
-        # Wrap with Windows DPAPI if running on Windows with win32crypt
-        if sys.platform == "win32" and HAS_WIN32CRYPT:
+        if sys.platform == "win32":
+            if not HAS_WIN32CRYPT:
+                raise RuntimeError(
+                    "Windows vault initialization requires pywin32 DPAPI support; "
+                    "refusing to store the master key without OS protection."
+                )
             try:
                 # CryptProtectData(data, description, optionalEntropy, reserved, promptStruct, flags)
                 protected_blob = win32crypt.CryptProtectData(
@@ -214,9 +230,11 @@ class SecureVault:
             self._key_provider = "Windows DPAPI (OS-Protected / User-Account Bound)"
             self._hardware_bound = True
         else:
-            # Fallback for non-Windows test environments only. This is NOT
-            # OS-protected storage; the provider name below keeps status output
-            # truthful so callers never mistake it for DPAPI protection.
+            if not self._allow_test_fallback:
+                raise RuntimeError(
+                    "DPAPI is unavailable. Plaintext key storage is disabled; "
+                    "isolated non-Windows tests must explicitly enable the test fallback."
+                )
             protected_blob = FALLBACK_GATE_PREFIX + master_key
             self._key_provider = "Local Test Gate (NOT OS-Protected; non-Windows fallback)"
             self._hardware_bound = False
@@ -257,6 +275,7 @@ class SecureVault:
         write_json_atomic(self.recovery_file, recovery_manifest)
 
         self._master_key = master_key
+
     def _load_from_vault(self) -> None:
         """
         Loads and decrypts the master key from the OS DPAPI vault.
@@ -276,14 +295,24 @@ class SecureVault:
             with open(self.vault_file, "r", encoding="utf-8") as f:
                 payload = json.load(f)
 
-            if not isinstance(payload, dict) or not payload.get("protected_blob_b64"):
+            if (
+                not isinstance(payload, dict)
+                or type(payload.get("version")) is not int
+                or payload.get("version") != 1
+                or not isinstance(payload.get("provider"), str)
+                or not isinstance(payload.get("protected_blob_b64"), str)
+                or not payload["protected_blob_b64"]
+            ):
                 self._tamper_detected = True
                 raise PermissionError(
-                    "TAMPER ALERT: Vault payload is malformed or missing its protected key blob."
+                    "TAMPER ALERT: Vault payload is malformed, unsupported, or missing its protected key blob."
                 )
 
             try:
-                protected_blob = base64.b64decode(payload["protected_blob_b64"] + "=" * (-len(payload["protected_blob_b64"]) % 4))
+                protected_blob = base64.b64decode(
+                    payload["protected_blob_b64"] + "=" * (-len(payload["protected_blob_b64"]) % 4),
+                    validate=True,
+                )
             except Exception:
                 self._tamper_detected = True
                 raise PermissionError("TAMPER ALERT: Vault protected blob is not valid Base64.")
@@ -304,7 +333,12 @@ class SecureVault:
             if not hmac.compare_digest(actual_checksum, expected_checksum):
                 self._tamper_detected = True
                 raise PermissionError("TAMPER ALERT: Vault integrity checksum mismatch! The vault file was altered.")
-            if sys.platform == "win32" and HAS_WIN32CRYPT:
+            if sys.platform == "win32":
+                if not HAS_WIN32CRYPT:
+                    raise RuntimeError(
+                        "Windows vault access requires pywin32 DPAPI support; "
+                        "refusing to load a key without OS protection."
+                    )
                 # Unprotect via Windows DPAPI. This is the authenticity anchor: only
                 # the same Windows user/machine (TPM-backed when available) can unwrap.
                 try:
@@ -325,6 +359,11 @@ class SecureVault:
                 self._hardware_bound = True
             else:
                 if protected_blob.startswith(FALLBACK_GATE_PREFIX):
+                    if not self._allow_test_fallback:
+                        raise RuntimeError(
+                            "Plaintext test-vault loading is disabled; explicitly enable "
+                            "the fallback only for isolated non-Windows tests."
+                        )
                     self._master_key = protected_blob[len(FALLBACK_GATE_PREFIX):]
                     self._key_provider = "Local Test Gate (NOT OS-Protected; non-Windows fallback)"
                     self._hardware_bound = False
@@ -358,22 +397,46 @@ class SecureVault:
         if not os.path.exists(self.recovery_file):
             raise ValueError("Recovery manifest not found on disk.")
 
-        with open(self.recovery_file, "r", encoding="utf-8") as f:
-            manifest = json.load(f)
+        try:
+            with open(self.recovery_file, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise PermissionError("Recovery failed: recovery manifest is unreadable or malformed.") from error
 
         # Validate the untrusted manifest before doing any KDF work. Without these
         # checks a tampered manifest could (a) skip the documented work factor or
         # (b) request an enormous iteration count and hang the process (CPU DoS).
-        if not isinstance(manifest, dict):
-            raise PermissionError("Recovery failed: recovery manifest is malformed.")
+        if (
+            not isinstance(manifest, dict)
+            or type(manifest.get("version")) is not int
+            or manifest.get("version") != 1
+        ):
+            raise PermissionError("Recovery failed: recovery manifest is malformed or unsupported.")
         try:
-            salt = base64.b64decode(manifest["salt_b64"] + "=" * (-len(manifest["salt_b64"]) % 4))
-            nonce = base64.b64decode(manifest["nonce_b64"] + "=" * (-len(manifest["nonce_b64"]) % 4))
-            ciphertext = base64.b64decode(manifest["ciphertext_b64"] + "=" * (-len(manifest["ciphertext_b64"]) % 4))
+            encoded_fields = ("salt_b64", "nonce_b64", "ciphertext_b64")
+            if any(
+                not isinstance(manifest.get(field), str)
+                or not manifest[field]
+                or len(manifest[field]) > 128
+                for field in encoded_fields
+            ):
+                raise TypeError("recovery fields must be Base64 strings")
+            salt = base64.b64decode(
+                manifest["salt_b64"] + "=" * (-len(manifest["salt_b64"]) % 4),
+                validate=True,
+            )
+            nonce = base64.b64decode(
+                manifest["nonce_b64"] + "=" * (-len(manifest["nonce_b64"]) % 4),
+                validate=True,
+            )
+            ciphertext = base64.b64decode(
+                manifest["ciphertext_b64"] + "=" * (-len(manifest["ciphertext_b64"]) % 4),
+                validate=True,
+            )
         except (KeyError, TypeError, ValueError) as e:
             raise PermissionError(f"Recovery failed: recovery manifest is corrupted ({e}).")
 
-        iterations = manifest.get("iterations", 200_000)
+        iterations = manifest.get("iterations")
         if (
             not isinstance(iterations, int)
             or isinstance(iterations, bool)
@@ -384,8 +447,8 @@ class SecureVault:
                 f"(expected an integer in [{RECOVERY_MIN_PBKDF2_ITERATIONS}, {RECOVERY_MAX_PBKDF2_ITERATIONS}])."
             )
 
-        if len(salt) < 16 or len(nonce) != 12:
-            raise PermissionError("Recovery failed: recovery manifest salt/nonce lengths are invalid.")
+        if len(salt) != 16 or len(nonce) != 12 or len(ciphertext) != 48:
+            raise PermissionError("Recovery failed: recovery manifest field lengths are invalid.")
 
         kdf = PBKDF2HMAC(
             algorithm=hashes.SHA512(),
@@ -454,5 +517,6 @@ class SecureVault:
 
 
 # Global singleton vault instance
-default_vault = SecureVault()
-
+default_vault = SecureVault(
+    allow_test_fallback=os.environ.get("ULTRON_TEST_ALLOW_PLAINTEXT_VAULT") == "1"
+)

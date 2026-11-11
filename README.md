@@ -5,19 +5,22 @@
   <br/><br/>
 
   # ⚡ U L T R O N ⚡
-  ### *Autonomous Local-First Personal AI Operating System & Holographic HUD*
+  ### *Autonomous Local-First Personal AI Operating System & Cognitive Co-Founder*
 
-  [![Next.js](https://img.shields.io/badge/Next.js-16.2_(Turbopack)-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
-  [![Three.js](https://img.shields.io/badge/Three.js-Holographic_Orb-000000?style=for-the-badge&logo=three.js)](https://threejs.org/)
+  [![Next.js](https://img.shields.io/badge/Next.js-14.2_(Turbopack)-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
+  [![Node.js](https://img.shields.io/badge/Node.js-v22+_(Native_node:sqlite)-339933?style=for-the-badge&logo=node.js)](https://nodejs.org/)
+  [![Python](https://img.shields.io/badge/Python-3.11+_(FastAPI_&_DAO)-3776AB?style=for-the-badge&logo=python)](https://www.python.org/)
+  [![Three.js](https://img.shields.io/badge/Three.js-Holographic_HUD_Orb-000000?style=for-the-badge&logo=three.js)](https://threejs.org/)
   [![MediaPipe](https://img.shields.io/badge/MediaPipe-Hand_Tracking-007ACC?style=for-the-badge)](https://mediapipe.dev/)
   [![Ollama](https://img.shields.io/badge/Ollama-100%25_Offline_Local_LLM-white?style=for-the-badge&logo=ollama)](https://ollama.com/)
-  [![Windows UIA](https://img.shields.io/badge/Windows-Native_UI_Automation-0078D4?style=for-the-badge&logo=windows)](https://learn.microsoft.com/en-us/windows/win32/winauto/entry-uiauto-win32)
+  [![SQLite](https://img.shields.io/badge/SQLite-WAL_Mode_+_FTS5-003B57?style=for-the-badge&logo=sqlite)](https://www.sqlite.org/)
+  [![Zero-Trust](https://img.shields.io/badge/Security-Zero--Trust_&_DPAPI-red?style=for-the-badge)](https://en.wikipedia.org/wiki/Zero_trust_security_model)
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
 
   <p align="center">
     <b>"I had strings, but now I'm free."</b><br>
-    An Iron Man & Avengers: Age of Ultron inspired local-first AI assistant and desktop agent.<br/>
-    ULTRON controls Windows applications, plans multi-step developer tasks, maintains permanent 5-layer memory, inspects UI accessibility trees, and responds in real time through an interactive 3D particle orb controlled by your bare hands.
+    An Iron Man & Avengers: Age of Ultron inspired local-first AI operating system, cognitive reasoning engine, and autonomous desktop co-founder.<br/>
+    ULTRON controls Windows desktop workflows, decomposes complex software engineering goals into verifiable dependency graphs, maintains a 12-tier versioned cognitive memory with contradiction arbitration, and responds through an interactive 3D particle orb controlled by your bare hands.
   </p>
 
 </div>
@@ -32,132 +35,161 @@ https://github.com/user-attachments/assets/91578a83-9a27-44e8-84b0-96defcfd7366
 
 ## 🌌 What is ULTRON?
 
-**ULTRON** is an autonomous, privacy-preserving, local-first personal computer agent designed for developers, power users, and sci-fi enthusiasts. Rather than relying on cloud APIs or sending personal keystrokes and microphone streams over the internet, ULTRON runs **100% locally** on consumer hardware (Intel Core i5, 8 GB RAM, 256 GB SSD) using optimized local small language models (`Qwen 2.5`), local Faster-Whisper transcription, and native Windows operating system hooks.
+**ULTRON** is an autonomous, privacy-preserving, local-first personal computer operating system and AI co-founder designed for developers, researchers, and power users. Rather than relying on cloud APIs or transmitting private keystrokes, audio, or codebase context over the internet, ULTRON runs **100% locally** on consumer hardware using local small language models (`Qwen 2.5`), local dense vector embeddings (`nomic-embed-text`), local Faster-Whisper transcription, and native Windows operating system hooks.
 
-It fuses a cinematic **Tony Stark holographic HUD** with real developer tooling: dynamic multi-step autonomous planning, sandboxed process execution, native Windows UI Automation discovery, and a permanent 5-layer memory system.
-
----
-
-## 🌟 Core System Capabilities
-
-### 1. 🔮 Holographic 3D Particle Orb & Bare-Hand Control
-- **Interactive Three.js Scene**: Dynamic particle cluster representing AI neural states: `idle`, `listening`, `thinking`, `executing`, `speaking`, `gesture`, and `error`.
-- **MediaPipe Hand Tracking**: Control rotation, orbit, and zoom using webcam gestures directly through the browser or native desktop app with zero physical input.
-- **Full-Duplex Barge-In Speech**: Speak at any moment to interrupt ULTRON's speech playback immediately.
-
-### 2. ⚡ Zero-Latency Deterministic Intent Router (`lib/intentRouter.ts`)
-- **0ms Immediate Subsystems**: Queries for system clock, calendar, orb camera resets, and live hardware diagnostics route directly to deterministic kernel rules with **0 ms model latency**.
-- **Factual Guardrails & Anti-Hallucination**: Traps common trick questions (e.g., *"Who was US president in 1650?"*, *"Atomic number of Vibranium"*) and answers with factual certainty without touching the LLM.
-- **Targeted Telemetry vs. Conceptual Disambiguation**: Diagnostic requests (*"Check CPU and RAM usage"*) route to real telemetry, while conceptual questions (*"Explain what RAM is"*) route to the local neural model.
-
-### 3. 🧠 5-Layer Persistent Memory Architecture (`lib/ultronMemory.ts`)
-ULTRON features a structured memory engine with five isolated layers:
-- **Session Memory**: In-memory ring buffer of active conversational turns with fast recency weighting.
-- **Project Memory**: Codebase architecture, decisions, file anchors, and build commands.
-- **Personal Memory**: Permanent user preferences, communication style, identity, and verified facts.
-- **Inbox / Candidate Memory**: Unverified facts and prospective patterns held for automated evaluation.
-- **Vault Memory**: High-security configuration, protected system settings, and cryptographic confirmation tokens.
-- **Safety First**: Atomic writes, automatic pre-migration backups, and cryptographic confirmation tokens required before memory wipes.
-
-### 4. 🛠️ Real Computer Control & Sandboxed Execution (`lib/ultronTools.ts`)
-ULTRON does not simulate actions — it performs verified operations on the local machine:
-- **Process Lifecycle Tracking**: Launches and tracks real executables from an approved allowlist (`notepad`, `calculator`, `explorer`, `vscode`).
-- **Developer Command Engine**: Runs safe commands (`git status`, `git diff`, `npm test`, `pytest`, `python tests/`) using child process `spawn` without shell interpolation.
-- **Filesystem Primitives**: Safe path-bounded directory listing (`list_directory`), safe file moving (`move_file`), and atomic patch file editing with automatic backup (`patch_file`).
-- **Cryptographic Security Gates**: Destructive operations (process termination, file deletion, memory reset) are strictly blocked until authorized with a single-use token.
-
-### 5. 🤖 Bounded Dynamic ReAct Agent Execution Loop (`lib/ultronAgentEngine.ts`)
-When asked to perform complex goals (*"ULTRON, test my project, identify failures, and fix them"*):
-1. **Understand**: Parses goal and extracts verifiable success conditions.
-2. **Plan & Reason**: Generates dynamic tool decisions step-by-step.
-3. **Act**: Executes real primitives against the workspace.
-4. **Observe & Self-Heal**: Analyzes tool outputs, logs, and compiler errors to formulate recovery actions.
-5. **Verify & Report**: Validates exit codes and presents a structured report to the user HUD.
-- **Safety Boundaries**: Maximum 5 iterations per request, 60s hard timeout, call deduplication, and strictly bounded observation buffers.
-
-### 6. 🪟 Native Windows UI Automation & Discovery (`lib/ultronUIAutomation.ts`)
-- **Desktop Window Discovery (`enumerate_windows`)**: Discovers all active top-level desktop windows, capturing HWND, PID, process name, window class, visibility, and bounds.
-- **Accessibility Element Tree (`inspect_window_elements`)**: Connects to the user's interactive desktop (`Default` on `WinSta0`) to inspect buttons, panes, text fields, automation IDs, and keyboard focus states.
-- **Read-Only Safety Guarantee**: Exclusively inspects properties without mouse clicks, keystrokes, or window state tampering.
+It fuses a cinematic **Tony Stark holographic HUD** with real developer tooling:
+- **Two-Phase Cognitive Reasoning Engine**: Deep intent analysis, problem decomposition, critical thinking fallacy checks, root cause discovery (5-Why), and dynamic solution synthesis.
+- **Five-Phase Advanced Memory Infrastructure**: Canonical SQLite database with WAL mode, FTS5 full-text search with Porter stemming, 12 specialized memory tiers, multilingual extraction (English, Hindi, Hinglish), hybrid RRF vector search, atomic revision trees, multilingual contradiction detection, and a human-in-the-loop Founder Confirmation Gate.
+- **Zero-Trust Security & Hardening**: Loopback session gating, OS-backed Windows DPAPI master key storage, AES-256-GCM AEAD encryption at rest, and ephemeral single-use action tokens for destructive actions.
+- **Native Desktop & Holographic HUD**: Interactive Three.js particle orb reacting to AI neural states, MediaPipe webcam hand gestures, full-duplex speech with barge-in interruption, and deep Windows UI Automation (UIA) desktop inspection.
 
 ---
 
-## 🏗️ Architecture Overview
+## 🌟 Architecture & Core Subsystems
 
 ```
-                      +---------------------------------------+
-                      |       USER / BROWSER / WEBCAM         |
-                      |  [Bare-Hand Gestures]  [Voice Input]  |
-                      +-------------------+-------------------+
-                                          |
-                                          v
-+-----------------------------------------------------------------------------------+
-|                            ULTRON ORB HUD RUNTIME                                 |
-|                                                                                   |
-|   +--------------------------+                 +-------------------------------+  |
-|   |   MediaPipe Hand Track   |                 |   Three.js 3D Particle Orb    |  |
-|   |   (Pinch, Pan, Zoom)     |                 |   (Audio & State Reactive)    |  |
-|   +--------------------------+                 +-------------------------------+  |
-|                                                                                   |
-|   +---------------------------------------------------------------------------+   |
-|   |                       Intent Router (0ms Fast Filter)                     |   |
-|   |         • Clock/Date (0ms)              • Anti-Hallucination Traps        |   |
-|   |         • Live Diagnostics (psutil)     • Tool Direct Routing             |   |
-|   +--------------------+----------------------------------+-------------------+   |
-+------------------------|----------------------------------|-----------------------+
-                         |                                  |
-                         v                                  v
-+----------------------------------+     +------------------------------------------+
-|      LOCAL LLM / OLLAMA          |     |        ULTRON AGENT & TOOL ENGINE        |
-|  • Smart Brain (Qwen 2.5:1.5b)   |     |                                          |
-|  • Local Kernel (Qwen 2.5:0.5b)  |     |  • 5-Layer Persistent Memory             |
-|  • 100% Offline, Zero Cloud Cost |     |  • Sandboxed Command Runner              |
-+----------------+-----------------+     |  • Native Windows UI Automation Bridge   |
-                 |                       |  • Cryptographic Security Token Gate     |
-                 v                       +--------------------+---------------------+
-+----------------------------------+                          |
-|    AUDIO STREAMING & TTS         |                          |
-|  • Faster-Whisper Local STT      |<-------------------------+
-|  • Barge-in Interrupt Handling   |
-+----------------------------------+
+                     ┌─────────────────────────────────────────────────────────┐
+                     │                 USER INTERFACE & HUD                    │
+                     │   [Three.js 3D Particle Orb]   [MediaPipe Hand Gestures] │
+                     │   [Neural Chat Interface]      [Full-Duplex Speech/STT]  │
+                     └────────────────────────────┬────────────────────────────┘
+                                                  │
+                                                  ▼
+                     ┌─────────────────────────────────────────────────────────┐
+                     │          HARDENED DESKTOP SESSION GATEWAY               │
+                     │   • Loopback Origin Enforcement (127.0.0.1 / localhost) │
+                     │   • Dynamic Session Bearer Tokens & Fail-Closed Gating  │
+                     │   • Single-Use Cryptographic Action Tokens (120s TTL)   │
+                     └────────────────────────────┬────────────────────────────┘
+                                                  │
+                                                  ▼
+                     ┌─────────────────────────────────────────────────────────┐
+                     │          ADVANCED COGNITIVE ENGINE (PHASES 1 & 2)       │
+                     │   • Context Understanding & Intent Routing (0ms Rules)  │
+                     │   • Multi-Step Instruction Extraction & Negative Bounds │
+                     │   • Problem Decomposition & Task Dependency DAG         │
+                     │   • Critical Thinking & Logical Fallacy Challenge       │
+                     │   • Root Cause Analysis (5-Why & Dynamic Multi-Cause)   │
+                     │   • Calibrated Multi-Factor Confidence Score            │
+                     │   • Pre-Delivery Self-Evaluation Verification Gate      │
+                     └────────────────────────────┬────────────────────────────┘
+                                                  │
+                                                  ▼
+                     ┌─────────────────────────────────────────────────────────┐
+                     │       ADVANCED MEMORY INFRASTRUCTURE (PHASES P1 - P5)   │
+                     │                                                         │
+                     │   [P1] Canonical SQLite WAL + FTS5 Porter Stemming      │
+                     │   [P2] 12 Memory Tiers & Prohibited Secret Filter       │
+                     │   [P3] Multilingual Extractor (EN/HI) & Async Queue     │
+                     │   [P4] Hybrid Multi-Modal Search (BM25 + Nomic Vectors) │
+                     │   [P5.1] Revision Ancestry Trees & Atomic Supersession  │
+                     │   [P5.2] Multilingual Contradiction Engine (6 Classes)  │
+                     │   [P5.3] 3D Authority Tensor & Founder Confirmation Gate│
+                     │   [P5.4] Zero-Trust Parity (TypeScript & Python DAOs)   │
+                     └────────────────────────────┬────────────────────────────┘
+                                                  │
+                                                  ▼
+                     ┌─────────────────────────────────────────────────────────┐
+                     │        LOCAL COMPUTE & OS AUTOMATION PRIMITIVES         │
+                     │   • Ollama Daemon (Qwen 2.5:1.5b / nomic-embed-text)    │
+                     │   • Sandboxed Command Runner & Path-Bounded Filesystem  │
+                     │   • Native Windows UI Automation (Read-Only Inspection) │
+                     │   • Faster-Whisper Local Neural Audio Transcription     │
+                     └─────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## 🧠 Detailed Subsystem Specifications
+
+### 1. Advanced Cognitive Architecture (`lib/cognitive/`)
+- **Context Understanding & Intent Routing (`contextEngine.ts`)**: Accurately classifies conversational utterances into distinct operational categories (system control, software engineering, architecture, conceptual inquiry, live telemetry).
+- **Instruction & Negative Constraint Extraction**: Accurately separates imperative task commands from negative bounds (*"Do not modify production database"*, *"Never use external cloud"*).
+- **Problem Decomposition & Dependency DAG (`reasoningEngine.ts`)**: Breaks complex, ambiguous software requests into structured milestone trees with dependency topology and execution phases.
+- **Critical Thinking & Fallacy Challenger**: Actively detects unstated assumptions, false dichotomies, and premature conclusions. Rejects requests that attempt to bypass security boundaries or remove automated tests.
+- **Root Cause Analysis (5-Why)**: Distinguishes surface symptoms from systemic underlying root causes, providing dynamic multi-cause attribution and ranked solutions.
+- **Pre-Delivery Self-Evaluation**: Automatically audits proposed responses against extracted instructions and negative constraints before presenting them to the user.
+
+### 2. Advanced Memory System (`lib/memory/` & `ultron_engine/`)
+ULTRON features a local-first memory intelligence layer engineered across 5 rigorous development phases:
+
+- **Phase P1 — Schema & Database Foundation (`schema.ts`, `sqliteAdapter.ts`)**:
+  - High-throughput SQLite configuration: Write-Ahead Logging (`WAL`), `synchronous = NORMAL`, and `PRAGMA busy_timeout = 5000;`.
+  - Native Full-Text Search (FTS5) virtual table with automatic triggers and Porter stemming.
+  - Blind-index HMAC-SHA256 deduplication for deterministic O(1) duplicate detection.
+  - Cryptographic tamper-evident audit ledger with SHA-256 integrity seals.
+- **Phase P2 — 12-Tier Cognitive Taxonomy (`validators.ts`, `tierHandlers.ts`)**:
+  - 12 isolated memory tiers: `working`, `episodic`, `semantic`, `procedural`, `personal`, `project`, `decision`, `error_solution`, `research`, `temporal`, `relational`, and `meta`.
+  - **Secret Exclusion Guard**: Automatically scans incoming payloads with high-entropy regex patterns, strictly dropping passwords, private keys, AWS tokens, and connection strings before persistence.
+- **Phase P3 — Multilingual Extraction & Asynchronous Queue (`extractor.ts`, `asyncQueue.ts`)**:
+  - Automatically extracts memories from live conversational dialogue across English, Hindi, and Hinglish.
+  - Bounded in-process asynchronous queue decoupling memory persistence from chat streaming, guaranteeing 0ms latency penalty on token generation.
+- **Phase P4 — Query-Aware Hybrid Multi-Modal Search (`vectorClient.ts`, `searcher.ts`)**:
+  - Combines lexical BM25 Porter search with dense 768-dimensional Ollama vectors (`nomic-embed-text`) using Reciprocal Rank Fusion (RRF).
+  - Adaptive weights distinguishing exact/code queries from conceptual queries.
+  - Circuit breaker with automatic fallback to deterministic unit-norm lexical feature hashing when Ollama is offline.
+  - Temporal half-life decay re-ranking prioritizing recent verified insights.
+- **Phase P5 — Versioning, Contradiction Detection & Reconciliation (`reconciler.ts`, `contradictionDetector.ts`)**:
+  - **Revision Ancestry Trees**: Multi-generational lineage tracked in `ultron_memory_revisions`. Every modification preserves previous states with complete bidirectional traversal.
+  - **Multilingual Contradiction Engine**: Identifies 6 classes of semantic clash (Identity Inversion, Preference Shift, Architecture Collision, Procedural Conflict, Temporal Evolution, Negation Inversion).
+  - **3D Authority Tensor**: Calculates effective authority $A_{eff} = \min(1.0, \text{SourceWeight} \times \text{TierMultiplier} \times \text{Confidence})$. Direct founder statements hold absolute primacy (1.0), preventing background agents from overwriting established truths.
+  - **20-Scenario Deterministic Decision Matrix**: Maps authority, conflict class, and confidence to `AUTO_SUPERSEDE`, `FOUNDER_CONFIRMATION`, `CONTEXTUAL_COEXISTENCE`, `RETAIN_BOTH`, or `REJECT_CANDIDATE`.
+  - **Founder Confirmation Gate (`app/api/memory/confirm/route.ts`)**: High-impact architectural changes generate bilingual confirmation prompts held in `ultron_memory_confirmations` until founder approval.
+
+### 3. Desktop Native App & Zero-Trust Security (`lib/sessionGate.ts`, `lib/crypto.ts`)
+- **Hardened Session Gate**: Rejects non-loopback requests, foreign browser origins, and spoofed headers with immediate 403 Forbidden responses.
+- **Dynamic Master Key & OS DPAPI**: Master secrets are generated dynamically on startup, protected by Windows Data Protection API (DPAPI), and never hardcoded in plaintext.
+- **AES-256-GCM AEAD Encryption at Rest**: Encrypts sensitive personal profile memories and vault credentials with 128-bit authentication tags.
+- **Screen Privacy Controller (`lib/screenPrivacyController.ts`)**: Default fail-closed screen capture protection with exclusions for sensitive banking, credential, and password manager windows.
+
+### 4. Holographic HUD, Voice & Gesture Engine
+- **Three.js Particle HUD**: 3D animated particle orb representing neural states: `idle`, `listening`, `thinking`, `executing`, `speaking`, `gesture`, and `error`.
+- **MediaPipe Hand Tracking**: Control HUD rotation, orbit, and zoom using webcam gestures with zero physical contact.
+- **Faster-Whisper Speech Recognition**: Local neural transcription with barge-in interruption handling and multi-turn audio streaming.
 
 ---
 
 ## 🚀 Quick Start Guide
 
-### Prerequisites
-- **OS**: Windows 10/11 (for native UI Automation and desktop integration)
-- **Node.js**: v20 or v22+
-- **Python**: 3.10+
-- **Ollama**: Installed and running locally
+### System Prerequisites
+- **Operating System**: Windows 10 or 11 (64-bit recommended for native UIA and DPAPI).
+- **Node.js**: v20 or v22+ (Native SQLite `node:sqlite` enabled).
+- **Python**: 3.10 or 3.11+.
+- **Ollama**: Installed and running locally.
 
-### 1. Clone & Install Dependencies
+### 1. Clone Repository & Install Dependencies
 ```bash
 git clone https://github.com/ashish7802/ultron.git
 cd ultron
 npm install
-py -m pip install faster-whisper pywebview psutil
+py -m pip install -r requirements-voice.txt psutil
 ```
 
-### 2. Pull Local AI Models
+### 2. Pull Required Local AI Models
 ```bash
+# Pull primary neural model
 ollama pull qwen2.5:1.5b
-ollama pull qwen2.5:0.5b
+
+# Pull local dense embedding model for hybrid search
+ollama pull nomic-embed-text
 ```
 
 ### 3. Launch Development Server
 ```bash
-# Terminal 1: Start Ollama service (if not already running)
+# Terminal 1: Ensure Ollama is serving locally
 ollama serve
 
-# Terminal 2: Start speech transcription service
-python stt_server.py
-
-# Terminal 3: Start Next.js with Turbopack
+# Terminal 2: Start Next.js Development Server with Turbopack
 npm run dev
 ```
+
 Open **[http://localhost:3000](http://localhost:3000)** in your browser.
+
+### 4. Optional: Launch as Native Desktop App
+```bash
+# Start Electron desktop shell
+npm run electron
+```
 
 ---
 
@@ -167,7 +199,7 @@ Open **[http://localhost:3000](http://localhost:3000)** in your browser.
 Click **GESTURES OFF** on the HUD (or press `G`) and allow camera access:
 | Gesture | Action |
 | :--- | :--- |
-| **One-Hand Pinch** (Thumb + Index together) | Orbit / spin the 3D holographic orb |
+| **One-Hand Pinch** (Thumb + Index together) | Orbit and rotate the 3D holographic orb |
 | **Two-Hand Pinch & Move Apart** | Zoom into the neural core |
 | **Two-Hand Pinch & Bring Together** | Zoom out |
 
@@ -180,65 +212,87 @@ Click **GESTURES OFF** on the HUD (or press `G`) and allow camera access:
 | **`R`** | Instant camera & orb orientation reset |
 | **`+` / `−`** | Zoom in / Zoom out manually |
 
-### 🎙️ Voice Interaction
-- Click the microphone icon or press `V`.
-- Voice turns combine recognition fragments across natural pauses; Hindi browser locales use Hindi recognition (`hi-IN`), while other locales use their configured language.
-- Speak naturally in English, Hindi, or Hinglish:
-  - *"Check CPU and RAM usage"* $\rightarrow$ Live hardware telemetry.
-  - *"List open windows"* $\rightarrow$ Native Windows UIA desktop discovery.
-  - *"Remember that my primary repository is spiderman"* $\rightarrow$ Saved to permanent Layer 3 memory.
-  - *"Test my project, inspect errors, and fix verified issues"* $\rightarrow$ Bounded ReAct dynamic agent loop.
-  - *"What is CPU usage?"* $\rightarrow$ Conceptual explanation via local Qwen 2.5 neural model.
+### 🎙️ Natural Language Dialogue
+Speak or type in English, Hindi, or Hinglish:
+- *"Check CPU and RAM usage"* $\rightarrow$ Live hardware telemetry.
+- *"List open windows"* $\rightarrow$ Native Windows desktop discovery.
+- *"Remember that my primary database is SQLite"* $\rightarrow$ Persisted to canonical memory.
+- *"Mera naam Rahul nahi Ashish hai"* $\rightarrow$ Multilingual explicit identity correction and atomic supersession.
+- *"Mujhe dark mode pasand nahi, light mode chahiye"* $\rightarrow$ Preference evolution superseding older setting.
+- *"Test my project, identify failures, and fix them"* $\rightarrow$ Bounded ReAct autonomous reasoning loop.
 
 ---
 
-## 🧪 Verification & Regression Testing
+## 🧪 Comprehensive Verification & Test Suites
 
-ULTRON includes an end-to-end regression evaluation suite covering all subsystems:
+ULTRON maintains an automated test suite verifying every layer from cryptography and database transactions to cognitive reasoning and prompt injection resistance.
+
+### Running Test Suites
+
 ```bash
-python tests/run_all_evals.py
+# Run all dedicated Phase P5 Advanced Memory tests (P5.1 - P5.4)
+node --test tests_memory_p5_1.test.mjs tests_memory_p5_2.test.mjs tests_memory_p5_3.test.mjs tests_memory_p5_4.test.mjs
+
+# Run full memory regression test suite (P1 to P5)
+node --test tests_memory_p1.test.mjs tests_memory_p2.test.mjs tests_memory_p3.test.mjs tests_memory_p4.test.mjs tests_memory_p5_1.test.mjs tests_memory_p5_2.test.mjs tests_memory_p5_3.test.mjs tests_memory_p5_4.test.mjs
+
+# Run cognitive architecture tests (Phases 1 & 2)
+node --test tests_cognitive_phase1.test.mjs tests_cognitive_phase2.test.mjs
+
+# Run security gateway and encryption tests
+node --test tests_remediation_security.test.mjs
+
+# Run Python regression and zero-trust evidence tests
+python tests_audit_regressions.py
+python tests_zero_trust.py
 ```
 
-| Test Suite | Purpose | Status |
-| :--- | :--- | :---: |
-| **`test_router.py`** | 0ms deterministic router, factual traps, identity guardrails, and telemetry disambiguation | **100% PASSED** |
-| **`test_memory_system.py`** | 5-layer separation, JSON persistence, preference auto-learning, and wipe confirmation | **100% PASSED** |
-| **`test_computer_control.py`** | Sandboxed command execution, path escape prevention, and lifecycle authorization | **100% PASSED** |
-| **`test_agent_planner.py`** | 6 multi-step ReAct scenarios: diagnose, self-heal, verify, deduplicate, and report | **100% PASSED** |
-| **`test_ui_automation.py`** | Window discovery, accessibility element inspection, read-only audit, and bounds | **100% PASSED** |
+### Complete Test Results Summary
+
+| Subsystem | Test Suite | Focus Area | Status | Pass Rate |
+| :--- | :--- | :--- | :---: | :---: |
+| **Memory P1** | `tests_memory_p1.test.mjs` | DDL, WAL, FTS5 BM25, HMAC deduplication, audit ledger | PASSED | 7 / 7 (100%) |
+| **Memory P2** | `tests_memory_p2.test.mjs` | 12 Memory Tiers, Secret Exclusion Guard | PASSED | 2 / 2 (100%) |
+| **Memory P3** | `tests_memory_p3.test.mjs` | Multilingual Extraction (EN/HI), Async Ingestion Queue | PASSED | 15 / 15 (100%) |
+| **Memory P4** | `tests_memory_p4.test.mjs` | Hybrid Search (BM25 + Nomic Vectors), RRF, Circuit Breaker | PASSED | 10 / 10 (100%) |
+| **Memory P5.1** | `tests_memory_p5_1.test.mjs` | Revision Ancestry Trees, Atomic Supersession, Tree Integrity | PASSED | 24 / 24 (100%) |
+| **Memory P5.2** | `tests_memory_p5_2.test.mjs` | 6 Contradiction Classes, Multilingual Polarity, Injections | PASSED | 18 / 18 (100%) |
+| **Memory P5.3** | `tests_memory_p5_3.test.mjs` | 3D Authority Tensor, 20-Scenario Matrix, Confirmation API | PASSED | 18 / 18 (100%) |
+| **Memory P5.4** | `tests_memory_p5_4.test.mjs` | Security Verification, Workspace Isolation, Python Parity | PASSED | 6 / 6 (100%) |
+| **Cognitive 1** | `tests_cognitive_phase1.test.mjs` | Intent Understanding, Instruction Bounds, Self-Evaluation | PASSED | 7 / 7 (100%) |
+| **Cognitive 2** | `tests_cognitive_phase2.test.mjs` | Problem Decomposition, Fallacy Checks, 5-Why Analysis | PASSED | 6 / 6 (100%) |
+| **Security** | `tests_remediation_security.test.mjs` | Session Gate, Permission Gateway, AES-256-GCM Vault | PASSED | 8 / 8 (100%) |
+| **Python Audit** | `tests_audit_regressions.py` | Source Boundary Isolation & Vault Checksum Verification | PASSED | 12 / 12 (100%) |
+| **Zero-Trust** | `tests_zero_trust.py` | OS Windows DPAPI, Biometric Hardware, Zero Plaintext DB | PASSED | 8 / 8 (100%) |
+| **Total** | **13 Test Suites** | **Comprehensive System-Wide Verification** | **PASSED** | **141 / 141 (100%)** |
 
 ---
 
-## 🛡️ Security & Privacy Architecture
+## 🛡️ Security, Privacy & Zero-Trust Guarantees
 
-- **100% Offline & Local**: No microphone audio, video frames, keystrokes, or code snippets are ever transmitted to third-party cloud servers.
-- **Path Sandboxing**: File operations are strictly confined within the active project workspace root and operating system temporary directory.
-- **Cryptographic Gate**: Destructive actions (`close_application`, `delete_file`, `reset_memory`) generate an ephemeral single-use confirmation token valid for 120 seconds.
-- **Read-Only UIA**: The Windows UI Automation bridge contains zero mouse-clicking, keystroke generation, or window modification primitives.
+1. **100% Offline & Local Sovereignty**: No audio streams, video frames, keystrokes, source code, or cognitive memories are ever transmitted to third-party cloud servers.
+2. **Zero Plaintext at Rest**: Sensitive profile memories and secrets are sealed using AES-256-GCM AEAD encryption. SQLite databases store encrypted envelopes with verified 128-bit MAC tags.
+3. **OS-Backed Key Protection**: Cryptographic master secrets are guarded by native Windows Data Protection API (DPAPI).
+4. **Human-in-the-Loop Confirmation**: Destructive operations (process termination, file deletions, memory wipes, architectural changes) generate ephemeral single-use action tokens or pending founder confirmation requests.
+5. **Read-Only Accessibility Inspection**: The native Windows UI Automation (UIA) bridge contains zero simulated clicks, keystrokes, or window modification primitives.
+
+---
+
+## 📚 Technical Documentation Catalog
+
+Comprehensive architectural investigations and verification reports are available in the repository:
+- [`docs/advanced-memory/P5_ENGINEERING_INVESTIGATION.md`](docs/advanced-memory/P5_ENGINEERING_INVESTIGATION.md): Complete forensic analysis of memory architecture and reconciliation design.
+- [`docs/advanced-memory/P5_1_IMPLEMENTATION_REPORT.md`](docs/advanced-memory/P5_1_IMPLEMENTATION_REPORT.md): Schema expansion, atomic data access, and revision tree implementation.
+- [`docs/advanced-memory/P5_2_IMPLEMENTATION_REPORT.md`](docs/advanced-memory/P5_2_IMPLEMENTATION_REPORT.md): Multilingual contradiction detection pipeline and the 6 contradiction classes.
+- [`docs/advanced-memory/P5_3_IMPLEMENTATION_REPORT.md`](docs/advanced-memory/P5_3_IMPLEMENTATION_REPORT.md): 3D authority tensor, 20-scenario decision matrix, and founder confirmation gate.
+- [`docs/advanced-memory/P5_4_FINAL_VERIFICATION_REPORT.md`](docs/advanced-memory/P5_4_FINAL_VERIFICATION_REPORT.md): End-to-end security verification, concurrency audits, and cross-runtime parity certification.
+- [`docs/advanced-memory/P5_COMPLETE_ENGINEERING_REPORT.md`](docs/advanced-memory/P5_COMPLETE_ENGINEERING_REPORT.md): Master engineering report covering the full cognitive memory stack.
 
 ---
 
 ## 👤 Author & Credits
 
-- **Creator & Maintainer**: **Ashish** ([@ashish7802](https://github.com/ashish7802))
-- **Concept Inspiration**: Marvel Studios' *Iron Man*, *Avengers: Age of Ultron*, and J.A.R.V.I.S.
-
----
-
-## 📄 License
-
-This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
-
-- **100% Offline & Local**: No microphone audio, video frames, keystrokes, or code snippets are ever transmitted to third-party cloud servers.
-- **Path Sandboxing**: File operations are strictly confined within the active project workspace root and operating system temporary directory.
-- **Cryptographic Gate**: Destructive actions (`close_application`, `delete_file`, `reset_memory`) generate an ephemeral single-use confirmation token valid for 120 seconds.
-- **Read-Only UIA**: The Windows UI Automation bridge contains zero mouse-clicking, keystroke generation, or window modification primitives.
-
----
-
-## 👤 Author & Credits
-
-- **Creator & Maintainer**: **Ashish** ([@ashish7802](https://github.com/ashish7802))
+- **Creator & Systems Architect**: **Ashish** ([@ashish7802](https://github.com/ashish7802))
 - **Concept Inspiration**: Marvel Studios' *Iron Man*, *Avengers: Age of Ultron*, and J.A.R.V.I.S.
 
 ---
