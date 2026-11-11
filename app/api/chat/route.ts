@@ -45,6 +45,26 @@ import {
   formatMemoriesForPrompt,
   loadAllMemories,
 } from "@/lib/memoryManager";
+import {
+  orchestrateCognitivePipeline,
+  calculateCalibratedConfidence,
+  auditCandidateReply,
+} from "@/lib/cognitive/orchestrator";
+import { remediateCandidateResponse } from "@/lib/cognitive/selfEvaluationEngine";
+import type {
+  ParsedContext,
+  CognitiveTier,
+  CalibratedConfidence,
+  AdvancedReasoningResult,
+  CriticalThinkingResult,
+  ProblemSolvingResult,
+  DecisionIntelligenceResult,
+  PlanningIntelligenceResult,
+  UncertaintyAssessmentResult,
+  SelfEvaluationResult,
+  ModelSelectionResult,
+  CoFounderDiscussionResult,
+} from "@/lib/cognitive/types";
 
 const OLLAMA_HOST = process.env.OLLAMA_HOST || "http://127.0.0.1:11434";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen2.5:0.5b";
@@ -135,6 +155,18 @@ interface ResponseOutcome {
   usedResearch: boolean;
   usedTool: boolean;
   permissionPlan?: ActionPlan;
+  cognitiveTier?: CognitiveTier;
+  cognitiveConfidence?: CalibratedConfidence;
+  cognitiveContext?: ParsedContext;
+  cognitiveReasoning?: AdvancedReasoningResult;
+  cognitiveCritique?: CriticalThinkingResult;
+  cognitiveProblemSolving?: ProblemSolvingResult;
+  cognitiveDecision?: DecisionIntelligenceResult;
+  cognitivePlanning?: PlanningIntelligenceResult;
+  cognitiveUncertainty?: UncertaintyAssessmentResult;
+  cognitiveSelfEvaluation?: SelfEvaluationResult;
+  cognitiveModelSelection?: ModelSelectionResult;
+  cognitiveDiscussion?: CoFounderDiscussionResult;
 }
 
 /**
@@ -282,13 +314,14 @@ function toHudIntent(
   usedLocalRule: boolean,
   usedResearch: boolean,
   degraded: boolean,
-  usedTool: boolean
+  usedTool: boolean,
+  cognitiveTier?: CognitiveTier
 ): string {
   if (usedResearch) return "QUANTUM_RESEARCH";
   if (usedTool) return "TOOL_CALL";
   if (usedLocalRule || degraded) return "SYSTEM_LOCAL";
   if (decisionIntent === "CRITICAL_ACTION") return "TOOL_CALL";
-  // In this build the only remaining reply source is the local Ollama "fast brain".
+  if (cognitiveTier === "TIER_2_ANALYTICAL") return "COMPLEX_REASONING";
   return "FAST_CHAT";
 }
 
@@ -421,7 +454,13 @@ function detectUserLanguage(text: string): LanguageDirective {
  * @param signal - Optional request abort signal; aborts the fetch immediately.
  * @returns Reply text, or null when Ollama is unavailable/timed out/aborted.
  */
-async function queryOllama(prompt: string, history: ChatMessage[], signal?: AbortSignal): Promise<string | null> {
+async function queryOllama(
+  prompt: string,
+  history: ChatMessage[],
+  signal?: AbortSignal,
+  cognitiveDirective?: string,
+  targetModel?: string
+): Promise<string | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
   const abortFromRequest = () => controller.abort();
@@ -435,13 +474,17 @@ async function queryOllama(prompt: string, history: ChatMessage[], signal?: Abor
     const memoryContext = formatMemoriesForPrompt(recalledMemories);
     const langInfo = detectUserLanguage(prompt);
 
+    const baseDirectives = cognitiveDirective
+      ? `${cognitiveDirective}\n\n`
+      : "You are ULTRON, a highly intelligent personal AI assistant, software architect, and multi-agent coordinator.\n" +
+        "Core Directives:\n" +
+        "1. Be articulate, insightful, respectful, and direct.\n" +
+        "2. For technical questions or code, provide comprehensive, structured answers with Markdown headers, bullet points, and production-ready commented code.\n";
+
     const systemPrompt =
-      "You are ULTRON, a highly intelligent personal AI assistant, software architect, and multi-agent coordinator.\n" +
-      "Core Directives:\n" +
-      "1. Be articulate, insightful, respectful, and direct.\n" +
-      "2. For technical questions or code, provide comprehensive, structured answers with Markdown headers, bullet points, and production-ready commented code.\n" +
-      `3. Language Policy: ${langInfo.instruction}\n` +
-      "4. Adhere strictly to the user's stored identity and preferences:\n" +
+      baseDirectives +
+      `Language Policy: ${langInfo.instruction}\n` +
+      "Adhere strictly to the user's stored identity and preferences:\n" +
       (memoryContext ? `${memoryContext}\n` : "");
 
     // Format previous turns for native chat message list (last 8 turns)
@@ -465,7 +508,7 @@ async function queryOllama(prompt: string, history: ChatMessage[], signal?: Abor
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: OLLAMA_MODEL,
+        model: targetModel || OLLAMA_MODEL,
         messages: chatTurns,
         stream: false,
         keep_alive: -1, // Keep model warm in RAM indefinitely to eliminate cold-start delays
@@ -604,7 +647,7 @@ async function buildResponse(
   let reply = resolveLocalRule(query);
   const usedLocalRule = Boolean(reply);
   let dossier: Record<string, unknown> | null = null;
-  let degraded = false;
+  const degraded = false;
 
   // 4. Quantum Autonomous Web Research Agent (Superposition multi-vector search)
   if (!reply && isResearchQuery(query)) {
@@ -629,10 +672,61 @@ async function buildResponse(
     }
   }
 
-  // 5. Host Conversational Brain (Ollama LLM)
+  // 5. Host Conversational Brain (Ollama LLM with Cognitive Orchestration)
+  let cognitiveContext: ParsedContext | undefined;
+  let cognitiveTier: CognitiveTier = "TIER_1_FAST";
+  let cognitiveConfidence: CalibratedConfidence | undefined;
+  let cognitiveReasoning: AdvancedReasoningResult | undefined;
+  let cognitiveCritique: CriticalThinkingResult | undefined;
+  let cognitiveProblemSolving: ProblemSolvingResult | undefined;
+  let cognitiveDecision: DecisionIntelligenceResult | undefined;
+  let cognitivePlanning: PlanningIntelligenceResult | undefined;
+  let cognitiveUncertainty: UncertaintyAssessmentResult | undefined;
+  let cognitiveSelfEvaluation: SelfEvaluationResult | undefined;
+  let cognitiveModelSelection: ModelSelectionResult | undefined;
+  let cognitiveDiscussion: CoFounderDiscussionResult | undefined;
+
   if (!reply) {
-    onStatus?.({ phase: "thinking", progress: 0.5, message: "Host Agent: Analyzing & formulating response..." });
-    reply = await queryOllama(query, messages, signal);
+    const cog = await orchestrateCognitivePipeline(query, messages, { onStatus, signal });
+    cognitiveContext = cog.context;
+    cognitiveTier = cog.tier;
+    cognitiveReasoning = cog.reasoning;
+    cognitiveCritique = cog.criticalThinking;
+    cognitiveProblemSolving = cog.problemSolving;
+    cognitiveDecision = cog.decision;
+    cognitivePlanning = cog.planning;
+    cognitiveUncertainty = cog.uncertainty;
+    cognitiveModelSelection = cog.modelSelection;
+    cognitiveDiscussion = cog.discussion;
+
+    onStatus?.({
+      phase: "thinking",
+      progress: 0.5,
+      message: cog.tier === "TIER_2_ANALYTICAL"
+        ? `Co-Founder Brain (${cog.context.intentCategory} · ${cog.modelSelection?.selectedModel?.name || 'Local'}): Formulating analytical assessment...`
+        : "Host Agent: Analyzing & formulating response...",
+    });
+    const targetModel = cog.modelSelection?.selectedModel?.modelId || OLLAMA_MODEL;
+    const rawReply = await queryOllama(query, messages, signal, cog.cognitiveSystemPrompt, targetModel);
+    if (rawReply) {
+      // Component 08: Pre-delivery response evaluation and remediation pipeline
+      onStatus?.({
+        phase: "self_evaluation",
+        progress: 0.92,
+        message: "Self-Evaluation Engine: Validating candidate response against invariants...",
+      });
+      const audit = auditCandidateReply(rawReply, cog.context, cog.uncertainty);
+      cognitiveSelfEvaluation = audit.selfEvaluation;
+
+      if (audit.selfEvaluation && !audit.passed) {
+        const remediation = remediateCandidateResponse(rawReply, audit.selfEvaluation, cog.context);
+        reply = remediation.finalReply;
+      } else {
+        reply = rawReply;
+      }
+
+      cognitiveConfidence = calculateCalibratedConfidence(cog.context, audit.complianceScore, 1, cog.uncertainty);
+    }
   }
 
   // 6. Autonomous Technical Knowledge & Concept Synthesis
@@ -644,19 +738,10 @@ async function buildResponse(
     }
   }
 
-  // 7. Dynamic Web Intelligence Escalation
-  if (!reply) {
-    try {
-      onStatus?.({ phase: "quantum_research", progress: 0.7, message: "Consulting web intelligence..." });
-      dossier = await runQuantumResearchAgent(query, 5, signal);
-      const summary = dossier?.executive_summary;
-      if (typeof summary === "string" && summary.trim() && !summary.includes("completed.")) {
-        reply = summary;
-      }
-    } catch {
-      // Graceful fallback
-    }
-  }
+  // 7. Dynamic Web Intelligence Escalation (DISABLED: Local-first offline invariant compliance)
+  // Silent unprompted web research fallback is disabled so that local model failures or offline
+  // Ollama states do not leak outbound network requests. Explicit web research remains fully
+  // available when requested by the user via isResearchQuery (handled in Step 4).
 
   // 8. Polite & Context-Aware Intelligent Dialogue Fallback
   if (!reply) {
@@ -676,6 +761,18 @@ async function buildResponse(
     usedLocalRule,
     usedResearch: Boolean(dossier),
     usedTool: false,
+    cognitiveTier,
+    cognitiveConfidence,
+    cognitiveContext,
+    cognitiveReasoning,
+    cognitiveCritique,
+    cognitiveProblemSolving,
+    cognitiveDecision,
+    cognitivePlanning,
+    cognitiveUncertainty,
+    cognitiveSelfEvaluation,
+    cognitiveModelSelection,
+    cognitiveDiscussion,
   };
 }
 
@@ -896,16 +993,21 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 outcome.usedLocalRule,
                 outcome.usedResearch,
                 outcome.degraded,
-                outcome.usedTool
+                outcome.usedTool,
+                outcome.cognitiveTier
               ),
               decisionIntent: decision.intent,
-              confidence: outcome.usedResearch ? calculateResearchConfidence(outcome.dossier) : decision.confidence,
+              confidence: outcome.cognitiveConfidence?.overallScore ?? (outcome.usedResearch ? calculateResearchConfidence(outcome.dossier) : decision.confidence),
               assumption,
               grounded: outcome.grounded,
               degraded: outcome.degraded,
               sources: extractSources(outcome.dossier),
               dossier: outcome.dossier,
               permissionPlan: outcome.permissionPlan,
+              cognitiveConfidence: outcome.cognitiveConfidence,
+              cognitiveSelfEvaluation: outcome.cognitiveSelfEvaluation,
+              cognitiveModelSelection: outcome.cognitiveModelSelection,
+              cognitiveDiscussion: outcome.cognitiveDiscussion,
             });
           } catch (workErr) {
             if (signal.aborted || String(workErr).toLowerCase().includes("abort")) {
@@ -969,10 +1071,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           outcome.usedLocalRule,
           outcome.usedResearch,
           outcome.degraded,
-          outcome.usedTool
+          outcome.usedTool,
+          outcome.cognitiveTier
         ),
         decisionIntent: decision.intent,
-        confidence: outcome.usedResearch ? calculateResearchConfidence(outcome.dossier) : decision.confidence,
+        confidence: outcome.cognitiveConfidence?.overallScore ?? (outcome.usedResearch ? calculateResearchConfidence(outcome.dossier) : decision.confidence),
         assumption,
         reply: finalReply,
         grounded: outcome.grounded,
@@ -980,6 +1083,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         sources: extractSources(outcome.dossier),
         dossier: outcome.dossier,
         permissionPlan: outcome.permissionPlan,
+        cognitiveConfidence: outcome.cognitiveConfidence,
+        cognitiveSelfEvaluation: outcome.cognitiveSelfEvaluation,
+        cognitiveModelSelection: outcome.cognitiveModelSelection,
+        cognitiveDiscussion: outcome.cognitiveDiscussion,
         security: getCryptoStatus(),
       },
       {

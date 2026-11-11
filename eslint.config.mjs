@@ -16,6 +16,7 @@ export default tseslint.config(
       "node_modules/**",
       "out/**",
       "public/wasm/**",
+      "release/**",
     ],
   },
   eslint.configs.recommended,
