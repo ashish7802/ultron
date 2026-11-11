@@ -41,6 +41,29 @@ import type {
   EvidenceRecord,
   ClaimRecord,
   ClaimEvidenceLinkRecord,
+  SourceQualityAssessmentRecord,
+  ClaimVerificationRecord,
+  CrossSourceContradictionRecord,
+  SourceDependencyRecord,
+  ResearchAnalysisRecord,
+  ResearchFindingRecord,
+  ResearchRecommendationRecord,
+  ResearchGapRecord,
+  ResearchAlternativeRecord,
+  SourceFreshnessRecordData,
+  RevalidationPolicyRecord,
+  RevalidationJobRecord,
+  RevalidationLogRecord,
+  ResearchReportRecord,
+  ResearchReportVersionRecord,
+  ResearchReportCitationRecord,
+  ResearchMemoryLinkRecord,
+  ResearchKnowledgeNodeRecord,
+  ResearchKnowledgeEdgeRecord,
+  ResearchMemoryVersionRecord,
+  ResearchSecurityEventRecord,
+  ResearchSourceAuditLogRecord,
+  CitationIntegrityVerificationRecord,
 } from "./types.ts";
 
 /**
@@ -55,6 +78,29 @@ export interface ResearchVaultData {
   evidence: Record<string, EvidenceRecord>;
   claims: Record<string, ClaimRecord>;
   links: Record<string, ClaimEvidenceLinkRecord>;
+  qualityAssessments: Record<string, SourceQualityAssessmentRecord>;
+  verifications: Record<string, ClaimVerificationRecord>;
+  contradictions: Record<string, CrossSourceContradictionRecord>;
+  dependencies: Record<string, SourceDependencyRecord>;
+  analyses: Record<string, ResearchAnalysisRecord>;
+  findings: Record<string, ResearchFindingRecord>;
+  recommendations: Record<string, ResearchRecommendationRecord>;
+  gaps: Record<string, ResearchGapRecord>;
+  alternatives: Record<string, ResearchAlternativeRecord>;
+  sourceFreshness: Record<string, SourceFreshnessRecordData>;
+  revalidationPolicies: Record<string, RevalidationPolicyRecord>;
+  revalidationJobs: Record<string, RevalidationJobRecord>;
+  revalidationLogs: Record<string, RevalidationLogRecord>;
+  reports: Record<string, ResearchReportRecord>;
+  reportVersions: Record<string, ResearchReportVersionRecord>;
+  citations: Record<string, ResearchReportCitationRecord>;
+  memoryLinks: Record<string, ResearchMemoryLinkRecord>;
+  knowledgeNodes: Record<string, ResearchKnowledgeNodeRecord>;
+  knowledgeEdges: Record<string, ResearchKnowledgeEdgeRecord>;
+  memoryVersions: Record<string, ResearchMemoryVersionRecord>;
+  securityEvents: Record<string, ResearchSecurityEventRecord>;
+  sourceAuditLogs: Record<string, ResearchSourceAuditLogRecord>;
+  citationVerifications: Record<string, CitationIntegrityVerificationRecord>;
 }
 
 const VAULT_FILE_PATH = path.join(process.cwd(), "ultron_research_vault.json");
@@ -116,7 +162,11 @@ function decryptVaultData(rawContent: string): ResearchVaultData {
       decipher.setAuthTag(authTag);
       let decrypted = decipher.update(parsed.data, "base64", "utf8");
       decrypted += decipher.final("utf8");
-      return JSON.parse(decrypted) as ResearchVaultData;
+      const data = JSON.parse(decrypted) as ResearchVaultData;
+      return {
+        ...createEmptyVault(),
+        ...data,
+      };
     }
 
     throw new Error("Invalid research vault format");
@@ -149,6 +199,29 @@ function createEmptyVault(): ResearchVaultData {
     evidence: {},
     claims: {},
     links: {},
+    qualityAssessments: {},
+    verifications: {},
+    contradictions: {},
+    dependencies: {},
+    analyses: {},
+    findings: {},
+    recommendations: {},
+    gaps: {},
+    alternatives: {},
+    sourceFreshness: {},
+    revalidationPolicies: {},
+    revalidationJobs: {},
+    revalidationLogs: {},
+    reports: {},
+    reportVersions: {},
+    citations: {},
+    memoryLinks: {},
+    knowledgeNodes: {},
+    knowledgeEdges: {},
+    memoryVersions: {},
+    securityEvents: {},
+    sourceAuditLogs: {},
+    citationVerifications: {},
   };
 }
 
@@ -184,6 +257,15 @@ export class ResearchRepository {
       if (fs.existsSync(VAULT_FILE_PATH)) {
         const raw = fs.readFileSync(VAULT_FILE_PATH, "utf8");
         this.vaultData = decryptVaultData(raw);
+        if (this.vaultData) {
+          this.vaultData.memoryLinks = this.vaultData.memoryLinks || {};
+          this.vaultData.knowledgeNodes = this.vaultData.knowledgeNodes || {};
+          this.vaultData.knowledgeEdges = this.vaultData.knowledgeEdges || {};
+          this.vaultData.memoryVersions = this.vaultData.memoryVersions || {};
+          this.vaultData.securityEvents = this.vaultData.securityEvents || {};
+          this.vaultData.sourceAuditLogs = this.vaultData.sourceAuditLogs || {};
+          this.vaultData.citationVerifications = this.vaultData.citationVerifications || {};
+        }
       } else {
         this.vaultData = createEmptyVault();
         this.persistVaultSync();
@@ -514,6 +596,17 @@ export class ResearchRepository {
     evidence: EvidenceRecord[];
     claims: ClaimRecord[];
     links: ClaimEvidenceLinkRecord[];
+    qualityAssessments: SourceQualityAssessmentRecord[];
+    verifications: ClaimVerificationRecord[];
+    contradictions: CrossSourceContradictionRecord[];
+    dependencies: SourceDependencyRecord[];
+    analysis?: ResearchAnalysisRecord | null;
+    findings: ResearchFindingRecord[];
+    recommendations: ResearchRecommendationRecord[];
+    gaps: ResearchGapRecord[];
+    alternatives: ResearchAlternativeRecord[];
+    sourceFreshness: SourceFreshnessRecordData[];
+    reports: ResearchReportRecord[];
   } | null> {
     const project = await this.getProject(projectId);
     if (!project) return null;
@@ -525,6 +618,17 @@ export class ResearchRepository {
 
     const claimIds = new Set(claims.map((c) => c.id));
     const links = Object.values(this.vaultData?.links || {}).filter((l) => claimIds.has(l.claim_id));
+    const qualityAssessments = await this.getQualityAssessments(projectId);
+    const verifications = await this.getClaimVerifications(projectId);
+    const contradictions = await this.getContradictions(projectId);
+    const dependencies = await this.getSourceDependencies(projectId);
+    const analysis = await this.getAnalysis(projectId);
+    const findings = await this.getFindings(projectId);
+    const recommendations = await this.getRecommendations(projectId);
+    const gaps = await this.getGaps(projectId);
+    const alternatives = await this.getAlternatives(projectId);
+    const sourceFreshness = await this.getSourceFreshness(projectId);
+    const reports = await this.getReportsForProject(projectId);
 
     return {
       project,
@@ -533,7 +637,451 @@ export class ResearchRepository {
       evidence,
       claims,
       links,
+      qualityAssessments,
+      verifications,
+      contradictions,
+      dependencies,
+      analysis,
+      findings,
+      recommendations,
+      gaps,
+      alternatives,
+      sourceFreshness,
+      reports,
     };
+  }
+
+  // ============================================================================
+  // 8. SOURCE QUALITY ASSESSMENTS (MODULE 04)
+  // ============================================================================
+
+  /**
+   * Persists multi-dimensional source quality assessments.
+   *
+   * @param assessments - Array of source quality records.
+   */
+  public async saveQualityAssessments(
+    assessments: SourceQualityAssessmentRecord[]
+  ): Promise<SourceQualityAssessmentRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    for (const a of assessments) {
+      this.vaultData!.qualityAssessments[a.id] = {
+        ...a,
+        updated_at: new Date().toISOString(),
+      };
+    }
+    this.persistVaultSync();
+    return assessments;
+  }
+
+  /**
+   * Retrieves all source quality assessments for a project.
+   *
+   * @param projectId - Project UUID.
+   */
+  public async getQualityAssessments(projectId: string): Promise<SourceQualityAssessmentRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    return Object.values(this.vaultData!.qualityAssessments || {}).filter((a) => a.project_id === projectId);
+  }
+
+  // ============================================================================
+  // 9. CLAIM VERIFICATIONS (MODULE 05)
+  // ============================================================================
+
+  /**
+   * Persists claim verification assessments.
+   *
+   * @param verifications - Array of claim verification records.
+   */
+  public async saveClaimVerifications(
+    verifications: ClaimVerificationRecord[]
+  ): Promise<ClaimVerificationRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    for (const v of verifications) {
+      this.vaultData!.verifications[v.id] = {
+        ...v,
+        updated_at: new Date().toISOString(),
+      };
+    }
+    this.persistVaultSync();
+    return verifications;
+  }
+
+  /**
+   * Retrieves all claim verifications for a project.
+   *
+   * @param projectId - Project UUID.
+   */
+  public async getClaimVerifications(projectId: string): Promise<ClaimVerificationRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    return Object.values(this.vaultData!.verifications || {}).filter((v) => v.project_id === projectId);
+  }
+
+  // ============================================================================
+  // 10. CROSS-SOURCE CONTRADICTIONS (MODULE 06)
+  // ============================================================================
+
+  /**
+   * Persists detected cross-source contradictions.
+   *
+   * @param contradictions - Array of contradiction records.
+   */
+  public async saveContradictions(
+    contradictions: CrossSourceContradictionRecord[]
+  ): Promise<CrossSourceContradictionRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    for (const c of contradictions) {
+      this.vaultData!.contradictions[c.id] = {
+        ...c,
+        updated_at: new Date().toISOString(),
+      };
+    }
+    this.persistVaultSync();
+    return contradictions;
+  }
+
+  /**
+   * Retrieves all cross-source contradictions for a project.
+   *
+   * @param projectId - Project UUID.
+   */
+  public async getContradictions(projectId: string): Promise<CrossSourceContradictionRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    return Object.values(this.vaultData!.contradictions || {}).filter((c) => c.project_id === projectId);
+  }
+
+  // ============================================================================
+  // 11. SOURCE DEPENDENCIES (LINEAGE & SYNDICATION)
+  // ============================================================================
+
+  /**
+   * Persists source dependency and syndication relationships.
+   *
+   * @param dependencies - Array of dependency records.
+   */
+  public async saveSourceDependencies(
+    dependencies: SourceDependencyRecord[]
+  ): Promise<SourceDependencyRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    for (const d of dependencies) {
+      this.vaultData!.dependencies[d.id] = d;
+    }
+    this.persistVaultSync();
+    return dependencies;
+  }
+
+  /**
+   * Retrieves all source dependencies for a project.
+   *
+   * @param projectId - Project UUID.
+   */
+  public async getSourceDependencies(projectId: string): Promise<SourceDependencyRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    return Object.values(this.vaultData!.dependencies || {}).filter((d) => d.project_id === projectId);
+  }
+
+  // ============================================================================
+  // 12. RESEARCH ANALYSIS (MODULE 07)
+  // ============================================================================
+
+  public async saveAnalysis(analysis: ResearchAnalysisRecord): Promise<ResearchAnalysisRecord> {
+    if (!this.vaultData) this.loadVault();
+    this.vaultData!.analyses[analysis.project_id] = {
+      ...analysis,
+      updated_at: new Date().toISOString(),
+    };
+    this.persistVaultSync();
+    return analysis;
+  }
+
+  public async getAnalysis(projectId: string): Promise<ResearchAnalysisRecord | null> {
+    if (!this.vaultData) this.loadVault();
+    return this.vaultData!.analyses[projectId] || null;
+  }
+
+  // ============================================================================
+  // 13. FINDINGS, RECOMMENDATIONS, GAPS, ALTERNATIVES (MODULE 07)
+  // ============================================================================
+
+  public async saveFindings(findings: ResearchFindingRecord[]): Promise<ResearchFindingRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    for (const f of findings) {
+      this.vaultData!.findings[f.id] = f;
+    }
+    this.persistVaultSync();
+    return findings;
+  }
+
+  public async getFindings(projectId: string): Promise<ResearchFindingRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    return Object.values(this.vaultData!.findings || {}).filter((f) => f.project_id === projectId);
+  }
+
+  public async saveRecommendations(
+    recommendations: ResearchRecommendationRecord[]
+  ): Promise<ResearchRecommendationRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    for (const r of recommendations) {
+      this.vaultData!.recommendations[r.id] = r;
+    }
+    this.persistVaultSync();
+    return recommendations;
+  }
+
+  public async getRecommendations(projectId: string): Promise<ResearchRecommendationRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    return Object.values(this.vaultData!.recommendations || {}).filter((r) => r.project_id === projectId);
+  }
+
+  public async saveGaps(gaps: ResearchGapRecord[]): Promise<ResearchGapRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    for (const g of gaps) {
+      this.vaultData!.gaps[g.id] = g;
+    }
+    this.persistVaultSync();
+    return gaps;
+  }
+
+  public async getGaps(projectId: string): Promise<ResearchGapRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    return Object.values(this.vaultData!.gaps || {}).filter((g) => g.project_id === projectId);
+  }
+
+  public async saveAlternatives(
+    alternatives: ResearchAlternativeRecord[]
+  ): Promise<ResearchAlternativeRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    for (const a of alternatives) {
+      this.vaultData!.alternatives[a.id] = a;
+    }
+    this.persistVaultSync();
+    return alternatives;
+  }
+
+  public async getAlternatives(projectId: string): Promise<ResearchAlternativeRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    return Object.values(this.vaultData!.alternatives || {}).filter((a) => a.project_id === projectId);
+  }
+
+  // ============================================================================
+  // 14. SOURCE FRESHNESS & REVALIDATION (MODULE 08)
+  // ============================================================================
+
+  public async saveSourceFreshness(
+    records: SourceFreshnessRecordData[]
+  ): Promise<SourceFreshnessRecordData[]> {
+    if (!this.vaultData) this.loadVault();
+    for (const sf of records) {
+      this.vaultData!.sourceFreshness[sf.id] = {
+        ...sf,
+        updated_at: new Date().toISOString(),
+      };
+    }
+    this.persistVaultSync();
+    return records;
+  }
+
+  public async getSourceFreshness(projectId: string): Promise<SourceFreshnessRecordData[]> {
+    if (!this.vaultData) this.loadVault();
+    return Object.values(this.vaultData!.sourceFreshness || {}).filter((sf) => sf.project_id === projectId);
+  }
+
+  public async saveRevalidationJobs(jobs: RevalidationJobRecord[]): Promise<RevalidationJobRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    for (const j of jobs) {
+      this.vaultData!.revalidationJobs[j.id] = j;
+    }
+    this.persistVaultSync();
+    return jobs;
+  }
+
+  public async getRevalidationJobs(projectId: string): Promise<RevalidationJobRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    return Object.values(this.vaultData!.revalidationJobs || {}).filter((j) => j.project_id === projectId);
+  }
+
+  public async saveRevalidationLogs(logs: RevalidationLogRecord[]): Promise<RevalidationLogRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    for (const l of logs) {
+      this.vaultData!.revalidationLogs[l.id] = l;
+    }
+    this.persistVaultSync();
+    return logs;
+  }
+
+  public async getRevalidationLogs(projectId: string): Promise<RevalidationLogRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    return Object.values(this.vaultData!.revalidationLogs || {}).filter((l) => l.project_id === projectId);
+  }
+
+  // ============================================================================
+  // 15. RESEARCH REPORTS & CITATIONS (MODULE 09)
+  // ============================================================================
+
+  public async saveReport(report: ResearchReportRecord): Promise<ResearchReportRecord> {
+    if (!this.vaultData) this.loadVault();
+    this.vaultData!.reports[report.id] = {
+      ...report,
+      updated_at: new Date().toISOString(),
+    };
+    this.persistVaultSync();
+    return report;
+  }
+
+  public async getReport(id: string): Promise<ResearchReportRecord | null> {
+    if (!this.vaultData) this.loadVault();
+    return this.vaultData!.reports[id] || null;
+  }
+
+  public async getReportsForProject(projectId: string): Promise<ResearchReportRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    return Object.values(this.vaultData!.reports || {}).filter((r) => r.project_id === projectId);
+  }
+
+  public async saveReportVersion(
+    version: ResearchReportVersionRecord
+  ): Promise<ResearchReportVersionRecord> {
+    if (!this.vaultData) this.loadVault();
+    this.vaultData!.reportVersions[version.id] = version;
+    this.persistVaultSync();
+    return version;
+  }
+
+  public async saveReportCitations(
+    citations: ResearchReportCitationRecord[]
+  ): Promise<ResearchReportCitationRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    for (const c of citations) {
+      this.vaultData!.citations[c.id] = c;
+    }
+    this.persistVaultSync();
+    return citations;
+  }
+
+  public async getReportCitations(reportId: string): Promise<ResearchReportCitationRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    return Object.values(this.vaultData!.citations || {}).filter((c) => c.report_id === reportId);
+  }
+
+  // ============================================================================
+  // 16. ADVANCED MEMORY DEEP INGESTION (MODULE 10)
+  // ============================================================================
+
+  public async saveMemoryLinks(
+    links: ResearchMemoryLinkRecord[]
+  ): Promise<ResearchMemoryLinkRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    for (const l of links) {
+      this.vaultData!.memoryLinks[l.id] = l;
+    }
+    this.persistVaultSync();
+    return links;
+  }
+
+  public async getMemoryLinks(projectId: string): Promise<ResearchMemoryLinkRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    return Object.values(this.vaultData!.memoryLinks || {}).filter((l) => l.project_id === projectId);
+  }
+
+  public async saveKnowledgeNodes(
+    nodes: ResearchKnowledgeNodeRecord[]
+  ): Promise<ResearchKnowledgeNodeRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    for (const n of nodes) {
+      this.vaultData!.knowledgeNodes[n.id] = n;
+    }
+    this.persistVaultSync();
+    return nodes;
+  }
+
+  public async getKnowledgeNodes(projectId: string): Promise<ResearchKnowledgeNodeRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    return Object.values(this.vaultData!.knowledgeNodes || {}).filter((n) => n.project_id === projectId);
+  }
+
+  public async saveKnowledgeEdges(
+    edges: ResearchKnowledgeEdgeRecord[]
+  ): Promise<ResearchKnowledgeEdgeRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    for (const e of edges) {
+      this.vaultData!.knowledgeEdges[e.id] = e;
+    }
+    this.persistVaultSync();
+    return edges;
+  }
+
+  public async getKnowledgeEdges(projectId: string): Promise<ResearchKnowledgeEdgeRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    return Object.values(this.vaultData!.knowledgeEdges || {}).filter((e) => e.project_id === projectId);
+  }
+
+  public async saveMemoryVersions(
+    versions: ResearchMemoryVersionRecord[]
+  ): Promise<ResearchMemoryVersionRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    for (const v of versions) {
+      this.vaultData!.memoryVersions[v.id] = v;
+    }
+    this.persistVaultSync();
+    return versions;
+  }
+
+  public async getMemoryVersions(projectId: string): Promise<ResearchMemoryVersionRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    return Object.values(this.vaultData!.memoryVersions || {}).filter((v) => v.project_id === projectId);
+  }
+
+  // ============================================================================
+  // 17. RESEARCH SAFETY & INTEGRITY LOGS (MODULE 11)
+  // ============================================================================
+
+  public async saveSecurityEvents(
+    events: ResearchSecurityEventRecord[]
+  ): Promise<ResearchSecurityEventRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    for (const ev of events) {
+      this.vaultData!.securityEvents[ev.id] = ev;
+    }
+    this.persistVaultSync();
+    return events;
+  }
+
+  public async getSecurityEvents(projectId?: string): Promise<ResearchSecurityEventRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    const all = Object.values(this.vaultData!.securityEvents || {});
+    return projectId ? all.filter((ev) => ev.project_id === projectId) : all;
+  }
+
+  public async saveSourceAuditLogs(
+    logs: ResearchSourceAuditLogRecord[]
+  ): Promise<ResearchSourceAuditLogRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    for (const l of logs) {
+      this.vaultData!.sourceAuditLogs[l.id] = l;
+    }
+    this.persistVaultSync();
+    return logs;
+  }
+
+  public async getSourceAuditLogs(projectId: string): Promise<ResearchSourceAuditLogRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    return Object.values(this.vaultData!.sourceAuditLogs || {}).filter((l) => l.project_id === projectId);
+  }
+
+  public async saveCitationVerifications(
+    verifications: CitationIntegrityVerificationRecord[]
+  ): Promise<CitationIntegrityVerificationRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    for (const cv of verifications) {
+      this.vaultData!.citationVerifications[cv.id] = cv;
+    }
+    this.persistVaultSync();
+    return verifications;
+  }
+
+  public async getCitationVerifications(reportId: string): Promise<CitationIntegrityVerificationRecord[]> {
+    if (!this.vaultData) this.loadVault();
+    return Object.values(this.vaultData!.citationVerifications || {}).filter((cv) => cv.report_id === reportId);
   }
 }
 

@@ -551,3 +551,975 @@ export interface ClaimEvidenceLinkRecord {
   relevance_score: number;
   created_at: string;
 }
+
+// ==============================================================================
+// MODULE 04: SOURCE RELIABILITY & QUALITY CONTRACTS
+// ==============================================================================
+
+/**
+ * 5-tier classification of source credibility.
+ */
+export type QualityTier =
+  | "HIGH_QUALITY"
+  | "REPUTABLE"
+  | "PROVISIONAL"
+  | "LOW_CREDIBILITY"
+  | "UNRELIABLE";
+
+/**
+ * Multi-dimensional quality assessment for a research source.
+ */
+export interface SourceQualityAssessment {
+  id: string;
+  projectId: string;
+  sourceId: string;
+  authorityScore: number;       // 0.0 to 1.0 (authoritative domains, peer-reviewed, docs)
+  relevanceScore: number;       // 0.0 to 1.0 (keyword overlap with research inquiry)
+  freshnessScore: number;       // 0.0 to 1.0 (recency, version match, decay curve)
+  evidenceScore: number;        // 0.0 to 1.0 (presence of verbatim supporting passages)
+  independenceScore: number;   // 0.0 to 1.0 (deduplication, not syndicated copy)
+  transparencyScore: number;    // 0.0 to 1.0 (explicit citations vs vague claims)
+  compositeQualityScore: number; // Weighted combination of dimensions
+  qualityTier: QualityTier;
+  isPrimarySource: boolean;
+  isOfficialDoc: boolean;
+  detectedBiases: string[];     // Commercial, vendor advocacy, forum opinion
+  transparencyLimitations: string[];
+  assessmentBreakdown: {
+    authorityReasoning: string;
+    relevanceReasoning: string;
+    freshnessReasoning: string;
+    evidenceReasoning: string;
+    independenceReasoning: string;
+    transparencyReasoning: string;
+  };
+  assessedAt: string;
+}
+
+// ==============================================================================
+// MODULE 05: CLAIM VERIFICATION CONTRACTS
+// ==============================================================================
+
+/**
+ * Strict 6-status epistemic verification outcome for individual claims.
+ */
+export type ClaimVerificationStatus =
+  | "verified"           // Strong available evidence supports the claim
+  | "partially_verified" // Only part of the claim is supported
+  | "conflicting"        // Credible evidence disagrees
+  | "unverified"         // Sufficient evidence is unavailable
+  | "outdated"           // Information no longer current in stated context
+  | "refuted";           // Reliable evidence contradicts the claim
+
+/**
+ * Calibrated confidence classification for verification decisions.
+ */
+export type VerificationConfidenceLevel = "HIGH" | "MODERATE" | "PROVISIONAL" | "LOW";
+
+/**
+ * Temporal assessment details for claim verification.
+ */
+export interface TemporalAssessment {
+  isTimeSensitive: boolean;
+  statedDateOrVersion?: string;
+  currentObservedDateOrVersion?: string;
+  isOutdated: boolean;
+  temporalNote?: string;
+}
+
+/**
+ * Complete verification assessment for a single atomic claim.
+ */
+export interface ClaimVerificationResult {
+  id: string;
+  projectId: string;
+  claimId: string;
+  verificationStatus: ClaimVerificationStatus;
+  confidenceScore: number; // 0.0 to 1.0
+  confidenceLevel: VerificationConfidenceLevel;
+  primarySourceChecked: boolean;
+  independentSourcesCount: number;
+  directEvidenceIds: string[];
+  contradictingEvidenceIds: string[];
+  explanation: string;
+  qualifierNotes?: string;
+  misleadingIndicators: string[]; // Overgeneralization, correlation vs causation, missing qualifiers
+  temporalAssessment: TemporalAssessment;
+  verifiedAt: string;
+}
+
+// ==============================================================================
+// MODULE 06: CROSS-SOURCE COMPARISON & CONTRADICTION CONTRACTS
+// ==============================================================================
+
+/**
+ * Categories of cross-source disagreement recognized by Module 06.
+ */
+export type ContradictionType =
+  | "direct_contradiction"     // Direct factual clash on identical context
+  | "version_mismatch"         // Disagreement due to software version progression
+  | "date_mismatch"            // Disagreement due to temporal change over time
+  | "contextual_difference"    // Apparent clash that is resolved by environmental/OS qualifier
+  | "specification_variance";  // Conflicting benchmark or hardware spec figures
+
+/**
+ * Resolution status for a detected contradiction.
+ */
+export type ContradictionResolutionStatus =
+  | "resolved_by_primary_source"   // Official documentation / spec supersedes secondary source
+  | "contextually_differentiated"   // Both true under distinct documented conditions
+  | "temporal_progression"          // Historical version truth vs modern version truth
+  | "unresolved_disagreement";      // Incompatible claims without authoritative resolution
+
+/**
+ * A single competing perspective participating in a contradiction.
+ */
+export interface CompetingPosition {
+  claimId: string;
+  claimText: string;
+  sourceId: string;
+  sourceTitle: string;
+  sourceType: SourceType;
+  positionSummary: string;
+  versionContext?: string;
+  dateContext?: string;
+  isPrimarySource: boolean;
+}
+
+/**
+ * Structured contradiction record detailing cross-source disagreement.
+ */
+export interface CrossSourceContradiction {
+  id: string;
+  projectId: string;
+  subject: string;
+  contradictionType: ContradictionType;
+  competingClaimIds: string[];
+  competingEvidenceIds: string[];
+  competingPositions: CompetingPosition[];
+  resolutionStatus: ContradictionResolutionStatus;
+  primarySourceEvidenceId?: string;
+  resolutionExplanation: string;
+  severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+  detectedAt: string;
+}
+
+/**
+ * Lineage dependency relationship between sources.
+ */
+export type SourceDependencyType =
+  | "syndicated_copy"
+  | "derived_citation"
+  | "summary_aggregation"
+  | "press_wire";
+
+export interface SourceDependency {
+  id: string;
+  projectId: string;
+  sourceId: string;
+  upstreamSourceId: string;
+  dependencyType: SourceDependencyType;
+  confidence: number;
+  detectedAt: string;
+}
+
+// ==============================================================================
+// BATCH 02 DATABASE & PERSISTENCE RECORDS
+// ==============================================================================
+
+export interface SourceQualityAssessmentRecord {
+  id: string;
+  project_id: string;
+  source_id: string;
+  authority_score: number;
+  relevance_score: number;
+  freshness_score: number;
+  evidence_score: number;
+  independence_score: number;
+  transparency_score: number;
+  composite_quality_score: number;
+  quality_tier: QualityTier;
+  is_primary_source: boolean;
+  is_official_doc: boolean;
+  detected_biases: string[];
+  transparency_limitations: string[];
+  assessment_breakdown: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClaimVerificationRecord {
+  id: string;
+  project_id: string;
+  claim_id: string;
+  verification_status: ClaimVerificationStatus;
+  confidence_score: number;
+  confidence_level: VerificationConfidenceLevel;
+  primary_source_checked: boolean;
+  independent_sources_count: number;
+  direct_evidence_ids: string[];
+  contradicting_evidence_ids: string[];
+  explanation: string;
+  qualifier_notes?: string;
+  misleading_indicators: string[];
+  temporal_assessment: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CrossSourceContradictionRecord {
+  id: string;
+  project_id: string;
+  subject: string;
+  contradiction_type: ContradictionType;
+  competing_claim_ids: string[];
+  competing_evidence_ids: string[];
+  competing_positions: CompetingPosition[];
+  resolution_status: ContradictionResolutionStatus;
+  primary_source_evidence_id?: string;
+  resolution_explanation: string;
+  severity: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SourceDependencyRecord {
+  id: string;
+  project_id: string;
+  source_id: string;
+  upstream_source_id: string;
+  dependency_type: SourceDependencyType;
+  confidence: number;
+  created_at: string;
+}
+
+// ==============================================================================
+// MODULE 07: RESEARCH ANALYSIS & INTELLIGENCE CONTRACTS
+// ==============================================================================
+
+export type GapSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+
+export interface EvidenceBasedConclusion {
+  id: string;
+  statement: string;
+  reasoning: string;
+  supportingClaimIds: string[];
+  supportingEvidenceIds: string[];
+  isConsensusFact: boolean;
+  confidenceLevel: "HIGH" | "MODERATE" | "PROVISIONAL" | "LOW";
+}
+
+export interface ComparativeDimension {
+  dimensionName: string; // e.g., "Latency", "RAM Footprint", "License", "Persistence"
+  evaluations: Record<string, { value: string; isAdvantage: boolean; evidenceId?: string }>;
+}
+
+export interface ComparativeAnalysisResult {
+  optionsCompared: string[];
+  dimensions: ComparativeDimension[];
+  summaryMatrix: Record<string, Record<string, string>>;
+}
+
+export interface ArchitecturalImplication {
+  category: "scalability" | "security" | "integration" | "bottleneck" | "migration" | "maintenance";
+  implication: string;
+  technicalPrerequisite: string;
+  riskSeverity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+}
+
+export interface UncertaintyProfile {
+  lowEvidenceConclusions: string[];
+  unresolvedContradictionsCount: number;
+  workingAssumptions: string[];
+  missingParameters: string[];
+  overallEpistemicClarity: number; // 0.0 to 1.0
+}
+
+export interface DecisionFramework {
+  criteria: string[];
+  preferredAlternative?: string;
+  tradeOffSummary: string;
+  contingencyTriggers: string[];
+}
+
+export interface ResearchFinding {
+  id: string;
+  projectId: string;
+  subQuestionId?: string;
+  findingTitle: string;
+  findingStatement: string;
+  findingType: "technical" | "architectural" | "operational" | "comparative";
+  supportingClaimIds: string[];
+  supportingEvidenceIds: string[];
+  confidenceLevel: "HIGH" | "MODERATE" | "PROVISIONAL" | "LOW";
+  isConsensusFact: boolean;
+  createdAt: string;
+}
+
+export interface ResearchRecommendation {
+  id: string;
+  projectId: string;
+  recommendationText: string;
+  reasoning: string;
+  supportingClaimIds: string[];
+  supportingEvidenceIds: string[];
+  advantages: string[];
+  tradeOffs: string[];
+  risks: string[];
+  assumptions: string[];
+  confidenceScore: number;
+  conditionalTriggers: string[];
+  createdAt: string;
+}
+
+export interface ResearchGap {
+  id: string;
+  projectId: string;
+  gapTitle: string;
+  gapDescription: string;
+  subQuestionId?: string;
+  severity: GapSeverity;
+  impactAnalysis: string;
+  recommendedRemedy: string;
+  createdAt: string;
+}
+
+export interface ResearchAlternative {
+  id: string;
+  projectId: string;
+  name: string;
+  description: string;
+  advantages: string[];
+  disadvantages: string[];
+  dependencies: string[];
+  technicalRequirements: string[];
+  operationalLimitations: string[];
+  risks: string[];
+  unresolvedQuestions: string[];
+  supportingEvidenceIds: string[];
+  createdAt: string;
+}
+
+export interface ResearchAnalysisResult {
+  id: string;
+  projectId: string;
+  executiveSummary: string;
+  evidenceBasedConclusions: EvidenceBasedConclusion[];
+  findings: ResearchFinding[];
+  recommendations: ResearchRecommendation[];
+  gaps: ResearchGap[];
+  alternatives: ResearchAlternative[];
+  comparativeAnalysis: ComparativeAnalysisResult;
+  architecturalImplications: ArchitecturalImplication[];
+  uncertaintyProfile: UncertaintyProfile;
+  decisionFramework: DecisionFramework;
+  analyzedAt: string;
+}
+
+// ==============================================================================
+// MODULE 08: FRESHNESS & REVALIDATION CONTRACTS
+// ==============================================================================
+
+export type FreshnessState = "CURRENT" | "AGING" | "STALE" | "EXPIRED" | "UNKNOWN";
+
+export type RevalidationJobStatus = "scheduled" | "running" | "completed" | "failed" | "cancelled";
+
+export interface SourceFreshnessState {
+  id: string;
+  projectId: string;
+  sourceId: string;
+  freshnessState: FreshnessState;
+  lastVerifiedAt: string;
+  nextRevalidationDue: string;
+  stalenessReasons: string[];
+  versionObserved?: string;
+  contentHashObserved?: string;
+}
+
+export interface RevalidationPolicy {
+  id: string;
+  projectId?: string;
+  category: string;
+  ttlDays: number;
+  checkFrequencyDays: number;
+  autoRevalidationEnabled: boolean;
+}
+
+export interface RevalidationJob {
+  id: string;
+  projectId: string;
+  sourceId?: string;
+  status: RevalidationJobStatus;
+  scheduledFor: string;
+  startedAt?: string;
+  completedAt?: string;
+  retryCount: number;
+  errorMessage?: string;
+  createdAt: string;
+}
+
+export interface SourceChangeEvent {
+  sourceId: string;
+  changeType: "content_drift" | "version_bump" | "deprecation" | "inaccessible" | "metadata_update";
+  previousHash?: string;
+  newHash?: string;
+  previousVersion?: string;
+  newVersion?: string;
+  description: string;
+  detectedAt: string;
+}
+
+export interface RevalidationLog {
+  id: string;
+  projectId: string;
+  sourceId: string;
+  changeDescription: string;
+  previousContentHash?: string;
+  newContentHash?: string;
+  previousVersion?: string;
+  newVersion?: string;
+  impactedClaimIds: string[];
+  impactedEvidenceIds: string[];
+  impactedRecommendationIds: string[];
+  detectedAt: string;
+}
+
+export interface FreshnessEngineResult {
+  projectId: string;
+  sourceFreshness: SourceFreshnessState[];
+  scheduledJobs: RevalidationJob[];
+  detectedChanges: SourceChangeEvent[];
+  revalidationLogs: RevalidationLog[];
+  overallProjectFreshness: FreshnessState;
+  assessedAt: string;
+}
+
+// ==============================================================================
+// MODULE 09: RESEARCH REPORT GENERATOR CONTRACTS
+// ==============================================================================
+
+export type ReportType =
+  | "executive_briefing"
+  | "comprehensive_report"
+  | "technical_dossier"
+  | "technology_comparison"
+  | "architecture_recommendation"
+  | "business_decision"
+  | "research_gap_report"
+  | "source_evidence_report"
+  | "revalidation_change_report";
+
+export type ReportFormat = "json" | "markdown" | "html";
+
+export interface ReportCitation {
+  id: string;
+  reportId: string;
+  citationIndex: number;
+  citationMarker: string; // e.g. "[1]"
+  sourceId: string;
+  evidenceId?: string;
+  claimId?: string;
+  sourceTitle: string;
+  sourceUrl: string;
+  publisher?: string;
+  publicationDate?: string;
+  exactPassageExcerpt?: string;
+}
+
+export interface ResearchReport {
+  id: string;
+  projectId: string;
+  title: string;
+  reportType: ReportType;
+  format: ReportFormat;
+  contentRaw: string; // Formatted Markdown or HTML string
+  contentStructured: Record<string, unknown>;
+  summaryBrief: string;
+  version: number;
+  citations: ReportCitation[];
+  citationsCount: number;
+  generatedAt: string;
+}
+
+export interface ResearchReportVersion {
+  id: string;
+  reportId: string;
+  version: number;
+  contentRaw: string;
+  contentStructured: Record<string, unknown>;
+  changeSummary: string;
+  createdAt: string;
+}
+
+export interface ReportCustomizationOptions {
+  reportType?: ReportType;
+  format?: ReportFormat;
+  depth?: "brief" | "standard" | "exhaustive";
+  audience?: "founder_executive" | "senior_engineer" | "investor";
+  includeComparisonMatrices?: boolean;
+  includeContradictions?: boolean;
+  includeKnowledgeGaps?: boolean;
+  includeRecommendations?: boolean;
+}
+
+// ==============================================================================
+// BATCH 03 DATABASE & PERSISTENCE RECORDS
+// ==============================================================================
+
+export interface ResearchAnalysisRecord {
+  id: string;
+  project_id: string;
+  executive_summary: string;
+  evidence_based_conclusions: EvidenceBasedConclusion[];
+  comparative_analysis: ComparativeAnalysisResult;
+  architectural_implications: ArchitecturalImplication[];
+  uncertainty_profile: UncertaintyProfile;
+  decision_framework: DecisionFramework;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ResearchFindingRecord {
+  id: string;
+  project_id: string;
+  sub_question_id?: string;
+  finding_title: string;
+  finding_statement: string;
+  finding_type: string;
+  supporting_claim_ids: string[];
+  supporting_evidence_ids: string[];
+  confidence_level: string;
+  is_consensus_fact: boolean;
+  created_at: string;
+}
+
+export interface ResearchRecommendationRecord {
+  id: string;
+  project_id: string;
+  recommendation_text: string;
+  reasoning: string;
+  supporting_claim_ids: string[];
+  supporting_evidence_ids: string[];
+  advantages: string[];
+  trade_offs: string[];
+  risks: string[];
+  assumptions: string[];
+  confidence_score: number;
+  conditional_triggers: string[];
+  created_at: string;
+}
+
+export interface ResearchGapRecord {
+  id: string;
+  project_id: string;
+  gap_title: string;
+  gap_description: string;
+  sub_question_id?: string;
+  severity: GapSeverity;
+  impact_analysis: string;
+  recommended_remedy: string;
+  created_at: string;
+}
+
+export interface ResearchAlternativeRecord {
+  id: string;
+  project_id: string;
+  name: string;
+  description: string;
+  advantages: string[];
+  disadvantages: string[];
+  dependencies: string[];
+  technical_requirements: string[];
+  operational_limitations: string[];
+  risks: string[];
+  unresolved_questions: string[];
+  supporting_evidence_ids: string[];
+  created_at: string;
+}
+
+export interface SourceFreshnessRecordData {
+  id: string;
+  project_id: string;
+  source_id: string;
+  freshness_state: FreshnessState;
+  last_verified_at: string;
+  next_revalidation_due: string;
+  staleness_reasons: string[];
+  version_observed?: string;
+  content_hash_observed?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RevalidationPolicyRecord {
+  id: string;
+  project_id?: string;
+  category: string;
+  ttl_days: number;
+  check_frequency_days: number;
+  auto_revalidation_enabled: boolean;
+  created_at: string;
+}
+
+export interface RevalidationJobRecord {
+  id: string;
+  project_id: string;
+  source_id?: string;
+  status: RevalidationJobStatus;
+  scheduled_for: string;
+  started_at?: string;
+  completed_at?: string;
+  retry_count: number;
+  error_message?: string;
+  created_at: string;
+}
+
+export interface RevalidationLogRecord {
+  id: string;
+  project_id: string;
+  source_id: string;
+  previous_content_hash?: string;
+  new_content_hash?: string;
+  previous_version?: string;
+  new_version?: string;
+  change_description: string;
+  impacted_claim_ids: string[];
+  impacted_evidence_ids: string[];
+  impacted_recommendation_ids: string[];
+  detected_at: string;
+}
+
+export interface ResearchReportRecord {
+  id: string;
+  project_id: string;
+  title: string;
+  report_type: ReportType;
+  format: ReportFormat;
+  content_raw: string;
+  content_structured: Record<string, unknown>;
+  summary_brief: string;
+  version: number;
+  citations_count: number;
+  generated_at: string;
+  updated_at: string;
+}
+
+export interface ResearchReportVersionRecord {
+  id: string;
+  report_id: string;
+  version: number;
+  content_raw: string;
+  content_structured: Record<string, unknown>;
+  change_summary: string;
+  created_at: string;
+}
+
+export interface ResearchReportCitationRecord {
+  id: string;
+  report_id: string;
+  citation_index: number;
+  source_id: string;
+  evidence_id?: string;
+  claim_id?: string;
+  citation_marker: string;
+  source_title: string;
+  source_url: string;
+  publisher?: string;
+  publication_date?: string;
+  exact_passage_excerpt?: string;
+  created_at: string;
+}
+
+// ==============================================================================
+// MODULE 10: ADVANCED MEMORY DEEP INGESTION CONTRACTS
+// ==============================================================================
+
+export type KnowledgeNodeType =
+  | "entity"
+  | "technology"
+  | "component"
+  | "claim"
+  | "topic"
+  | "finding"
+  | "decision"
+  | "source";
+
+export type KnowledgeRelationshipType =
+  | "uses"
+  | "supports"
+  | "contradicts"
+  | "recommends"
+  | "depends_on"
+  | "researches"
+  | "part_of"
+  | "alternative_to";
+
+export type MemoryEvolutionType =
+  | "initial_ingestion"
+  | "factual_update"
+  | "refinement"
+  | "contradiction_superseded"
+  | "deprecation";
+
+export interface ResearchMemoryLink {
+  id: string;
+  projectId: string;
+  memoryId: string;
+  claimId?: string;
+  recommendationId?: string;
+  reportId?: string;
+  memoryCategory: string;
+  verificationStatus?: string;
+  confidenceScore: number;
+  isConsensusFact: boolean;
+  provenance: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ResearchKnowledgeNode {
+  id: string;
+  projectId: string;
+  nodeType: KnowledgeNodeType;
+  name: string;
+  canonicalName: string;
+  description?: string;
+  properties: Record<string, unknown>;
+  sourceReference?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ResearchKnowledgeEdge {
+  id: string;
+  projectId: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+  relationshipType: KnowledgeRelationshipType;
+  weight: number;
+  bidirectional: boolean;
+  properties: Record<string, unknown>;
+  evidenceReference?: string;
+  createdAt: string;
+}
+
+export interface ResearchMemoryVersion {
+  id: string;
+  memoryId: string;
+  projectId: string;
+  versionNumber: number;
+  previousContent: string;
+  newContent: string;
+  evolutionType: MemoryEvolutionType;
+  reason: string;
+  supersededAt?: string;
+  createdAt: string;
+}
+
+export interface MemoryIngestionOptions {
+  autoDeduplicate?: boolean;
+  linkKnowledgeGraph?: boolean;
+  minConfidenceThreshold?: number;
+  storeUnverifiedAsAssumptions?: boolean;
+  targetCategories?: string[];
+}
+
+export interface MemoryIngestionResult {
+  projectId: string;
+  ingestedMemoriesCount: number;
+  knowledgeNodesCreated: number;
+  knowledgeEdgesCreated: number;
+  versionsCreated: number;
+  deduplicatedCount: number;
+  memoryLinks: ResearchMemoryLink[];
+  ingestedAt: string;
+}
+
+// ==============================================================================
+// MODULE 11: RESEARCH SAFETY & INTEGRITY CONTRACTS
+// ==============================================================================
+
+export type ResearchSecurityEventType =
+  | "prompt_injection"
+  | "suspicious_document"
+  | "sensitive_data_detected"
+  | "citation_integrity_failure"
+  | "unauthorized_tool_attempt"
+  | "policy_violation"
+  | "malformed_payload";
+
+export type SecuritySeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
+
+export type SecurityActionTaken =
+  | "quarantined"
+  | "redacted"
+  | "dropped"
+  | "neutralized"
+  | "monitored"
+  | "blocked";
+
+export type SourceTrustTier =
+  | "PRIMARY_OFFICIAL"
+  | "VERIFIED_ACADEMIC"
+  | "COMMUNITY_ANALYSIS"
+  | "UNTRUSTED_EXTERNAL"
+  | "MALICIOUS_REJECTED";
+
+export interface ResearchSecurityEvent {
+  id: string;
+  projectId?: string;
+  sourceId?: string;
+  eventType: ResearchSecurityEventType;
+  severity: SecuritySeverity;
+  detectedPattern: string;
+  rawExcerpt?: string;
+  sanitizedExcerpt?: string;
+  actionTaken: SecurityActionTaken;
+  mitigationNotes?: string;
+  createdAt: string;
+}
+
+export interface ContentSanitizationResult {
+  sanitizedContent: string;
+  threatsDetected: Array<{
+    type: "prompt_injection" | "hidden_instruction" | "control_token" | "suspicious_html";
+    pattern: string;
+    action: string;
+  }>;
+  sensitiveDataRedacted: Array<{
+    type: "api_key" | "credential" | "auth_token" | "personal_identifier";
+    redactedValue: string;
+  }>;
+  isSafe: boolean;
+  quarantineRequired: boolean;
+}
+
+export interface SourceSafetyInspection {
+  sourceId: string;
+  url: string;
+  isSafe: boolean;
+  trustTier: SourceTrustTier;
+  accessDecision: "allowed" | "quarantined" | "blocked" | "rate_limited";
+  securityFlags: string[];
+  quarantineReason?: string;
+  inspectedAt: string;
+}
+
+export interface CitationIntegrityVerification {
+  id: string;
+  reportId: string;
+  citationIndex: number;
+  sourceId: string;
+  evidenceId?: string;
+  isValid: boolean;
+  hasVerbatimMatch: boolean;
+  diagnostics?: string;
+  verifiedAt: string;
+}
+
+export interface CitationIntegrityReport {
+  reportId: string;
+  totalCitations: number;
+  validCitationsCount: number;
+  invalidCitationsCount: number;
+  hasFabricatedReferences: boolean;
+  verifications: CitationIntegrityVerification[];
+  auditedAt: string;
+}
+
+// ==============================================================================
+// BATCH 04 DATABASE & PERSISTENCE RECORDS
+// ==============================================================================
+
+export interface ResearchMemoryLinkRecord {
+  id: string;
+  project_id: string;
+  memory_id: string;
+  claim_id?: string;
+  recommendation_id?: string;
+  report_id?: string;
+  memory_category: string;
+  verification_status?: string;
+  confidence_score: number;
+  is_consensus_fact: boolean;
+  provenance: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ResearchKnowledgeNodeRecord {
+  id: string;
+  project_id: string;
+  node_type: KnowledgeNodeType;
+  name: string;
+  canonical_name: string;
+  description?: string;
+  properties: Record<string, unknown>;
+  source_reference?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ResearchKnowledgeEdgeRecord {
+  id: string;
+  project_id: string;
+  source_node_id: string;
+  target_node_id: string;
+  relationship_type: KnowledgeRelationshipType;
+  weight: number;
+  bidirectional: boolean;
+  properties: Record<string, unknown>;
+  evidence_reference?: string;
+  created_at: string;
+}
+
+export interface ResearchMemoryVersionRecord {
+  id: string;
+  memory_id: string;
+  project_id: string;
+  version_number: number;
+  previous_content: string;
+  new_content: string;
+  evolution_type: MemoryEvolutionType;
+  reason: string;
+  superseded_at?: string;
+  created_at: string;
+}
+
+export interface ResearchSecurityEventRecord {
+  id: string;
+  project_id?: string;
+  source_id?: string;
+  event_type: ResearchSecurityEventType;
+  severity: SecuritySeverity;
+  detected_pattern: string;
+  raw_excerpt?: string;
+  sanitized_excerpt?: string;
+  action_taken: SecurityActionTaken;
+  mitigation_notes?: string;
+  created_at: string;
+}
+
+export interface ResearchSourceAuditLogRecord {
+  id: string;
+  project_id: string;
+  source_id: string;
+  url: string;
+  provider: string;
+  access_decision: "allowed" | "quarantined" | "blocked" | "rate_limited";
+  trust_tier: SourceTrustTier;
+  safety_flags: Record<string, unknown>;
+  inspected_at: string;
+}
+
+export interface CitationIntegrityVerificationRecord {
+  id: string;
+  report_id: string;
+  citation_index: number;
+  source_id: string;
+  evidence_id?: string;
+  is_valid: boolean;
+  has_verbatim_match: boolean;
+  diagnostics?: string;
+  verified_at: string;
+}

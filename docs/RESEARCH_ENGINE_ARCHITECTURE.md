@@ -1,75 +1,109 @@
 # ULTRON Research & Verification Engine
-## Batch 01: Research Foundation, Planning, Discovery & Evidence Extraction Architecture
+## Batch 01, 02, 03 & 04: Complete 11-Module Autonomous Research, Verification, Intelligence, Memory Ingestion & Safety Engine
 
 **System**: ULTRON — Advanced AI Co-Founder  
-**Subsystem**: Autonomous Knowledge & Research Intelligence  
+**Subsystem**: Autonomous Knowledge, Research Intelligence, Memory Ingestion & Security Integrity  
 **Implementation Date**: November 11, 2026  
-**Status**: Batch 01 Implemented (Modules 01, 02, 03 Operational; Modules 04–12 Deferred to Subsequent Batches)
+**Status**: Batch 01, Batch 02, Batch 03 & Batch 04 Implemented (Modules 01–11 Operational; Module 12 Deferred to Subsequent Final Batch)
 
 ---
 
 ## 1. Executive Overview
 
-Batch 01 delivers the production foundation for ULTRON's **Research & Verification Engine**, as outlined in the *ULTRON Advanced AI Co-Founder Blueprint*.
+The **ULTRON Research & Verification Engine** transforms the system from a passive conversational model into an evidence-driven, epistemically disciplined AI Co-Founder. Rather than blindly searching the web or treating language-model outputs as truth, the engine executes a structured, 11-stage analytical pipeline protected by active in-flight security firewalls and integrated with persistent long-term memory:
 
-Prior to Batch 01, ULTRON had single-pass keyword search through DuckDuckGo and simple HTML text scraping. Batch 01 establishes a multi-tier, structured research pipeline that:
-1. **Understands and plans research before searching**: Analyzes intent, topics, problem statements, expected outcomes, scope, and resource budgets.
-2. **Conducts multi-provider information discovery**: Concurrently discovers sources across public web, GitHub repositories, arXiv academic papers, workspace internal documentation, and ULTRON's persistent memory vault.
-3. **Extracts traceable evidence**: Ingests accessible sources, identifies atomic claims, extracts structured facts and technical specifications, preserves exact verbatim supporting passages with character offsets, and creates explicit relational links between claims and evidence.
+1. **Understands & Plans Research (Module 01)**: Intelligently decomposes inquiries, identifies problem statements, sets non-negotiable constraints, defines scope, recalls historical research, and creates an executable search strategy.
+2. **Discovers from Multiple Primary Sources (Module 02)**: Leverages public web search, official documentation portals, GitHub repositories, arXiv academic papers, workspace documentation, and persistent memory vault.
+3. **Collects & Extracts Verifiable Evidence (Module 03)**: Ingests accessible sources, cleans HTML DOM trees, sanitizes prompt injection vectors, masks leaked credentials, identifies atomic claims, parses structured facts and technical specifications, and preserves exact verbatim supporting passages.
+4. **Evaluates Source Reliability & Quality (Module 04)**: Measures 6 explainable dimensions (Authority, Relevance, Freshness, Evidence, Independence, Transparency), classifies primary vs. secondary sources, tracks syndication lineage, and identifies commercial/advocacy biases.
+5. **Verifies Individual Claims (Module 05)**: Evaluates one atomic claim at a time, enforcing the strict 6-tier status (`verified`, `partially_verified`, `conflicting`, `unverified`, `outdated`, `refuted`) with evidence-grounded confidence scoring and misleading statement detection.
+6. **Investigates Disagreements & Contradictions (Module 06)**: Detects factual clashes, version progression drift, and specification variances; differentiates true contradictions from contextual variations; resolves disputes via primary documentation and preserves unresolved disagreements without evidence suppression.
+7. **Research Analysis & Intelligence (Module 07)**: Synthesizes evidence-based conclusions, identifies knowledge gaps, formulates viable technical alternatives, compiles comparative tradeoff matrices, projects architectural implications, and derives prioritized recommendations.
+8. **Freshness & Revalidation (Module 08)**: Monitors temporal decay across category-aware TTL policies, detects content drift using SHA-256 hashes, schedules automated revalidation jobs, and traces downstream impact on claims and architecture.
+9. **Research Report Generator (Module 09)**: Produces 9 distinct report archetypes across Markdown, JSON, and semantic HTML with deterministic verbatim citation footnotes linking every claim back to original sources.
+10. **Advanced Memory Deep Ingestion (Module 10)**: Transforms research outputs into permanent, associative knowledge; links claims, recommendations, and reports to the local encrypted memory vault with full research provenance; builds a cognitive knowledge graph (nodes & edges); and enforces non-destructive memory versioning.
+11. **Research Safety & Integrity Engine (Module 11)**: Protects the research process in-flight with layered prompt injection defense, malicious document awareness, secret redaction, SSRF prevention, read-only boundary enforcement, and citation integrity firewalls.
 
 ---
 
-## 2. Core Architecture & Implemented Modules
+## 2. End-to-End Pipeline Architecture
 
 ```
                                 USER RESEARCH REQUEST
                                           |
                                           v
 +-----------------------------------------------------------------------------------+
+|               PRE-FLIGHT: HISTORICAL RESEARCH RECALL (MODULE 10)                  |
+|  - Queries Memory Vault for Prior Investigations & Architectural Precedents       |
++-----------------------------------------------------------------------------------+
+                                          |
+                                          v
++-----------------------------------------------------------------------------------+
 |                     MODULE 01: RESEARCH PLANNING ENGINE                           |
-|  - Research Intent Detection (11 categories)                                      |
-|  - Topic, Problem Statement & Expected Outcome Formulation                        |
-|  - Explicit Requirements vs Inferred Assumptions Separation                       |
-|  - Research Scope Definition (Included / Excluded Subtopics)                      |
-|  - Question Decomposition & Dependency Mapping                                    |
-|  - Required Evidence Categorization (Official Docs, Specs, Papers, Benchmarks)    |
-|  - Research Depth Selection (Quick, Standard, Deep, Comprehensive)                |
-|  - Executable Search Strategy Generation (Primary & Alternative Queries, Domains) |
-|  - Measurable Completion Criteria Formulation                                     |
+|  - Research Intent Detection (11 categories) & Question Decomposition DAG        |
+|  - Scope Calibration & Executable Search Strategy Formulation                     |
 +-----------------------------------------------------------------------------------+
                                           |
                                           v
-                                STRUCTURED RESEARCH PLAN
-                                          |
-                                          v
 +-----------------------------------------------------------------------------------+
-|                    MODULE 02: INFORMATION DISCOVERY ENGINE                        |
-|  - 6-Tier Credibility Priority Policy (Official Docs > Papers > GitHub > ...)     |
-|  - Modular Provider Adapters:                                                     |
-|      1. LiveWebSearchAdapter (Public DuckDuckGo API)                              |
-|      2. GitHubDiscoveryAdapter (Public GitHub REST Search)                        |
-|      3. AcademicDiscoveryAdapter (arXiv Public XML/Atom API)                      |
-|      4. InternalDocumentAdapter (Local Workspace Docs & Specs)                   |
-|      5. AdvancedMemoryAdapter (Persistent AES-256-GCM Memory Vault)              |
-|  - URL Normalization & SHA-256 Deduplication Hashing                              |
-|  - Failure Isolation & Timeout Safety                                             |
+|             MODULE 02: INFORMATION DISCOVERY & URL SAFETY (MODULE 11)             |
+|  - 6-Tier Credibility Priority Policy & SSRF Protocol Safety Firewalls            |
+|  - Multi-Provider Discovery: Web, GitHub, arXiv, Workspace Docs, Memory Vault     |
 +-----------------------------------------------------------------------------------+
                                           |
                                           v
-                              NORMALIZED DISCOVERY RESULTS
++-----------------------------------------------------------------------------------+
+|       MODULE 03: EVIDENCE EXTRACTION & CONTENT SANITIZATION (MODULE 11)           |
+|  - Layered Prompt Injection Detection & Credential Leak Masking                   |
+|  - Atomic Claim & Technical Specification Extraction with Verbatim Passages      |
++-----------------------------------------------------------------------------------+
                                           |
                                           v
 +-----------------------------------------------------------------------------------+
-|                MODULE 03: EVIDENCE COLLECTION & EXTRACTION ENGINE                 |
-|  - Content Ingestion (HTML, Markdown, Plain-Text, Memory Records)                 |
-|  - SSRF Protection & Resource Bounding (2MB cap, private subnet blocking)         |
-|  - Duplicate Detection (Canonical URL & Text Hash Comparison)                     |
-|  - Atomic Claim Identification (Subject, Predicate, Object, Qualifier)            |
-|  - Structured Fact Extraction (Versions, Latency Metrics, Ports)                  |
-|  - Technical Specification Extraction (RAM, Hardware, OS, Protocol)              |
-|  - Temporal & Version Date Tracking (Publication Date vs Access Timestamp)        |
-|  - Verbatim Supporting Passage Storage (Exact text, offsets, headings)            |
-|  - Many-to-Many Evidence-to-Claim Mapping                                         |
+|                 MODULE 04: SOURCE RELIABILITY & QUALITY ENGINE                    |
+|  - 6-Dimensional Quality Assessment (Authority, Relevance, Freshness, ...)        |
+|  - Lineage Tracking & Commercial Advocacy Bias Detection                          |
++-----------------------------------------------------------------------------------+
+                                          |
+                                          v
++-----------------------------------------------------------------------------------+
+|                     MODULE 05: CLAIM VERIFICATION ENGINE                          |
+|  - Epistemic 6-Tier Classification (Verified, Conflicting, Outdated, Refuted, ...) |
+|  - Genuine Independent Confirmation & Misleading Statement Detection              |
++-----------------------------------------------------------------------------------+
+                                          |
+                                          v
++-----------------------------------------------------------------------------------+
+|           MODULE 06: CROSS-SOURCE COMPARISON & CONTRADICTION ENGINE               |
+|  - Factual Disagreement Categorization & Primary Source Resolution Logic          |
++-----------------------------------------------------------------------------------+
+                                          |
+                                          v
++-----------------------------------------------------------------------------------+
+|              MODULE 07: RESEARCH ANALYSIS & INTELLIGENCE ENGINE                   |
+|  - Evidence-Based Conclusions, Knowledge Gaps, Comparative Tradeoff Matrices      |
+|  - Architectural Roadmaps, Strategic Recommendations & Decision Frameworks        |
++-----------------------------------------------------------------------------------+
+                                          |
+                                          v
++-----------------------------------------------------------------------------------+
+|                  MODULE 08: FRESHNESS & REVALIDATION ENGINE                       |
+|  - Category-Aware TTL Decay, SHA-256 Drift Detection, Revalidation Scheduler      |
++-----------------------------------------------------------------------------------+
+                                          |
+                                          v
++-----------------------------------------------------------------------------------+
+|         MODULE 09: REPORT GENERATION & CITATION FIREWALL (MODULE 11)              |
+|  - 9 Report Archetypes across Markdown, JSON, HTML with Verifiable Citations      |
+|  - Firewall Audit: Rejects Phantom Sources and Altered Passages                   |
++-----------------------------------------------------------------------------------+
+                                          |
+                                          v
++-----------------------------------------------------------------------------------+
+|             MODULE 10: ADVANCED MEMORY DEEP INGESTION ENGINE                      |
+|  - Ingests Claims, Recommendations & Reports into Memory Vault with Provenance    |
+|  - Constructs & Updates Relational Knowledge Graph Nodes and Edges                |
+|  - Enforces Non-Destructive Memory Evolution & Version Tracking                   |
 +-----------------------------------------------------------------------------------+
                                           |
                                           v
@@ -77,128 +111,101 @@ Prior to Batch 01, ULTRON had single-pass keyword search through DuckDuckGo and 
              (PostgreSQL/Supabase Migration + Local Encrypted Vault)
                                           |
                                           v
-                        STRUCTURED RESEARCH DOSSIER
-                  [Clean Boundary for Module 04 & Module 05]
+                        STRUCTURED RESEARCH INTELLIGENCE
+                      [Clean Boundary for Final Module 12]
 ```
 
 ---
 
-## 3. Detailed Module Specifications
+## 3. Batch 04 Implemented Modules Deep Dive
 
-### Module 01: Research Planning Engine (`lib/research/planningEngine.ts`)
-- **Intent Detection**: Analyzes natural language inquiries and classifies them into 11 categories:
-  - `technical_research`, `product_research`, `technology_comparison`, `architecture_research`, `market_research`, `academic_research`, `problem_investigation`, `business_decision_research`, `documentation_research`, `current_information_research`, `general_knowledge_research`.
-- **Topic & Problem Understanding**: Extracts core subject, formats professional title, formulates explicit problem statements, and articulates expected deliverables.
-- **Scope & Assumptions**: Distinguishes user's explicit non-negotiables (e.g. "zero cost", "offline", "no paid cloud") from AI-inferred assumptions.
-- **Decomposition**: Decomposes inquiries into orthogonal sub-questions with assigned priorities (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`), prerequisite dependencies, and flags for `requiresCurrentInfo` and `requiresOfficialDocs`.
-- **Search Strategy**: For every sub-question, generates targeted primary queries, boolean/synonym alternatives, authoritative official domains (e.g., `postgresql.org`, `nextjs.org`, `python.org`), and date bounds.
-- **Completion Criteria**: Formulates verifiable criteria to prevent premature termination or scope creep.
+### Module 10: Advanced Memory Deep Ingestion Engine (`lib/research/memoryIngestionEngine.ts`)
+- **Research-to-Memory Bridge**: Ingests verified claims, findings, strategic recommendations, contradictions, and reports directly into `ultron_memory_vault.json` using the existing authenticated AES-256-GCM memory manager.
+- **Provenance Retention (`ResearchMemoryLink`)**: Maps each memory record back to its exact `projectId`, `claimId`, `recommendationId`, or `reportId`, recording verification status and supporting evidence pointers.
+- **Epistemic Classification**:
+  - `verified`: Stored as high-importance `fact` memories (`importance: 4-5`).
+  - `partially_verified`: Stored with qualifier indicators (`importance: 3`).
+  - `outdated`: Stored as historical context without masquerading as current facts.
+  - `unverified`: Stored strictly labeled as research assumptions (`[RESEARCH ASSUMPTION]`).
+  - `refuted`: Strictly excluded from memory storage to prevent false knowledge contamination.
+- **Cognitive Knowledge Graph Construction**:
+  - *Nodes (`ResearchKnowledgeNode`)*: Entity, technology, component, claim, topic, finding, decision, source. Canonical names prevent duplication.
+  - *Edges (`ResearchKnowledgeEdge`)*: `uses`, `supports`, `contradicts`, `recommends`, `depends_on`, `researches`, `part_of`, `alternative_to`.
+- **Non-Destructive Versioning (`ResearchMemoryVersion`)**: When new research updates an existing memory key, preserves the previous version with evolution type (`factual_update`, `refinement`, `contradiction_superseded`), reason, and timestamp.
+- **Pre-Research Memory Recall**: Recalls prior research before planning new tasks to prevent redundant queries.
+- **Self-Healing Integrity Auditing**: Scans memory links to detect orphaned memories, broken evidence pointers, or missing source attributions.
 
-### Module 02: Information Discovery Engine (`lib/research/discoveryEngine.ts`)
-- **Source Priority Policy**: Strictly enforces the blueprint's 6-tier credibility hierarchy:
-  1. *Tier 1*: Official documentation, primary source specifications, internal documents, local memory.
-  2. *Tier 2*: Original research papers (arXiv) and technical standards (RFCs, W3C, IEEE).
-  3. *Tier 3*: Official GitHub repositories, release tags, and API schemas.
-  4. *Tier 4*: Reputable engineering publications and news releases.
-  5. *Tier 5*: Credible independent analysis and benchmarks.
-  6. *Tier 6*: Community discussions and forums (signals only, not facts).
-- **Pluggable Adapter Interface**: `SearchProviderAdapter` allows modular addition of discovery backends with health checks, error isolation, and standardized schemas.
-- **Canonical Normalization**: Cleans URLs by stripping UTM telemetry parameters, session tokens, and fragments to compute stable SHA-256 hashes.
-
-### Module 03: Evidence Collection & Extraction Engine (`lib/research/evidenceEngine.ts`)
-- **Content Collection**: Retrieves accessible content across HTML pages, Markdown files, and memory records. Cleans HTML DOM by stripping scripts, styles, navigation bars, headers, footers, and active tags.
-- **Atomic Claim Extraction**: Extracts testable, verifiable statements with extracted `subject`, `predicate`, `objectValue`, and `contextQualifier`.
-- **Structured Fact Extraction**: Parses version numbers (`v1.2.3`), performance timings (`0.4ms`), hardware requirements (`16GB RAM`), and network ports.
-- **Verbatim Passage Preservation**: Preserves exact source paragraphs with character start/end offsets, section headings, and content hashes.
-- **Evidence-to-Claim Mapping**: Connects claims to supporting evidence passages via `ClaimEvidenceLink` records with relevance scoring.
+### Module 11: Research Safety & Integrity Engine (`lib/research/safetyEngine.ts`)
+- **External Content as Untrusted Data**: Enforces the absolute security boundary that external data can never elevate privileges, override system prompts, or invoke tools.
+- **Layered Prompt Injection Detection**:
+  - Direct instruction overrides (`ignore previous instructions`, `forget all rules`).
+  - Jailbreak templates (DAN, Developer Mode, root persona hijacking).
+  - System prompt exfiltration probes (`print system prompt`, `leak API keys`).
+  - Remote exfiltration hooks (unauthorized `fetch`, `curl`, webhook parameters).
+  - Embedded destructive shell commands (`rm -rf`, format disk).
+  - Delimiter smuggling & control tokens (`<|im_start|>`, `<|system|>`).
+  - Hidden Markdown comment injections.
+- **Malicious Document & Tag Sanitization**:
+  - Strips `<script>`, `<iframe>`, `<object>`, `javascript:` URIs, and CSS invisible overlays (`display: none`, `font-size: 0`).
+  - Strips zero-width invisible characters (`\u200B`, `\uFEFF`) used for steganographic token injection.
+- **Sensitive Credential Masking**:
+  - Automatically scans and redacts OpenAI, Anthropic, AWS, GitHub PATs, Stripe keys, Bearer tokens, and private key blocks before text reaches evidence extraction or memory vaults.
+- **Pre-Discovery SSRF Firewall**:
+  - Inspects target URLs to block loopback interfaces (`localhost`, `127.0.0.1`, `::1`) and private subnets (`192.168.*`, `10.*`).
+  - Classifies source domains into trust tiers (`PRIMARY_OFFICIAL`, `VERIFIED_ACADEMIC`, `COMMUNITY_ANALYSIS`, `UNTRUSTED_EXTERNAL`, `MALICIOUS_REJECTED`).
+- **Citation Integrity Firewall**:
+  - Audits research reports prior to final presentation: verifies that source IDs exist in the repository, evidence IDs exist, and citation excerpts match stored passage text verbatim. Rejects phantom citations.
+- **Security Event Audit Logging**:
+  - Persists structured security events (`ResearchSecurityEventRecord`) and source access logs (`ResearchSourceAuditLogRecord`) into the repository.
 
 ---
 
-## 4. Shared Data Architecture
+## 4. Shared Data Architecture & Database Schema
 
-### Database Schema (`supabase/migrations/20261111000001_research_and_verification_foundation.sql`)
-The PostgreSQL/Supabase migration implements the 6 foundational research tables with strict foreign keys, indexes, check constraints, and Row-Level Security (RLS) policies:
-1. `research_projects`: Stores project metadata, objectives, intent, depth, scope, constraints, and status.
-2. `research_queries`: Stores decomposed sub-questions, search objectives, queries, priorities, and execution status.
-3. `sources`: Stores discovered source metadata, canonical URLs, SHA-256 URL hashes, publisher info, and retrieval status.
-4. `evidence`: Stores verbatim passages, chunk indices, character offsets, section headings, and content hashes.
-5. `claims`: Stores atomic factual claims, subjects, predicates, objects, and extraction confidence.
-6. `claim_evidence_links`: Many-to-many junction table binding claims to evidence passages with relevance scores.
+### Database Migrations
+1. `supabase/migrations/20261111000001_research_and_verification_foundation.sql`:
+   - `research_projects`, `research_queries`, `sources`, `evidence`, `claims`, `claim_evidence_links`.
+2. `supabase/migrations/20261111000002_research_verification_and_contradiction.sql`:
+   - `source_quality_assessments`, `claim_verifications`, `cross_source_contradictions`, `source_dependencies`.
+3. `supabase/migrations/20261111000003_research_intelligence_freshness_reporting.sql`:
+   - `research_analyses`, `research_findings`, `research_recommendations`, `research_gaps`, `research_alternatives`, `source_freshness_records`, `revalidation_policies`, `revalidation_jobs`, `revalidation_records`, `research_reports`, `research_report_versions`, `research_report_citations`.
+4. `supabase/migrations/20261111000004_research_memory_and_safety.sql`:
+   - `research_memory_links`: Links research entities to memory vault records with verification status.
+   - `research_knowledge_nodes`: Knowledge graph entities, components, technologies, and topics.
+   - `research_knowledge_edges`: Relational semantic edges connecting graph nodes.
+   - `research_memory_versions`: Historical memory evolution changelogs.
+   - `research_security_events`: Audit log of detected prompt injections, leaks, and quarantined threats.
+   - `research_source_audit_logs`: Detailed tracking of source retrieval operations, trust tiers, and decisions.
+   - `citation_integrity_verifications`: Citation verification outcomes preventing phantom references.
 
 ### Dual-Mode Persistence Layer (`lib/research/repository.ts`)
-- **Cloud / Production Mode**: Direct schema compliance with PostgreSQL / Supabase.
-- **Local Desktop Offline Mode**: Transactional, atomic disk-persisted vault (`ultron_research_vault.json`) using authenticated AES-256-GCM encryption with platform CSPRNG keys, backup rotation, and crash resilience.
+- **PostgreSQL / Supabase Mode**: Complete relational schema compliance with Row-Level Security (RLS) policies across 29 tables.
+- **Local Desktop Offline Vault**: Atomic, disk-persisted vault (`ultron_research_vault.json`) with authenticated AES-256-GCM encryption, backup rotation, and crash immunity.
 
 ---
 
-## 5. API Contracts & Service Integration
+## 5. API Endpoints
 
-### 1. `POST /api/research/plan`
-Generates and persists a structured Research Plan.
-- **Input**:
-  ```json
-  {
-    "query": "Research the best memory architecture for ULTRON",
-    "depth": "standard",
-    "constraints": ["Must run locally on Windows 11", "Zero cloud subscription cost"],
-    "exclusions": ["Paid hosted SaaS memory APIs"]
-  }
-  ```
-- **Response**:
-  ```json
-  {
-    "success": true,
-    "research_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
-    "plan": { ... }
-  }
-  ```
-
-### 2. `POST /api/research/discover`
-Executes multi-source discovery across configured adapters for a given plan.
-- **Input**:
-  ```json
-  {
-    "plan": { ... }
-  }
-  ```
-- **Response**:
-  ```json
-  {
-    "success": true,
-    "research_id": "...",
-    "sourcesCount": 12,
-    "sources": [ ... ]
-  }
-  ```
-
-### 3. `POST /api/research/extract`
-Collects content from discovered sources and extracts claims, facts, specs, and evidence links.
-- **Input**:
-  ```json
-  {
-    "projectId": "...",
-    "sources": [ ... ]
-  }
-  ```
-- **Response**:
-  ```json
-  {
-    "success": true,
-    "projectId": "...",
-    "sourcesProcessed": 12,
-    "evidencePassagesCount": 38,
-    "claimsCount": 24,
-    "linksCount": 24
-  }
-  ```
-
-### 4. `GET /api/research/project/[id]`
-Retrieves the complete relational dossier (project, queries, sources, evidence, claims, links) by UUID.
-
-### 5. `POST /api/research`
-Unified entrypoint supporting both:
-- **Batch 01 V2 Pipeline Mode**: Triggered when `engine: "v2"`, `pipeline: true`, or `depth` is passed. Executes Planning -> Discovery -> Extraction -> Persistence in one atomic run. Supports both JSON and SSE streaming (`stream: true`).
-- **Legacy Quantum Mode**: Fully backward-compatible for existing CLI and test callers.
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/research/plan` | Formulates and persists a structured `ResearchPlan`. |
+| `POST` | `/api/research/discover` | Executes multi-source discovery across configured adapters. |
+| `POST` | `/api/research/extract` | Ingests sources, extracts claims/facts/specs, and links evidence. |
+| `POST` | `/api/research/reliability` | Evaluates 6-dimensional source reliability and tracks syndication lineage. |
+| `POST` | `/api/research/verify` | Epistemic verification of atomic claims with confidence scoring. |
+| `POST` | `/api/research/contradictions` | Cross-source comparison, contradiction detection, and resolution. |
+| `POST` | `/api/research/analyze` | Generates Module 07 research intelligence, conclusions, and recommendations. |
+| `GET` | `/api/research/analyze` | Retrieves existing analysis, findings, recommendations, and gaps for a project. |
+| `POST` | `/api/research/freshness` | Evaluates freshness decay, schedules revalidation, or triggers manual revalidation. |
+| `GET` | `/api/research/freshness` | Retrieves freshness status, scheduled jobs, and revalidation logs. |
+| `POST` | `/api/research/report` | Generates a custom report (9 archetypes) or creates a new report version. |
+| `GET` | `/api/research/report` | Retrieves a specific report with citations or lists all reports for a project. |
+| `POST` | `/api/research/memory` | Ingests research into memory, recalls prior research, or audits memory integrity. |
+| `GET` | `/api/research/memory` | Retrieves knowledge graph nodes/edges and memory links for a project. |
+| `POST` | `/api/research/safety` | Sanitizes content, inspects URLs for SSRF, or verifies report citation integrity. |
+| `GET` | `/api/research/safety` | Retrieves security events and source audit logs. |
+| `GET` | `/api/research/project/[id]` | Retrieves the complete relational dossier. |
+| `POST` | `/api/research` | End-to-end pipeline execution (supports `engine: "v2"` and 11-stage SSE streaming). |
 
 ---
 
@@ -206,60 +213,38 @@ Unified entrypoint supporting both:
 
 | Module | Feature | Implementation File | Status |
 |---|---|---|---|
-| **Module 01** | Research Intent Detection (11 categories) | `lib/research/planningEngine.ts` | **Implemented** |
-| **Module 01** | Topic & Problem Understanding | `lib/research/planningEngine.ts` | **Implemented** |
-| **Module 01** | Scope Definition & Boundary Setting | `lib/research/planningEngine.ts` | **Implemented** |
-| **Module 01** | Main Question Decomposition & DAG | `lib/research/planningEngine.ts` | **Implemented** |
-| **Module 01** | Sub-Question Generation & Priorities | `lib/research/planningEngine.ts` | **Implemented** |
-| **Module 01** | Required Evidence Identification | `lib/research/planningEngine.ts` | **Implemented** |
-| **Module 01** | Research Depth Calibration (4 tiers) | `lib/research/planningEngine.ts` | **Implemented** |
-| **Module 01** | Search Strategy Generation | `lib/research/planningEngine.ts` | **Implemented** |
-| **Module 01** | Resource Constraints & Zero-Cost Guardrails | `lib/research/planningEngine.ts` | **Implemented** |
-| **Module 01** | Verifiable Completion Criteria | `lib/research/planningEngine.ts` | **Implemented** |
-| **Module 02** | Live Web Search Adapter | `lib/research/discoveryEngine.ts` | **Implemented** |
-| **Module 02** | GitHub Repository Discovery Adapter | `lib/research/discoveryEngine.ts` | **Implemented** |
-| **Module 02** | Academic Paper Discovery Adapter (arXiv) | `lib/research/discoveryEngine.ts` | **Implemented** |
-| **Module 02** | Internal Document Discovery Adapter | `lib/research/discoveryEngine.ts` | **Implemented** |
-| **Module 02** | Advanced Memory Retrieval Adapter | `lib/research/discoveryEngine.ts` | **Implemented** |
-| **Module 02** | 6-Tier Credibility Priority Policy | `lib/research/discoveryEngine.ts` | **Implemented** |
-| **Module 02** | Normalized Discovery Output Schema | `lib/research/discoveryEngine.ts` | **Implemented** |
-| **Module 02** | Canonical URL Normalization & Hashing | `lib/research/discoveryEngine.ts` | **Implemented** |
-| **Module 03** | Relevant Content Collection & DOM Cleaning | `lib/research/evidenceEngine.ts` | **Implemented** |
-| **Module 03** | Atomic Claim Identification | `lib/research/evidenceEngine.ts` | **Implemented** |
-| **Module 03** | Structured Fact Extraction | `lib/research/evidenceEngine.ts` | **Implemented** |
-| **Module 03** | Technical Specification Extraction | `lib/research/evidenceEngine.ts` | **Implemented** |
-| **Module 03** | Temporal & Version Date Tracking | `lib/research/evidenceEngine.ts` | **Implemented** |
-| **Module 03** | Exact Verbatim Passage Storage & Offsets | `lib/research/evidenceEngine.ts` | **Implemented** |
-| **Module 03** | Duplicate Source & Content Hash Detection | `lib/research/evidenceEngine.ts` | **Implemented** |
-| **Module 03** | Evidence-to-Claim Relational Mapping | `lib/research/evidenceEngine.ts` | **Implemented** |
-| **Data Layer** | PostgreSQL / Supabase Migration (6 tables, RLS) | `supabase/migrations/*` | **Implemented** |
-| **Data Layer** | Shared AES-256-GCM Repository | `lib/research/repository.ts` | **Implemented** |
-| **Pipeline** | Unified Research Orchestrator | `lib/research/orchestrator.ts` | **Implemented** |
-| **API Layer** | Next.js Endpoints (`plan`, `discover`, `extract`, `project`) | `app/api/research/*` | **Implemented** |
+| **Module 01** | Research Planning Engine (11 intents, scope, DAG) | `lib/research/planningEngine.ts` | **Implemented** |
+| **Module 02** | Information Discovery Engine (5 adapters, 6 tiers) | `lib/research/discoveryEngine.ts` | **Implemented** |
+| **Module 03** | Evidence Collection & Extraction Engine | `lib/research/evidenceEngine.ts` | **Implemented** |
+| **Module 04** | Source Reliability & Quality Engine (6 dimensions) | `lib/research/sourceReliabilityEngine.ts` | **Implemented** |
+| **Module 05** | Claim Verification Engine (6 epistemic statuses) | `lib/research/claimVerificationEngine.ts` | **Implemented** |
+| **Module 06** | Cross-Source Comparison & Contradiction Engine | `lib/research/contradictionEngine.ts` | **Implemented** |
+| **Module 07** | Evidence-Based Reasoning & Intelligence Synthesis | `lib/research/analysisEngine.ts` | **Implemented** |
+| **Module 08** | Category-Aware Revalidation TTL & Drift Detection | `lib/research/freshnessEngine.ts` | **Implemented** |
+| **Module 09** | 9 Specialized Research Report Archetypes | `lib/research/reportGenerator.ts` | **Implemented** |
+| **Module 10** | Advanced Memory Deep Ingestion & Provenance | `lib/research/memoryIngestionEngine.ts` | **Implemented** |
+| **Module 10** | Cognitive Knowledge Graph Construction (Nodes/Edges) | `lib/research/memoryIngestionEngine.ts` | **Implemented** |
+| **Module 10** | Non-Destructive Memory Evolution & Versioning | `lib/research/memoryIngestionEngine.ts` | **Implemented** |
+| **Module 10** | Pre-Research Memory Recall & Context Injection | `lib/research/memoryIngestionEngine.ts` | **Implemented** |
+| **Module 10** | Memory Self-Healing & Link Integrity Auditing | `lib/research/memoryIngestionEngine.ts` | **Implemented** |
+| **Module 11** | Layered Prompt Injection Detection & Neutralization | `lib/research/safetyEngine.ts` | **Implemented** |
+| **Module 11** | Malicious Document & Hidden Tag Sanitization | `lib/research/safetyEngine.ts` | **Implemented** |
+| **Module 11** | Sensitive Credential & API Key Masking | `lib/research/safetyEngine.ts` | **Implemented** |
+| **Module 11** | Pre-Discovery SSRF & URL Trust Tier Firewall | `lib/research/safetyEngine.ts` | **Implemented** |
+| **Module 11** | Citation Integrity Firewall (Phantom Citation Detection) | `lib/research/safetyEngine.ts` | **Implemented** |
+| **Module 11** | Research Security Event Audit Logging | `lib/research/safetyEngine.ts` | **Implemented** |
+| **Pipeline** | Unified 11-Stage Research Pipeline Orchestrator | `lib/research/orchestrator.ts` | **Implemented** |
+| **Storage** | PostgreSQL / Supabase Migrations (29 tables, RLS) | `supabase/migrations/*` | **Implemented** |
+| **Storage** | Encrypted Shared Repository (AES-256-GCM) | `lib/research/repository.ts` | **Implemented** |
+| **APIs** | Modular & Unified Next.js API Routes (11-stage SSE) | `app/api/research/*` | **Implemented** |
 
 ---
 
-## 7. Security & Sandboxing Boundaries
+## 7. Clean Boundaries for Module 12
 
-1. **Read-Only Discovery**: All web, API, GitHub, and academic requests are strictly read-only HTTP GET requests. No state modification or write requests are issued.
-2. **SSRF Filtering**: Targets resolving to `localhost`, `127.0.0.1`, RFC1918 subnets (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), or cloud metadata endpoints (`169.254.169.254`) are rejected before transmission.
-3. **DOM Sanitization**: Ingested HTML documents have `<script>`, `<style>`, `<iframe>`, and event handlers stripped prior to parsing to prevent code injection.
-4. **Data Encryption at Rest**: The local persistence vault encrypts all stored research projects, queries, sources, evidence, claims, and links using AES-256-GCM.
-5. **No Hardcoded Secrets**: Adapters access public APIs without hardcoded tokens. If optional credentials (e.g. `GITHUB_TOKEN`) are configured in the environment, they are utilized; otherwise, adapters gracefully execute unauthenticated public requests.
-
----
-
-## 8. Clean Boundaries for Subsequent Batches
-
-The following modules remain strictly out of scope for Batch 01 and will be implemented in subsequent batches:
-- **Module 04**: Source Reliability & Quality Engine (Evaluation of domain credibility, bias, author authority, and content freshness).
-- **Module 05**: Claim Verification Engine (Epistemic stance checking, multi-source verification, contradiction detection).
-- **Module 06**: Cross-Source Comparison & Contradiction Engine.
-- **Module 07**: Research Analysis & Intelligence Engine.
-- **Module 08**: Freshness & Revalidation Engine.
-- **Module 09**: Research Report Generator.
-- **Module 10**: Advanced Memory Deep Ingestion.
-- **Module 11**: Research Safety & Integrity Engine.
-- **Module 12**: Final Security, Testing & End-to-End Certification.
-
-The output contract of `ResearchPipelineResult` explicitly leaves `boundaryForFutureModules.sourceReliabilityPending = true` and `boundaryForFutureModules.claimVerificationPending = true` to allow seamless integration into Module 04 and Module 05.
+All eleven functional research modules are now fully implemented and integrated.
+The following remain strictly reserved for the final stage (**Module 12**):
+- **Formal Verification & Test Suite Execution**: Unit test campaigns, end-to-end integration test suites, and regression testing.
+- **Security Penetration Auditing**: Rigorous red-team verification of prompt injection defenses and sandbox boundaries.
+- **Performance Benchmarking & Optimization**: Latency tuning, memory footprint profiling, and query caching.
+- **Production Certification**: Final co-founder readiness sign-off.

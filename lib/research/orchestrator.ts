@@ -1,29 +1,40 @@
 /**
- * @file lib/research/orchestrator.ts
- * @description Central Pipeline Orchestrator for the ULTRON Research & Verification Engine (Batch 01).
+ * ============================================================================
+ * Module Name: Central Pipeline Orchestrator (Modules 01 - 11)
+ * Subsystem: ULTRON Research & Verification Engine - Batch 04
+ * File: lib/research/orchestrator.ts
+ * ============================================================================
  *
- * Subsystem:
- * Autonomous Knowledge & Research Intelligence - End-to-End Pipeline Orchestration.
+ * ARCHITECTURAL ROLE & PURPOSE:
+ * -----------------------------
+ * Central Coordinator executing the complete end-to-end autonomous research
+ * workflow across all 11 implemented modules:
+ * 
+ * 1. Module 01: Research Planning Engine (Intent, Scope, Query Decomposition)
+ * 2. Module 02: Information Discovery Engine (Web, Docs, Repositories, Offline)
+ * 3. Module 03: Evidence Collection & Extraction Engine (Passages, Claims, Facts)
+ * 4. Module 04: Source Reliability & Quality Engine (Authority, Freshness, Independence)
+ * 5. Module 05: Claim Verification Engine (Truthfulness, Primary Source Check)
+ * 6. Module 06: Cross-Source Contradiction Engine (Divergence, Reconciliation)
+ * 7. Module 07: Research Analysis & Intelligence Engine (Conclusions, Alternatives, Tradeoffs)
+ * 8. Module 08: Freshness & Revalidation Engine (TTL Decay, Drift, Revalidation Scheduler)
+ * 9. Module 09: Research Report Generator (Executive Briefings, Dossiers, Verbatim Citations)
+ * 10. Module 10: Advanced Memory Deep Ingestion (Provenance Links, Knowledge Graph, Versioning)
+ * 11. Module 11: Research Safety & Integrity Engine (Prompt Injection, Quarantine, Citation Firewall)
  *
- * Key Responsibilities:
- * - Glues together Module 01 (Planning), Module 02 (Discovery), and Module 03 (Evidence Extraction).
- * - Enforces the strict sequential workflow: Request -> Plan -> Discover -> Extract -> Traceable Mapping -> Persist.
- * - Coordinates transactional persistence in `lib/research/repository.ts` for all 6 core research entities.
- * - Enforces resource boundaries, time limits, and negative constraints.
- * - Prepares clean, unencumbered interfaces for future Batch 02 modules (Module 04: Source Reliability, Module 05: Claim Verification).
+ * KEY RESPONSIBILITIES:
+ * ---------------------
+ * - Enforces the strict sequential pipeline with in-flight security firewalls.
+ * - Coordinates transactional persistence in `lib/research/repository.ts` for all 22 entity types.
+ * - Ingests verified outputs into the Advanced Memory vault with full provenance.
+ * - Prepares clean, unencumbered boundaries for future Module 12 (Final Certification).
  *
- * Architectural Role & Interactions:
- * - Upstream: Called by Next.js API endpoints (`app/api/research/*`) and conversational chat tools.
- * - Downstream: Coordinates:
- *   - `lib/research/planningEngine.ts`
- *   - `lib/research/discoveryEngine.ts`
- *   - `lib/research/evidenceEngine.ts`
- *   - `lib/research/repository.ts`
- *
- * Safety / Security Guarantees:
- * - Read-only pipeline execution: Never invokes write commands against external APIs.
+ * SAFETY / SECURITY GUARANTEES:
+ * -----------------------------
+ * - In-flight prompt injection defense and credential masking across all ingested sources.
+ * - Strict citation integrity verification preventing hallucinated footnotes.
  * - Fail-safe isolation: If an individual provider or source fails, the pipeline continues gracefully.
- * - Complete data provenance: Every saved claim is linked to an exact passage and source URL.
+ * ============================================================================
  */
 
 import crypto from "crypto";
@@ -38,10 +49,36 @@ import type {
   EvidenceRecord,
   ClaimRecord,
   ClaimEvidenceLinkRecord,
+  SourceQualityAssessmentRecord,
+  ClaimVerificationRecord,
+  CrossSourceContradictionRecord,
+  SourceDependencyRecord,
+  ResearchAnalysisResult,
+  FreshnessEngineResult,
+  ResearchReport,
+  ResearchAnalysisRecord,
+  ResearchFindingRecord,
+  ResearchRecommendationRecord,
+  ResearchGapRecord,
+  ResearchAlternativeRecord,
+  SourceFreshnessRecordData,
+  RevalidationJobRecord,
+  RevalidationLogRecord,
+  ResearchReportRecord,
+  ResearchReportCitationRecord,
+  MemoryIngestionResult,
 } from "./types.ts";
 import { researchPlanningEngine } from "./planningEngine.ts";
 import { informationDiscoveryEngine } from "./discoveryEngine.ts";
 import { evidenceCollectionEngine } from "./evidenceEngine.ts";
+import { sourceReliabilityEngine } from "./sourceReliabilityEngine.ts";
+import { claimVerificationEngine } from "./claimVerificationEngine.ts";
+import { crossSourceContradictionEngine } from "./contradictionEngine.ts";
+import { researchAnalysisEngine } from "./analysisEngine.ts";
+import { freshnessEngine } from "./freshnessEngine.ts";
+import { researchReportGenerator } from "./reportGenerator.ts";
+import { advancedMemoryIngestionEngine } from "./memoryIngestionEngine.ts";
+import { researchSafetyEngine } from "./safetyEngine.ts";
 import { researchRepository } from "./repository.ts";
 
 /**
@@ -57,6 +94,11 @@ export interface ResearchPipelineResult {
   extractedPassagesCount: number;
   extractedFactsCount: number;
   extractedSpecsCount: number;
+  verifiedClaimsCount: number;
+  contradictionsCount: number;
+  findingsCount: number;
+  recommendationsCount: number;
+  gapsCount: number;
   durationMs: number;
   summary: {
     title: string;
@@ -69,15 +111,28 @@ export interface ResearchPipelineResult {
   claims: ClaimRecord[];
   evidence: EvidenceRecord[];
   links: ClaimEvidenceLinkRecord[];
+  qualityAssessments: SourceQualityAssessmentRecord[];
+  verifications: ClaimVerificationRecord[];
+  contradictions: CrossSourceContradictionRecord[];
+  dependencies: SourceDependencyRecord[];
+  analysis?: ResearchAnalysisResult;
+  freshness?: FreshnessEngineResult;
+  reports?: ResearchReport[];
+  memoryIngestion?: MemoryIngestionResult;
+  safetyAudit?: {
+    securityEventsCount: number;
+    quarantinedSourcesCount: number;
+    citationIntegrityPassed: boolean;
+    auditedAt: string;
+  };
   boundaryForFutureModules: {
-    sourceReliabilityPending: boolean; // Flag indicating Module 04 is next
-    claimVerificationPending: boolean;  // Flag indicating Module 05 is next
+    finalCertificationPending: boolean; // Clean boundary for Module 12
   };
 }
 
 export class ResearchPipelineOrchestrator {
   /**
-   * Executes the full end-to-end research workflow across Modules 01, 02, and 03.
+   * Executes the full end-to-end research workflow across Modules 01 through 11.
    *
    * @param request - User research request payload.
    * @returns Complete, structured research dossier.
@@ -86,9 +141,20 @@ export class ResearchPipelineOrchestrator {
     const startTime = Date.now();
 
     // ==========================================================================
+    // PRE-FLIGHT: RECALL HISTORICAL RESEARCH CONTEXT (MODULE 10)
+    // ==========================================================================
+    const recalledMemories = advancedMemoryIngestionEngine.recallHistoricalResearch(request.query, 5);
+    const priorInferredAssumptions = recalledMemories.map(
+      (m) => `Prior Research Context: ${m.content}`
+    );
+
+    // ==========================================================================
     // PHASE 1: MODULE 01 — RESEARCH PLANNING ENGINE
     // ==========================================================================
     const plan = researchPlanningEngine.generatePlan(request);
+    if (priorInferredAssumptions.length > 0) {
+      plan.inferred_assumptions.push(...priorInferredAssumptions);
+    }
 
     // Save project entity into repository
     const projectRecord: ResearchProjectRecord = {
@@ -140,11 +206,21 @@ export class ResearchPipelineOrchestrator {
     await researchRepository.saveQueries(queryRecords);
 
     // ==========================================================================
-    // PHASE 2: MODULE 02 — INFORMATION DISCOVERY ENGINE
+    // PHASE 2: MODULE 02 — INFORMATION DISCOVERY ENGINE & SAFETY INSPECTION (MODULE 11)
     // ==========================================================================
     const discoveredItems: NormalizedDiscoveryResult[] = await informationDiscoveryEngine.discoverAll(plan);
 
-    // Save discovered source records
+    // In-flight safety inspection on all discovered URLs
+    for (const item of discoveredItems) {
+      await researchSafetyEngine.inspectSourceUrl(
+        item.original_url,
+        item.discovery_id,
+        plan.research_id,
+        item.provider
+      );
+    }
+
+    // Save discovered sources (normalized and deduplicated)
     const sourceRecords: SourceRecord[] = discoveredItems.map((item) => ({
       id: item.discovery_id,
       project_id: plan.research_id,
@@ -171,10 +247,20 @@ export class ResearchPipelineOrchestrator {
     await researchRepository.updateProjectStatus(plan.research_id, "extracting");
 
     // ==========================================================================
-    // PHASE 3: MODULE 03 — EVIDENCE COLLECTION & EXTRACTION ENGINE
+    // PHASE 3: MODULE 03 — EVIDENCE EXTRACTION & PROMPT INJECTION SANITIZATION (MODULE 11)
     // ==========================================================================
     const extractionResults: EvidenceExtractionResult[] = [];
     for (const discoveredSource of discoveredItems) {
+      // In-flight content sanitization and secret masking
+      if (discoveredSource.snippet) {
+        const { sanitizedContent } = await researchSafetyEngine.sanitizeContent(
+          discoveredSource.snippet,
+          discoveredSource.discovery_id,
+          plan.research_id
+        );
+        discoveredSource.snippet = sanitizedContent;
+      }
+
       const extraction = await evidenceCollectionEngine.processSource(discoveredSource);
       extractionResults.push(extraction);
     }
@@ -240,6 +326,357 @@ export class ResearchPipelineOrchestrator {
     const savedClaims = await researchRepository.saveClaims(allClaimsToSave);
     const savedLinks = await researchRepository.saveClaimEvidenceLinks(allLinksToSave);
 
+    // ==========================================================================
+    // PHASE 4: MODULE 04 — SOURCE RELIABILITY & QUALITY ENGINE
+    // ==========================================================================
+    const { assessments: sourceQualityAssessments, dependencies: sourceDependencies } =
+      sourceReliabilityEngine.evaluateSources(plan.research_id, plan.topic, savedSources, savedEvidence);
+
+    const qualityAssessmentRecords: SourceQualityAssessmentRecord[] = sourceQualityAssessments.map((sqa) => ({
+      id: sqa.id,
+      project_id: sqa.projectId,
+      source_id: sqa.sourceId,
+      authority_score: sqa.authorityScore,
+      relevance_score: sqa.relevanceScore,
+      freshness_score: sqa.freshnessScore,
+      evidence_score: sqa.evidenceScore,
+      independence_score: sqa.independenceScore,
+      transparency_score: sqa.transparencyScore,
+      composite_quality_score: sqa.compositeQualityScore,
+      quality_tier: sqa.qualityTier,
+      is_primary_source: sqa.isPrimarySource,
+      is_official_doc: sqa.isOfficialDoc,
+      detected_biases: sqa.detectedBiases,
+      transparency_limitations: sqa.transparencyLimitations,
+      assessment_breakdown: sqa.assessmentBreakdown as unknown as Record<string, unknown>,
+      created_at: sqa.assessedAt,
+      updated_at: sqa.assessedAt,
+    }));
+    const savedQualityAssessments = await researchRepository.saveQualityAssessments(qualityAssessmentRecords);
+
+    const dependencyRecords: SourceDependencyRecord[] = sourceDependencies.map((sd) => ({
+      id: sd.id,
+      project_id: sd.projectId,
+      source_id: sd.sourceId,
+      upstream_source_id: sd.upstreamSourceId,
+      dependency_type: sd.dependencyType,
+      confidence: sd.confidence,
+      created_at: sd.detectedAt,
+    }));
+    const savedDependencies = await researchRepository.saveSourceDependencies(dependencyRecords);
+
+    // ==========================================================================
+    // PHASE 5: MODULE 05 — CLAIM VERIFICATION ENGINE
+    // ==========================================================================
+    const verificationResults = claimVerificationEngine.verifyClaims(
+      plan.research_id,
+      savedClaims,
+      savedEvidence,
+      savedLinks,
+      savedSources,
+      sourceQualityAssessments,
+      sourceDependencies
+    );
+
+    const verificationRecords: ClaimVerificationRecord[] = verificationResults.map((vr) => ({
+      id: vr.id,
+      project_id: vr.projectId,
+      claim_id: vr.claimId,
+      verification_status: vr.verificationStatus,
+      confidence_score: vr.confidenceScore,
+      confidence_level: vr.confidenceLevel,
+      primary_source_checked: vr.primarySourceChecked,
+      independent_sources_count: vr.independentSourcesCount,
+      direct_evidence_ids: vr.directEvidenceIds,
+      contradicting_evidence_ids: vr.contradictingEvidenceIds,
+      explanation: vr.explanation,
+      qualifier_notes: vr.qualifierNotes,
+      misleading_indicators: vr.misleadingIndicators,
+      temporal_assessment: vr.temporalAssessment as unknown as Record<string, unknown>,
+      created_at: vr.verifiedAt,
+      updated_at: vr.verifiedAt,
+    }));
+    const savedVerifications = await researchRepository.saveClaimVerifications(verificationRecords);
+
+    // ==========================================================================
+    // PHASE 6: MODULE 06 — CROSS-SOURCE COMPARISON & CONTRADICTION ENGINE
+    // ==========================================================================
+    const contradictionResults = crossSourceContradictionEngine.analyzeContradictions(
+      plan.research_id,
+      savedClaims,
+      verificationResults,
+      savedEvidence,
+      savedSources,
+      sourceQualityAssessments,
+      sourceDependencies
+    );
+
+    const contradictionRecords: CrossSourceContradictionRecord[] = contradictionResults.map((cr) => ({
+      id: cr.id,
+      project_id: cr.projectId,
+      subject: cr.subject,
+      contradiction_type: cr.contradictionType,
+      competing_claim_ids: cr.competingClaimIds,
+      competing_evidence_ids: cr.competingEvidenceIds,
+      competing_positions: cr.competingPositions,
+      resolution_status: cr.resolutionStatus,
+      primary_source_evidence_id: cr.primarySourceEvidenceId,
+      resolution_explanation: cr.resolutionExplanation,
+      severity: cr.severity,
+      created_at: cr.detectedAt,
+      updated_at: cr.detectedAt,
+    }));
+    const savedContradictions = await researchRepository.saveContradictions(contradictionRecords);
+
+    // ==========================================================================
+    // PHASE 7: MODULE 07 — RESEARCH ANALYSIS & INTELLIGENCE ENGINE
+    // ==========================================================================
+    const analysisResult = researchAnalysisEngine.analyzeResearch(
+      plan,
+      savedClaims,
+      savedEvidence,
+      savedSources,
+      sourceQualityAssessments,
+      verificationResults,
+      contradictionResults
+    );
+
+    const analysisRecord: ResearchAnalysisRecord = {
+      id: analysisResult.id,
+      project_id: plan.research_id,
+      executive_summary: analysisResult.executiveSummary,
+      evidence_based_conclusions: analysisResult.evidenceBasedConclusions,
+      comparative_analysis: analysisResult.comparativeAnalysis,
+      architectural_implications: analysisResult.architecturalImplications,
+      uncertainty_profile: analysisResult.uncertaintyProfile,
+      decision_framework: analysisResult.decisionFramework,
+      created_at: analysisResult.analyzedAt,
+      updated_at: analysisResult.analyzedAt,
+    };
+    await researchRepository.saveAnalysis(analysisRecord);
+
+    const findingRecords: ResearchFindingRecord[] = analysisResult.findings.map((f) => ({
+      id: f.id,
+      project_id: plan.research_id,
+      sub_question_id: f.subQuestionId,
+      finding_title: f.findingTitle,
+      finding_statement: f.findingStatement,
+      finding_type: f.findingType,
+      supporting_claim_ids: f.supportingClaimIds,
+      supporting_evidence_ids: f.supportingEvidenceIds,
+      confidence_level: f.confidenceLevel,
+      is_consensus_fact: f.isConsensusFact,
+      created_at: f.createdAt,
+    }));
+    await researchRepository.saveFindings(findingRecords);
+
+    const recommendationRecords: ResearchRecommendationRecord[] = analysisResult.recommendations.map((r) => ({
+      id: r.id,
+      project_id: plan.research_id,
+      recommendation_text: r.recommendationText,
+      reasoning: r.reasoning,
+      supporting_claim_ids: r.supportingClaimIds,
+      supporting_evidence_ids: r.supportingEvidenceIds,
+      advantages: r.advantages,
+      trade_offs: r.tradeOffs,
+      risks: r.risks,
+      assumptions: r.assumptions,
+      confidence_score: r.confidenceScore,
+      conditional_triggers: r.conditionalTriggers,
+      created_at: r.createdAt,
+    }));
+    await researchRepository.saveRecommendations(recommendationRecords);
+
+    const gapRecords: ResearchGapRecord[] = analysisResult.gaps.map((g) => ({
+      id: g.id,
+      project_id: plan.research_id,
+      gap_title: g.gapTitle,
+      gap_description: g.gapDescription,
+      sub_question_id: g.subQuestionId,
+      severity: g.severity,
+      impact_analysis: g.impactAnalysis,
+      recommended_remedy: g.recommendedRemedy,
+      created_at: g.createdAt,
+    }));
+    await researchRepository.saveGaps(gapRecords);
+
+    const alternativeRecords: ResearchAlternativeRecord[] = analysisResult.alternatives.map((a) => ({
+      id: a.id,
+      project_id: plan.research_id,
+      name: a.name,
+      description: a.description,
+      advantages: a.advantages,
+      disadvantages: a.disadvantages,
+      dependencies: a.dependencies,
+      technical_requirements: a.technicalRequirements,
+      operational_limitations: a.operationalLimitations,
+      risks: a.risks,
+      unresolved_questions: a.unresolvedQuestions,
+      supporting_evidence_ids: a.supportingEvidenceIds,
+      created_at: a.createdAt,
+    }));
+    await researchRepository.saveAlternatives(alternativeRecords);
+
+    // ==========================================================================
+    // PHASE 8: MODULE 08 — FRESHNESS & REVALIDATION ENGINE
+    // ==========================================================================
+    const freshnessResult = freshnessEngine.evaluateFreshness(
+      plan,
+      savedSources,
+      savedEvidence,
+      savedClaims,
+      recommendationRecords
+    );
+
+    const freshnessRecords: SourceFreshnessRecordData[] = freshnessResult.sourceFreshness.map((sf) => ({
+      id: sf.id,
+      project_id: plan.research_id,
+      source_id: sf.sourceId,
+      freshness_state: sf.freshnessState,
+      last_verified_at: sf.lastVerifiedAt,
+      next_revalidation_due: sf.nextRevalidationDue,
+      staleness_reasons: sf.stalenessReasons,
+      version_observed: sf.versionObserved,
+      content_hash_observed: sf.contentHashObserved,
+      created_at: sf.lastVerifiedAt,
+      updated_at: sf.lastVerifiedAt,
+    }));
+    await researchRepository.saveSourceFreshness(freshnessRecords);
+
+    const jobRecords: RevalidationJobRecord[] = freshnessResult.scheduledJobs.map((j) => ({
+      id: j.id,
+      project_id: plan.research_id,
+      source_id: j.sourceId,
+      status: j.status,
+      scheduled_for: j.scheduledFor,
+      started_at: j.startedAt,
+      completed_at: j.completedAt,
+      retry_count: j.retryCount,
+      error_message: j.errorMessage,
+      created_at: j.createdAt,
+    }));
+    await researchRepository.saveRevalidationJobs(jobRecords);
+
+    const logRecords: RevalidationLogRecord[] = freshnessResult.revalidationLogs.map((l) => ({
+      id: l.id,
+      project_id: plan.research_id,
+      source_id: l.sourceId,
+      previous_content_hash: l.previousContentHash,
+      new_content_hash: l.newContentHash,
+      previous_version: l.previousVersion,
+      new_version: l.newVersion,
+      change_description: l.changeDescription,
+      impacted_claim_ids: l.impactedClaimIds,
+      impacted_evidence_ids: l.impactedEvidenceIds,
+      impacted_recommendation_ids: l.impactedRecommendationIds,
+      detected_at: l.detectedAt,
+    }));
+    await researchRepository.saveRevalidationLogs(logRecords);
+
+    // ==========================================================================
+    // PHASE 9: MODULE 09 — RESEARCH REPORT GENERATION & CITATION FIREWALL (MODULE 11)
+    // ==========================================================================
+    const execReport = researchReportGenerator.generateReport({
+      project: projectRecord,
+      sources: savedSources,
+      evidence: savedEvidence,
+      claims: savedClaims,
+      reliabilities: savedQualityAssessments,
+      verifications: savedVerifications,
+      contradictions: savedContradictions,
+      analysis: analysisResult,
+      freshness: freshnessResult,
+      options: {
+        reportType: "executive_briefing",
+        format: "markdown",
+      },
+    });
+
+    const comprehensiveReport = researchReportGenerator.generateReport({
+      project: projectRecord,
+      sources: savedSources,
+      evidence: savedEvidence,
+      claims: savedClaims,
+      reliabilities: savedQualityAssessments,
+      verifications: savedVerifications,
+      contradictions: savedContradictions,
+      analysis: analysisResult,
+      freshness: freshnessResult,
+      options: {
+        reportType: "comprehensive_report",
+        format: "markdown",
+      },
+    });
+
+    const reportsToSave = [execReport, comprehensiveReport];
+    let allCitationsValid = true;
+
+    for (const rep of reportsToSave) {
+      // Citation Integrity Firewall
+      const audit = await researchSafetyEngine.verifyCitationIntegrity(rep, plan.research_id);
+      if (audit.hasFabricatedReferences) {
+        allCitationsValid = false;
+      }
+
+      const repRecord: ResearchReportRecord = {
+        id: rep.id,
+        project_id: plan.research_id,
+        title: rep.title,
+        report_type: rep.reportType,
+        format: rep.format,
+        content_raw: rep.contentRaw,
+        content_structured: rep.contentStructured,
+        summary_brief: rep.summaryBrief,
+        version: rep.version,
+        citations_count: rep.citationsCount,
+        generated_at: rep.generatedAt,
+        updated_at: rep.generatedAt,
+      };
+      await researchRepository.saveReport(repRecord);
+
+      const citRecords: ResearchReportCitationRecord[] = rep.citations.map((c) => ({
+        id: c.id,
+        report_id: rep.id,
+        citation_index: c.citationIndex,
+        citation_marker: c.citationMarker,
+        source_id: c.sourceId,
+        evidence_id: c.evidenceId,
+        claim_id: c.claimId,
+        source_title: c.sourceTitle,
+        source_url: c.sourceUrl,
+        publisher: c.publisher,
+        publication_date: c.publicationDate,
+        exact_passage_excerpt: c.exactPassageExcerpt,
+        created_at: rep.generatedAt,
+      }));
+      await researchRepository.saveReportCitations(citRecords);
+    }
+
+    // ==========================================================================
+    // PHASE 10: MODULE 10 — ADVANCED MEMORY DEEP INGESTION ENGINE
+    // ==========================================================================
+    const memoryIngestionResult = await advancedMemoryIngestionEngine.ingestResearchProject({
+      project: projectRecord,
+      sources: savedSources,
+      evidence: savedEvidence,
+      claims: savedClaims,
+      verifications: savedVerifications,
+      contradictions: savedContradictions,
+      analysis: analysisResult,
+      reports: reportsToSave,
+    });
+
+    // ==========================================================================
+    // PHASE 11: MODULE 11 — RESEARCH SAFETY & INTEGRITY AUDIT SUMMARY
+    // ==========================================================================
+    const projectSecurityEvents = await researchRepository.getSecurityEvents(plan.research_id);
+    const safetyAuditSummary = {
+      securityEventsCount: projectSecurityEvents.length,
+      quarantinedSourcesCount: projectSecurityEvents.filter((e) => e.action_taken === "quarantined").length,
+      citationIntegrityPassed: allCitationsValid,
+      auditedAt: new Date().toISOString(),
+    };
+
     await researchRepository.updateProjectStatus(plan.research_id, "completed");
 
     const totalFactsCount = extractionResults.reduce((acc, r) => acc + r.facts.length, 0);
@@ -255,6 +692,11 @@ export class ResearchPipelineOrchestrator {
       extractedPassagesCount: savedEvidence.length,
       extractedFactsCount: totalFactsCount,
       extractedSpecsCount: totalSpecsCount,
+      verifiedClaimsCount: savedVerifications.filter((v) => v.verification_status === "verified").length,
+      contradictionsCount: savedContradictions.length,
+      findingsCount: findingRecords.length,
+      recommendationsCount: recommendationRecords.length,
+      gapsCount: gapRecords.length,
       durationMs: Date.now() - startTime,
       summary: {
         title: plan.title,
@@ -267,9 +709,17 @@ export class ResearchPipelineOrchestrator {
       claims: savedClaims,
       evidence: savedEvidence,
       links: savedLinks,
+      qualityAssessments: savedQualityAssessments,
+      verifications: savedVerifications,
+      contradictions: savedContradictions,
+      dependencies: savedDependencies,
+      analysis: analysisResult,
+      freshness: freshnessResult,
+      reports: reportsToSave,
+      memoryIngestion: memoryIngestionResult,
+      safetyAudit: safetyAuditSummary,
       boundaryForFutureModules: {
-        sourceReliabilityPending: true, // Clean boundary for Module 04
-        claimVerificationPending: true, // Clean boundary for Module 05
+        finalCertificationPending: true, // Clean boundary for Module 12
       },
     };
   }
