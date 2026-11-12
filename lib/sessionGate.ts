@@ -331,6 +331,26 @@ export function validateDesktopSession(
     if (primaryDesktopSessionToken && token === primaryDesktopSessionToken) {
       return { valid: true };
     }
+    // Check centralized identity engine sessions
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { validateSessionToken } = require("./security/identityEngine.ts");
+      const secCheck = validateSessionToken(token);
+      if (secCheck.isValid && secCheck.session) {
+        return {
+          valid: true,
+          session: {
+            sessionId: secCheck.session.sessionId,
+            token: secCheck.session.sessionToken,
+            createdAt: secCheck.session.createdAt,
+            expiresAt: secCheck.session.expiresAt,
+            lastActiveAt: secCheck.session.lastActiveAt,
+          },
+        };
+      }
+    } catch {
+      // Fallback
+    }
     return {
       valid: false,
       error: "Unauthorized: Invalid or revoked desktop session token.",

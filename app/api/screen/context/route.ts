@@ -24,6 +24,7 @@ import { defaultScreenContextEngine } from "@/lib/screen/screenContextEngine";
 import { defaultVisualContextDeliveryEngine } from "@/lib/screen/contextDeliveryEngine";
 import { defaultPrivacySecurityEngine } from "@/lib/screen/privacySecurityEngine";
 import { defaultScreenSessionManager } from "@/lib/screen/sessionManager";
+import { defaultVisionControl } from "@/lib/screen/visionControl";
 
 export const dynamic = "force-dynamic";
 
@@ -94,8 +95,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       context,
       visual,
       ocr,
-      frame.pixelHash
+      frame.pixelHash,
+      {
+        frameId: frame.frameId,
+        sequenceNumber: frame.sequenceNumber,
+        frameTimestamp: frame.timestamp,
+        browserUrl: windowInfo.activeWindow?.browserUrl,
+        isSyntheticTestFrame: frame.isSyntheticTestFrame,
+      }
     );
+
+    defaultVisionControl.recordFrameAcquired(windowInfo.activeWindow?.title);
 
     return NextResponse.json({
       success: true,

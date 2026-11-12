@@ -28,9 +28,13 @@ class SystemControlEngine(BaseEngine):
         return {"valid": not protected, "risky": risky, "requires_approval": risky, "protected": protected}
 
     def system_info(self):
-        return {"os": platform.system(), "release": platform.release(),
-                "machine": platform.machine(), "processor": platform.processor(),
-                "python": platform.python_version()}
+        try:
+            from ..computer import desktop_engine
+            return desktop_engine.get_os_metadata()
+        except Exception:
+            return {"os": platform.system(), "release": platform.release(),
+                    "machine": platform.machine(), "processor": platform.processor(),
+                    "python": platform.python_version()}
 
     async def process(self, payload=None):
         if not isinstance(payload, dict):
@@ -41,16 +45,24 @@ class SystemControlEngine(BaseEngine):
         elif action == "info":
             res = self.system_info()
         elif action == "launch":
-            res = {"app": payload.get("app"), "status": "requested", "requires_approval": False}
+            app_target = payload.get("app")
+            try:
+                from ..computer import app_manager
+                res = app_manager.launch_app(str(app_target or ""))
+            except Exception as e:
+                res = {"app": app_target, "status": "failed", "error": str(e), "requires_approval": False}
         elif action == "terminate":
             proc = payload.get("process", "")
-            # Normalize before `.lower()`: a non-string process name raised
-            # AttributeError and skipped the protected-process guard.
             proc = proc if isinstance(proc, str) else ("" if proc is None else str(proc))
             if proc.lower() in PROTECTED_PROCESSES:
                 res = {"process": proc, "status": "blocked", "reason": "protected process"}
             else:
-                res = {"process": proc, "status": "requested"}
+                try:
+                    from ..computer import app_manager
+                    term_res = app_manager.terminate_app(proc)
+                    res = {"process": proc, "status": "terminated" if term_res.get("success") else "failed", **term_res}
+                except Exception as e:
+                    res = {"process": proc, "status": "failed", "error": str(e)}
         else:
             res = {"ok": True}
         await self.bus.publish("system_control.processed", res, source=self.name)

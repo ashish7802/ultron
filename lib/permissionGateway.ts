@@ -30,6 +30,8 @@
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
+import { isSystemLockedDown } from "./security/emergencyEngine.ts";
+import { recordSecurityEvent } from "./security/monitoringEngine.ts";
 
 export type PermissionActionType =
   | "app_launch"
@@ -247,6 +249,23 @@ export function approveActionPlan(
   planId: string,
   presentedToken: string
 ): { success: boolean; error?: string; executionGrantToken?: string } {
+  // Emergency Lockdown Enforcement: Block any approvals immediately if system is in emergency stop
+  if (isSystemLockedDown()) {
+    const plan = activePlans.get(planId);
+    if (plan) {
+      plan.status = "rejected";
+      activePlans.delete(planId);
+      logAuditEvent(plan, "rejected", false, "System under active Emergency Security Lockdown.");
+    }
+    recordSecurityEvent(
+      "EMERGENCY_STOP_TRIGGERED",
+      "HIGH",
+      "gateway",
+      `Blocked approval of plan ${planId} due to active Emergency Security Lockdown.`
+    );
+    return { success: false, error: "Security Violation: Execution blocked due to active Emergency Security Lockdown." };
+  }
+
   const plan = activePlans.get(planId);
   if (!plan) {
     return { success: false, error: "Action plan not found." };
@@ -285,6 +304,11 @@ export function approveActionPlan(
  */
 export function verifyGatewayExecutionGrant(planId: string, grantToken: string): boolean {
   if (!planId || !grantToken) return false;
+  // Emergency Lockdown Check: Fails closed when system is in emergency stop
+  if (isSystemLockedDown()) {
+    console.warn("[GATEWAY] Action blocked: System is under active Emergency Security Lockdown.");
+    return false;
+  }
   const plan = activePlans.get(planId);
   return Boolean(
     plan &&
@@ -328,6 +352,23 @@ export async function executeApprovedAction<T>(
   executionGrantToken: string,
   executor: () => Promise<T>
 ): Promise<{ success: boolean; result?: T; error?: string }> {
+  // Emergency Lockdown Enforcement: Block execution immediately before any state lookup
+  if (isSystemLockedDown()) {
+    const plan = activePlans.get(planId);
+    if (plan) {
+      plan.status = "rejected";
+      activePlans.delete(planId);
+      logAuditEvent(plan, "rejected", false, "System under active Emergency Security Lockdown.");
+    }
+    recordSecurityEvent(
+      "EMERGENCY_STOP_TRIGGERED",
+      "HIGH",
+      "gateway",
+      `Blocked execution of plan ${planId} due to active Emergency Security Lockdown.`
+    );
+    return { success: false, error: "Security Violation: Execution blocked due to active Emergency Security Lockdown." };
+  }
+
   const plan = activePlans.get(planId);
   if (!plan) {
     return { success: false, error: "Action plan not found." };

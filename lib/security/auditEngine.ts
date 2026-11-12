@@ -1,0 +1,304 @@
+/**
+ * @file lib/security/auditEngine.ts
+ * @description Tamper-Resistant, Cryptographically Chained Audit Ledger Engine for ULTRON.
+ *
+ * Subsystem:
+ * Centralized Security, Audit & Accountability Subsystem (Module 8).
+ *
+ * Key Responsibilities:
+ * - Maintains an append-only, tamper-evident audit ledger using HMAC-SHA256 cryptographic chaining.
+ * - Every audit entry contains:
+ *   * Strict monotonically increasing sequence number
+ *   * Timestamp, actor, role, action, target resource, risk tier
+ *   * Execution status, outcome summary, failure reason
+ *   * Session reference and approval grant reference
+ *   * `previousEntryHash` linking to the previous block
+ *   * `currentEntryHash` computed as HMAC-SHA256(secret, previousHash + canonicalEntry)
+ * - Implements automated audit chain verification (`verifyAuditChainIntegrity()`) to detect
+ *   any post-hoc modification, block deletion, or sequence break.
+ * - Enforces zero raw secrets or biometric data in audit records.
+ * - Writes records to disk atomically to guarantee ledger survival across crashes.
+ *
+ * Architectural Role & Interactions:
+ * - Wired to `lib/security/actionGateway.ts` via `setGatewayAuditHook`.
+ * - Exposed via `/api/security/audit` for UI ledger inspection and integrity checks.
+ *
+ * Safety / Security Guarantees:
+ * - Tamper evidence: Modifying any field in an existing record invalidates all subsequent HMAC hashes.
+ * - Immutable history: Only append operations are supported; updates or deletions are rejected.
+ */
+
+import crypto from "crypto";
+import fs from "fs";
+import path from "path";
+import { getActiveMasterSecret } from "../crypto.ts";
+import { scanAndSanitizeText } from "./privacyEngine.ts";
+import { setGatewayAuditHook } from "./actionGateway.ts";
+import type {
+  ChainedAuditEntry,
+  AuditVerificationReport,
+  UserRole,
+  ActionRiskLevel,
+  PermissionActionType,
+} from "./types.ts";
+
+/** Genesis block constant for the audit chain. */
+const GENESIS_BLOCK_HASH = "0000000000000000000000000000000000000000000000000000000000000000";
+
+/** Audit ledger disk persistence file. */
+const AUDIT_LEDGER_FILE = path.join(
+  /*turbopackIgnore: true*/ process.cwd(),
+  ".security_vault",
+  "audit_chain.json"
+);
+
+/** Active in-memory chained audit ledger. */
+const auditChain: ChainedAuditEntry[] = [];
+
+/**
+ * Derives an HMAC key specifically dedicated to audit chain integrity.
+ *
+ * @returns 32-byte Buffer key.
+ */
+function getAuditHMACKey(): Buffer {
+  const master = getActiveMasterSecret();
+  return crypto.scryptSync(master, "ULTRON_AUDIT_LEDGER_SALT_V1", 32);
+}
+
+/**
+ * Computes canonical HMAC-SHA256 hash for an audit entry.
+ *
+ * @param previousHash - Hash of prior block.
+ * @param entry - Audit entry payload fields.
+ * @returns 64-character hex HMAC string.
+ */
+function computeEntryHash(
+  previousHash: string,
+  entry: Omit<ChainedAuditEntry, "previousEntryHash" | "currentEntryHash">
+): string {
+  const canonicalData = JSON.stringify({
+    sequenceNumber: entry.sequenceNumber,
+    timestamp: entry.timestamp,
+    actor: entry.actor,
+    role: entry.role,
+    action: entry.action,
+    resource: entry.resource,
+    riskLevel: entry.riskLevel,
+    executionStatus: entry.executionStatus,
+    sessionRef: entry.sessionRef || null,
+    approvalRef: entry.approvalRef || null,
+    detailsSanitized: entry.detailsSanitized,
+  });
+
+  const hmacKey = getAuditHMACKey();
+  return crypto
+    .createHmac("sha256", hmacKey)
+    .update(`${previousHash}::${canonicalData}`)
+    .digest("hex");
+}
+
+/**
+ * Loads and restores the audit ledger from disk on startup.
+ */
+function initializeLedger(): void {
+  try {
+    const dir = path.dirname(AUDIT_LEDGER_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    if (fs.existsSync(AUDIT_LEDGER_FILE)) {
+      const raw = fs.readFileSync(AUDIT_LEDGER_FILE, "utf-8");
+      const list: ChainedAuditEntry[] = JSON.parse(raw);
+      auditChain.push(...list);
+    }
+  } catch (err) {
+    console.warn("[AUDIT ENGINE] Failed to load audit chain from disk:", err);
+  }
+}
+
+initializeLedger();
+
+/**
+ * Persists the chained audit ledger to disk atomically.
+ */
+function persistLedger(): void {
+  try {
+    const dir = path.dirname(AUDIT_LEDGER_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const tempFile = `${AUDIT_LEDGER_FILE}.tmp.${crypto.randomBytes(4).toString("hex")}`;
+    fs.writeFileSync(tempFile, JSON.stringify(auditChain, null, 2), "utf-8");
+    fs.renameSync(tempFile, AUDIT_LEDGER_FILE);
+  } catch (err) {
+    console.error("[AUDIT ENGINE] Failed to persist audit ledger:", err);
+  }
+}
+
+/**
+ * Appends a new verified entry to the HMAC-SHA256 chained audit ledger.
+ *
+ * @param params - Audit entry parameters.
+ * @returns The newly created and chained entry.
+ */
+export function appendAuditEntry(params: {
+  actor: string;
+  role?: UserRole;
+  action: PermissionActionType | string;
+  resource: string;
+  riskLevel: ActionRiskLevel;
+  executionStatus: "SUCCESS" | "FAILURE" | "DENIED" | "BLOCKED" | "REVOKED";
+  resultSummary?: string;
+  failureReason?: string;
+  details: string;
+  sessionRef?: string;
+  approvalRef?: string;
+}): ChainedAuditEntry {
+  const sequenceNumber = auditChain.length + 1;
+  const previousEntryHash =
+    auditChain.length > 0
+      ? auditChain[auditChain.length - 1].currentEntryHash
+      : GENESIS_BLOCK_HASH;
+
+  const sanitizedDetails = scanAndSanitizeText(params.details).sanitizedText;
+  const auditId = "aud_" + crypto.randomBytes(8).toString("hex");
+
+  const entryData: Omit<ChainedAuditEntry, "previousEntryHash" | "currentEntryHash"> = {
+    auditId,
+    sequenceNumber,
+    timestamp: Date.now(),
+    actor: params.actor,
+    role: params.role || "founder",
+    action: params.action,
+    resource: params.resource,
+    riskLevel: params.riskLevel,
+    sessionRef: params.sessionRef,
+    approvalRef: params.approvalRef,
+    executionStatus: params.executionStatus,
+    resultSummary: params.resultSummary,
+    failureReason: params.failureReason,
+    detailsSanitized: sanitizedDetails,
+  };
+
+  const currentEntryHash = computeEntryHash(previousEntryHash, entryData);
+
+  const fullEntry: ChainedAuditEntry = {
+    ...entryData,
+    previousEntryHash,
+    currentEntryHash,
+  };
+
+  auditChain.push(fullEntry);
+  persistLedger();
+  return fullEntry;
+}
+
+/**
+ * Connects the Action Gateway to the cryptographic audit ledger.
+ */
+setGatewayAuditHook((actor, action, target, riskLevel, status, details, sessionId, approvalId) => {
+  appendAuditEntry({
+    actor,
+    role: "founder",
+    action,
+    resource: target,
+    riskLevel,
+    executionStatus: status,
+    details,
+    sessionRef: sessionId,
+    approvalRef: approvalId,
+  });
+});
+
+/**
+ * Verifies the complete cryptographic integrity of the audit chain from genesis to tip.
+ *
+ * Checks:
+ * 1. Monotonic sequence numbering (1, 2, 3...)
+ * 2. Hash chaining: entry[i].previousEntryHash === entry[i-1].currentEntryHash
+ * 3. Recomputed HMAC: validates that entry fields were not tampered with
+ *
+ * @returns AuditVerificationReport.
+ */
+export function verifyAuditChainIntegrity(): AuditVerificationReport {
+  const total = auditChain.length;
+  if (total === 0) {
+    return { isChainValid: true, totalEntriesVerified: 0, verifiedAt: Date.now() };
+  }
+
+  let expectedPreviousHash = GENESIS_BLOCK_HASH;
+
+  for (let i = 0; i < total; i++) {
+    const entry = auditChain[i];
+
+    // Check sequence number
+    if (entry.sequenceNumber !== i + 1) {
+      return {
+        isChainValid: false,
+        totalEntriesVerified: i,
+        brokenSequenceAt: i + 1,
+        corruptedAuditId: entry.auditId,
+        verifiedAt: Date.now(),
+      };
+    }
+
+    // Check link to previous hash
+    if (entry.previousEntryHash !== expectedPreviousHash) {
+      return {
+        isChainValid: false,
+        totalEntriesVerified: i,
+        brokenSequenceAt: i + 1,
+        corruptedAuditId: entry.auditId,
+        verifiedAt: Date.now(),
+      };
+    }
+
+    // Recompute current HMAC hash
+    const recomputedHash = computeEntryHash(expectedPreviousHash, entry);
+    if (recomputedHash !== entry.currentEntryHash) {
+      return {
+        isChainValid: false,
+        totalEntriesVerified: i,
+        brokenSequenceAt: i + 1,
+        corruptedAuditId: entry.auditId,
+        verifiedAt: Date.now(),
+      };
+    }
+
+    expectedPreviousHash = entry.currentEntryHash;
+  }
+
+  return {
+    isChainValid: true,
+    totalEntriesVerified: total,
+    verifiedAt: Date.now(),
+  };
+}
+
+/**
+ * Retrieves audit entries with optional filtering.
+ *
+ * @param filter - Query parameters.
+ * @returns Array of ChainedAuditEntry.
+ */
+export function queryAuditEntries(filter: {
+  actor?: string;
+  action?: string;
+  executionStatus?: string;
+  limit?: number;
+} = {}): ChainedAuditEntry[] {
+  let results = [...auditChain];
+
+  if (filter.actor) {
+    results = results.filter((e) => e.actor.toLowerCase().includes(filter.actor!.toLowerCase()));
+  }
+  if (filter.action) {
+    results = results.filter((e) => e.action.toLowerCase().includes(filter.action!.toLowerCase()));
+  }
+  if (filter.executionStatus) {
+    results = results.filter((e) => e.executionStatus === filter.executionStatus);
+  }
+
+  const limit = filter.limit || 100;
+  return results.slice(-limit).reverse();
+}

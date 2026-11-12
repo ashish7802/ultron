@@ -52,6 +52,14 @@ import {
 } from "@/lib/cognitive/orchestrator";
 import { remediateCandidateResponse } from "@/lib/cognitive/selfEvaluationEngine";
 import { defaultVisualContextDeliveryEngine } from "@/lib/screen/contextDeliveryEngine";
+import { defaultVisionControl } from "@/lib/screen/visionControl";
+import { defaultVisualQAEngine } from "@/lib/screen/visualQAEngine";
+import { defaultWindowDetectionEngine } from "@/lib/screen/windowDetectionEngine";
+import { defaultVisualUnderstandingEngine } from "@/lib/screen/visualUnderstandingEngine";
+import { defaultOCREngine } from "@/lib/screen/ocrEngine";
+import { defaultScreenContextEngine } from "@/lib/screen/screenContextEngine";
+import { defaultVisualProcessingEngine } from "@/lib/screen/visualProcessingEngine";
+import { defaultScreenCaptureEngine } from "@/lib/screen/screenCaptureEngine";
 import type {
   ParsedContext,
   CognitiveTier,
@@ -335,7 +343,7 @@ function toHudIntent(
  * @param history - Validated conversation messages (current user message is last).
  * @returns Compact "Role: text" transcript of the preceding turns.
  */
-function formatHistory(history: ChatMessage[]): string {
+export function formatHistory(history: ChatMessage[]): string {
   // Retain up to 10 previous turns for rich conversation continuity
   const previousTurns = history.slice(-10, -1);
   if (previousTurns.length === 0) return "";
@@ -482,8 +490,29 @@ async function queryOllama(
         "1. Be articulate, insightful, respectful, and direct.\n" +
         "2. For technical questions or code, provide comprehensive, structured answers with Markdown headers, bullet points, and production-ready commented code.\n";
 
-    const lastScreenContext = defaultVisualContextDeliveryEngine.getLastPayload();
-    const screenPromptBlock = lastScreenContext ? `\n${lastScreenContext.formattedPromptContext}\n` : "";
+    // Evaluate Screen Awareness Context & Fresh Physical Capture Trigger
+    const isVisualQuery =
+      /\b(screen|window|error|display|desktop|what is on|what's on|kya open|kya dikh|explain this error|what code|what changed|what was on|what am i doing|fix this error|how do i fix)\b/i.test(
+        prompt
+      );
+
+    const visionStatus = defaultVisionControl.getStatus();
+    let screenContext = defaultVisualContextDeliveryEngine.getLastPayload();
+
+    if (isVisualQuery && visionStatus.isCapturing) {
+      const now = Date.now();
+      const isStale = !screenContext || now - screenContext.timestamp > 10000;
+      if (isStale) {
+        screenContext = await defaultVisualContextDeliveryEngine.getFreshOrCachedContext({ forceFresh: true });
+      }
+    }
+
+    let screenPromptBlock = "";
+    if (visionStatus.isCapturing && screenContext) {
+      screenPromptBlock = `\n${screenContext.formattedPromptContext}\n`;
+    } else if (isVisualQuery && !visionStatus.isCapturing) {
+      screenPromptBlock = `\n${defaultVisualContextDeliveryEngine.formatInactivePromptBlock("Vision capture is not active")}\n`;
+    }
 
     const systemPrompt =
       baseDirectives +
@@ -747,6 +776,36 @@ async function buildResponse(
   // Silent unprompted web research fallback is disabled so that local model failures or offline
   // Ollama states do not leak outbound network requests. Explicit web research remains fully
   // available when requested by the user via isResearchQuery (handled in Step 4).
+
+  // 7.5. Grounded Visual Question Answering (VQA) Grounding Fallback
+  // If Ollama is offline or unconfigured, and user explicitly asks about the active desktop or screen:
+  if (!reply) {
+    const isVisualQuery =
+      /\b(screen|window|error|display|desktop|what is on|what's on|kya open|kya dikh|explain this error|what code|what changed|what was on|what am i doing|fix this error|how do i fix)\b/i.test(
+        query
+      );
+
+    if (isVisualQuery) {
+      const visionStatus = defaultVisionControl.getStatus();
+      if (!visionStatus.isCapturing) {
+        reply =
+          "Screen awareness is currently **OFF** or inactive. Please enable Screen Awareness using the indicator in the top header to allow me to inspect your desktop.";
+      } else {
+        try {
+          const windowInfo = await defaultWindowDetectionEngine.detectActiveWindows();
+          const frame = await defaultScreenCaptureEngine.captureFrame({ mode: "full_screen" });
+          const processed = defaultVisualProcessingEngine.processFrame(frame);
+          const visual = defaultVisualUnderstandingEngine.analyzeScene(processed, windowInfo.activeWindow);
+          const ocr = defaultOCREngine.extractText(processed, windowInfo.activeWindow?.title);
+          const context = defaultScreenContextEngine.synthesizeContext(windowInfo, visual, ocr);
+          const vqaRes = defaultVisualQAEngine.answerQuestion({ query }, windowInfo, visual, ocr, context);
+          reply = vqaRes.answer;
+        } catch (err) {
+          reply = `Unable to inspect screen: ${err instanceof Error ? err.message : "Capture driver unavailable"}`;
+        }
+      }
+    }
+  }
 
   // 8. Polite & Context-Aware Intelligent Dialogue Fallback
   if (!reply) {

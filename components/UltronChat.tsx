@@ -29,6 +29,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import MarkdownRenderer from "./MarkdownRenderer";
 import ScreenAwarenessIndicator from "./ScreenAwarenessIndicator";
+import TaskOrchestrationModal from "./TaskOrchestrationModal";
 
 /** Metadata attached to assistant responses (citations, grounding source, execution time). */
 export interface MessageMeta {
@@ -148,6 +149,7 @@ export default function UltronChat() {
 
   // ── Neural Memory Vault Modal State ─────────────────────────────────────
   const [isMemoryModalOpen, setIsMemoryModalOpen] = useState<boolean>(false);
+  const [isOrchestrationModalOpen, setIsOrchestrationModalOpen] = useState<boolean>(false);
   const [memoriesList, setMemoriesList] = useState<MemoryItem[]>([]);
   const [newMemoryInput, setNewMemoryInput] = useState<string>("");
   const [newMemoryCat, setNewMemoryCat] = useState<"profile" | "preference" | "project" | "fact" | "instruction">("fact");
@@ -964,6 +966,20 @@ export default function UltronChat() {
 
         {/* Sidebar Footer Dock */}
         <div className="ultron-sidebar-footer">
+          {/* Task Orchestration Action */}
+          <button
+            type="button"
+            onClick={() => setIsOrchestrationModalOpen(true)}
+            className="ultron-sidebar-memory-btn"
+            style={{ borderColor: "#00f0ff" }}
+            title="Inspect autonomous task orchestration & workflows"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00f0ff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+            </svg>
+            <span style={{ color: "#00f0ff" }}>Task Orchestration</span>
+          </button>
+
           {/* Stored Memories Action */}
           <button
             type="button"
@@ -1381,6 +1397,12 @@ export default function UltronChat() {
           </div>
         </div>
       )}
+
+      {/* ── TASK ORCHESTRATION ENGINE MODAL ── */}
+      <TaskOrchestrationModal
+        isOpen={isOrchestrationModalOpen}
+        onClose={() => setIsOrchestrationModalOpen(false)}
+      />
     </div>
   );
 }

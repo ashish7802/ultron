@@ -88,6 +88,19 @@ export class ScreenSessionManager {
   }
 
   /**
+   * Retrieves a session by ID if active or in history.
+   *
+   * @param sessionId - Session ID.
+   * @returns ScreenSession or null.
+   */
+  public getSession(sessionId: string): ScreenSession | null {
+    if (this._activeSession?.sessionId === sessionId) {
+      return this.getActiveSession();
+    }
+    return this._sessionHistory.find((s) => s.sessionId === sessionId) || null;
+  }
+
+  /**
    * Records a captured frame against the active session to update heartbeat and counters.
    *
    * @param sessionId - Session identifier.
@@ -100,6 +113,13 @@ export class ScreenSessionManager {
       return this._activeSession.framesCaptured;
     }
     return 0;
+  }
+
+  /**
+   * Alias for recordFrame.
+   */
+  public recordFrameCapture(sessionId: string): number {
+    return this.recordFrame(sessionId);
   }
 
   /**

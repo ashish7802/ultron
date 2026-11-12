@@ -111,7 +111,36 @@ export default function ScreenAwarenessIndicator() {
     }
   };
 
-  const isLive = status.isCapturing && status.operationalState === "LIVE";
+  const isLive = status.isCapturing && (status.operationalState === "LIVE" || status.operationalState === "ANALYZING");
+  const isAmber =
+    status.indicatorColor === "amber" ||
+    status.operationalState === "DEGRADED" ||
+    status.operationalState === "PAUSED" ||
+    status.operationalState === "INITIALIZING";
+
+  const statusBgColor = isLive
+    ? "rgba(0, 255, 170, 0.12)"
+    : isAmber
+    ? "rgba(245, 158, 11, 0.12)"
+    : status.indicatorColor === "red"
+    ? "rgba(239, 68, 68, 0.12)"
+    : "rgba(30, 41, 59, 0.7)";
+
+  const statusBorderColor = isLive
+    ? "#00ffaa"
+    : isAmber
+    ? "#f59e0b"
+    : status.indicatorColor === "red"
+    ? "#ef4444"
+    : "rgba(100, 116, 139, 0.4)";
+
+  const statusTextColor = isLive
+    ? "#00ffaa"
+    : isAmber
+    ? "#f59e0b"
+    : status.indicatorColor === "red"
+    ? "#ef4444"
+    : "#94a3b8";
 
   return (
     <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
@@ -123,16 +152,16 @@ export default function ScreenAwarenessIndicator() {
           gap: "8px",
           padding: "4px 10px",
           borderRadius: "16px",
-          backgroundColor: isLive ? "rgba(0, 255, 170, 0.12)" : "rgba(30, 41, 59, 0.7)",
-          border: `1px solid ${isLive ? "#00ffaa" : "rgba(100, 116, 139, 0.4)"}`,
-          color: isLive ? "#00ffaa" : "#94a3b8",
+          backgroundColor: statusBgColor,
+          border: `1px solid ${statusBorderColor}`,
+          color: statusTextColor,
           fontSize: "12px",
           fontFamily: "monospace",
           fontWeight: 600,
           cursor: "pointer",
           userSelect: "none",
           transition: "all 0.2s ease",
-          boxShadow: isLive ? "0 0 12px rgba(0, 255, 170, 0.3)" : "none",
+          boxShadow: isLive ? "0 0 12px rgba(0, 255, 170, 0.3)" : isAmber ? "0 0 10px rgba(245, 158, 11, 0.2)" : "none",
         }}
         onClick={() => setShowDetails(!showDetails)}
         title={status.activeWindowSummary || "Screen Awareness Status"}
@@ -143,8 +172,14 @@ export default function ScreenAwarenessIndicator() {
             width: "8px",
             height: "8px",
             borderRadius: "50%",
-            backgroundColor: isLive ? "#00ffaa" : status.indicatorColor === "red" ? "#ef4444" : "#64748b",
-            boxShadow: isLive ? "0 0 8px #00ffaa" : "none",
+            backgroundColor: isLive
+              ? "#00ffaa"
+              : isAmber
+              ? "#f59e0b"
+              : status.indicatorColor === "red"
+              ? "#ef4444"
+              : "#64748b",
+            boxShadow: isLive ? "0 0 8px #00ffaa" : isAmber ? "0 0 6px #f59e0b" : "none",
           }}
         />
 
@@ -159,7 +194,7 @@ export default function ScreenAwarenessIndicator() {
           }}
           disabled={isLoading}
           style={{
-            backgroundColor: isLive ? "#ef4444" : "#0ea5e9",
+            backgroundColor: status.isCapturing ? "#ef4444" : "#0ea5e9",
             color: "#ffffff",
             border: "none",
             borderRadius: "4px",
@@ -170,7 +205,7 @@ export default function ScreenAwarenessIndicator() {
             marginLeft: "4px",
           }}
         >
-          {isLive ? "STOP" : "ENABLE"}
+          {status.isCapturing ? "STOP" : "ENABLE"}
         </button>
       </div>
 
@@ -196,7 +231,9 @@ export default function ScreenAwarenessIndicator() {
         >
           <div style={{ fontWeight: 600, color: "#00f0ff", marginBottom: "8px", display: "flex", justifyContent: "space-between" }}>
             <span>Screen Intelligence HUD</span>
-            <span style={{ fontSize: "10px", color: isLive ? "#00ffaa" : "#94a3b8" }}>{status.operationalState}</span>
+            <span style={{ fontSize: "10px", color: isLive ? "#00ffaa" : isAmber ? "#f59e0b" : "#94a3b8" }}>
+              {status.operationalState}
+            </span>
           </div>
 
           <div style={{ marginBottom: "6px", color: "#94a3b8" }}>
@@ -206,6 +243,12 @@ export default function ScreenAwarenessIndicator() {
           <div style={{ marginBottom: "6px", color: "#94a3b8" }}>
             Permission: <span style={{ color: "#38bdf8" }}>{status.permissionState}</span>
           </div>
+
+          {status.lastFrameAt && (
+            <div style={{ marginBottom: "6px", color: "#94a3b8" }}>
+              Last Frame: <span style={{ color: "#34d399" }}>{Math.round((Date.now() - status.lastFrameAt) / 1000)}s ago</span>
+            </div>
+          )}
 
           {status.activeSessionId && (
             <div style={{ marginBottom: "8px", fontSize: "11px", color: "#64748b" }}>

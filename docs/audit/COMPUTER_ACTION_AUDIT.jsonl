@@ -1,0 +1,163 @@
+{"auditId": "audit_ae0283782983", "timestamp": 1794458439.5847769, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup reset", "status": "RESUMED"}
+{"auditId": "audit_52f5ef9a14e5", "timestamp": 1794458439.627744, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown reset", "status": "RESUMED"}
+{"auditId": "audit_ecadbbbcb891", "timestamp": 1794458439.6286855, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup reset", "status": "RESUMED"}
+{"auditId": "audit_e7287bb7b23b", "timestamp": 1794458439.648293, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown reset", "status": "RESUMED"}
+{"auditId": "audit_b217b67da1f1", "timestamp": 1794458439.6502442, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup reset", "status": "RESUMED"}
+{"auditId": "audit_c38022af1436", "timestamp": 1794458439.6578486, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown reset", "status": "RESUMED"}
+{"auditId": "audit_6fd21315cd9c", "timestamp": 1794458439.6590195, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup reset", "status": "RESUMED"}
+{"auditId": "audit_5a93a917f2be", "timestamp": 1794458439.6910355, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown reset", "status": "RESUMED"}
+{"auditId": "audit_56bf7b722b46", "timestamp": 1794458439.693259, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup reset", "status": "RESUMED"}
+{"auditId": "audit_049031e3c3a0", "timestamp": 1794458439.8925202, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown reset", "status": "RESUMED"}
+{"auditId": "audit_b2e92bb6a056", "timestamp": 1794458439.8930283, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup reset", "status": "RESUMED"}
+{"auditId": "audit_9b6232a15bde", "timestamp": 1794458439.9053004, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown reset", "status": "RESUMED"}
+{"auditId": "audit_6bc8ca4a84d3", "timestamp": 1794458439.906748, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup reset", "status": "RESUMED"}
+{"auditId": "audit_2855a4189282", "timestamp": 1794458440.2525291, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown reset", "status": "RESUMED"}
+{"auditId": "audit_7a56ce49d9b7", "timestamp": 1794458440.2534099, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup reset", "status": "RESUMED"}
+{"auditId": "audit_43d451f3748e", "timestamp": 1794458440.2579505, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown reset", "status": "RESUMED"}
+{"auditId": "audit_1e8a354e9ac3", "timestamp": 1794458440.2590683, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup reset", "status": "RESUMED"}
+{"auditId": "audit_c938a3199431", "timestamp": 1794458441.7065492, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown reset", "status": "RESUMED"}
+{"auditId": "audit_2900ad87e443", "timestamp": 1794458441.7087634, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup reset", "status": "RESUMED"}
+{"auditId": "audit_6f781de7996f", "timestamp": 1794458441.7129958, "emergencyStop": true, "action": "EMERGENCY_STOP_TRIGGERED", "reason": "Automated test emergency trigger", "jobsKilled": 0, "status": "HALTED"}
+{"auditId": "audit_883953adef95", "timestamp": 1794458441.7149758, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test reset", "status": "RESUMED"}
+{"auditId": "audit_1715d1309d97", "timestamp": 1794458441.7162614, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown reset", "status": "RESUMED"}
+{"auditId": "audit_503e68fe1ff8", "timestamp": 1794458441.7179942, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup reset", "status": "RESUMED"}
+{"auditId": "audit_763da8663577", "timestamp": 1794458441.7196853, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown reset", "status": "RESUMED"}
+{"auditId": "audit_cea4b4211a3b", "timestamp": 1794458494.0126562, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Authorized founder reset", "status": "RESUMED"}
+{"auditId": "audit_c0755b77f53f", "timestamp": 1794458494.6045508, "emergencyStop": true, "action": "EMERGENCY_STOP_TRIGGERED", "reason": "Test integration emergency trigger", "jobsKilled": 0, "status": "HALTED"}
+{"auditId": "audit_3ed25bbf6ac3", "timestamp": 1794458495.1978076, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test reset", "status": "RESUMED"}
+{"auditId": "audit_1b78b8641dfc", "timestamp": 1794458613.7071707, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Authorized founder reset", "status": "RESUMED"}
+{"auditId": "audit_2827e89f849c", "timestamp": 1794458614.4666762, "emergencyStop": true, "action": "EMERGENCY_STOP_TRIGGERED", "reason": "Test integration emergency trigger", "jobsKilled": 0, "status": "HALTED"}
+{"auditId": "audit_65b2dfbda54f", "timestamp": 1794458615.0966482, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test reset", "status": "RESUMED"}
+{"auditId": "audit_57dccc0510d4", "timestamp": 1794458813.9635408, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup reset", "status": "RESUMED"}
+{"auditId": "audit_4233d2027656", "timestamp": 1794458814.017826, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown reset", "status": "RESUMED"}
+{"auditId": "audit_9d54788d433d", "timestamp": 1794458814.0196984, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup reset", "status": "RESUMED"}
+{"auditId": "audit_b639ded534ec", "timestamp": 1794458814.035785, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown reset", "status": "RESUMED"}
+{"auditId": "audit_28ee811599e9", "timestamp": 1794458814.0377924, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup reset", "status": "RESUMED"}
+{"auditId": "audit_15045b3a29f1", "timestamp": 1794458814.045813, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown reset", "status": "RESUMED"}
+{"auditId": "audit_e54260b4dd99", "timestamp": 1794458814.0469022, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup reset", "status": "RESUMED"}
+{"auditId": "audit_2d2c398c89dc", "timestamp": 1794458814.0789642, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown reset", "status": "RESUMED"}
+{"auditId": "audit_70d27597192d", "timestamp": 1794458814.0812218, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup reset", "status": "RESUMED"}
+{"auditId": "audit_45df640b5dc9", "timestamp": 1794458814.2066793, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown reset", "status": "RESUMED"}
+{"auditId": "audit_417c24e9c8ed", "timestamp": 1794458814.2096248, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup reset", "status": "RESUMED"}
+{"auditId": "audit_3254bfdb6bcd", "timestamp": 1794458814.2190776, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown reset", "status": "RESUMED"}
+{"auditId": "audit_2503d8ce85c1", "timestamp": 1794458814.2201986, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup reset", "status": "RESUMED"}
+{"auditId": "audit_2f2c5087e307", "timestamp": 1794458814.5648081, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown reset", "status": "RESUMED"}
+{"auditId": "audit_6791de05d09a", "timestamp": 1794458814.5701244, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup reset", "status": "RESUMED"}
+{"auditId": "audit_fad82711fa72", "timestamp": 1794458814.5743232, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown reset", "status": "RESUMED"}
+{"auditId": "audit_63282f68872c", "timestamp": 1794458814.57597, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup reset", "status": "RESUMED"}
+{"auditId": "audit_81ad81d1d96d", "timestamp": 1794458816.056295, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown reset", "status": "RESUMED"}
+{"auditId": "audit_b97faf4cc89f", "timestamp": 1794458816.0634723, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup reset", "status": "RESUMED"}
+{"auditId": "audit_3db318e30413", "timestamp": 1794458816.068608, "emergencyStop": true, "action": "EMERGENCY_STOP_TRIGGERED", "reason": "Automated test emergency trigger", "jobsKilled": 0, "status": "HALTED"}
+{"auditId": "audit_07b19c9cf7fd", "timestamp": 1794458816.0709252, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test reset", "status": "RESUMED"}
+{"auditId": "audit_e33f9335160a", "timestamp": 1794458816.072902, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown reset", "status": "RESUMED"}
+{"auditId": "audit_917462b3613c", "timestamp": 1794458816.075431, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup reset", "status": "RESUMED"}
+{"auditId": "audit_04256e0471b6", "timestamp": 1794458816.0771778, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown reset", "status": "RESUMED"}
+{"auditId": "audit_0a5ce2187bca", "timestamp": 1794458850.8600192, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Authorized founder reset", "status": "RESUMED"}
+{"auditId": "audit_ee857ed5944f", "timestamp": 1794458851.5925148, "emergencyStop": true, "action": "EMERGENCY_STOP_TRIGGERED", "reason": "Test integration emergency trigger", "jobsKilled": 0, "status": "HALTED"}
+{"auditId": "audit_aced6ed24177", "timestamp": 1794458852.309387, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test reset", "status": "RESUMED"}
+{"auditId": "audit_b7c509b586d6", "timestamp": 1794459086.31495, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Class setup", "status": "RESUMED"}
+{"auditId": "audit_ab2d79307c0d", "timestamp": 1794459086.3171244, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_8463294da80d", "timestamp": 1794459086.3286667, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_d59c5c53b789", "timestamp": 1794459086.3292737, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_f3e96614d2ae", "timestamp": 1794459086.3305254, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_98d1c649a0d5", "timestamp": 1794459086.33169, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_e25a3e28f776", "timestamp": 1794459086.3327932, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_7165f8d14117", "timestamp": 1794459086.3333752, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_f6bfe3a8c7c2", "timestamp": 1794459088.3686557, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_efbeb44bdb66", "timestamp": 1794459088.3709736, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_c23646f0c092", "timestamp": 1794459088.3733733, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_bf2349760e27", "timestamp": 1794459088.375711, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_d00c06fb87cd", "timestamp": 1794459088.5057306, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_6e753fe9fdbe", "timestamp": 1794459088.5075567, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_86e35d6cdfd6", "timestamp": 1794459088.511603, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_7082a8312afa", "timestamp": 1794459088.5127206, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_483ff2cca7bf", "timestamp": 1794459088.5728843, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_86218fc6ae23", "timestamp": 1794459088.5753138, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_6ea899670580", "timestamp": 1794459088.8114512, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_67ee828e5c19", "timestamp": 1794459088.8151734, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_e4d5239df835", "timestamp": 1794459088.826546, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_1224b653b453", "timestamp": 1794459088.8309667, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_baf8856b2c6b", "timestamp": 1794459090.3681173, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_847c0c3ddd42", "timestamp": 1794459090.372869, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_ab52eee7a888", "timestamp": 1794459090.3897367, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_087a7f5cdb2a", "timestamp": 1794459090.3968973, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_97e86b7e33e1", "timestamp": 1794459092.1170712, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_610b16dd4cc0", "timestamp": 1794459092.1190813, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_ae6f833ef374", "timestamp": 1794459092.1261806, "emergencyStop": true, "action": "EMERGENCY_STOP_TRIGGERED", "reason": "Verification audit trigger", "jobsKilled": 0, "status": "HALTED"}
+{"auditId": "audit_70e9c013d9f1", "timestamp": 1794459092.1302063, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Verification audit reset", "status": "RESUMED"}
+{"auditId": "audit_8c725166e7e6", "timestamp": 1794459092.1338544, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_7ddea0b7acac", "timestamp": 1794459092.139419, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_800b7a5942ec", "timestamp": 1794459092.1433964, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_3ae21aa4e040", "timestamp": 1794459092.1456156, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_203f64a9fd0b", "timestamp": 1794459093.0131552, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_860d0ed80035", "timestamp": 1794459093.017205, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_c19fc28aa6c4", "timestamp": 1794459093.020633, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_c5f69c0fe372", "timestamp": 1794459093.0236325, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_e73a54c0c066", "timestamp": 1794459093.0284016, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_cafc6bffd62e", "timestamp": 1794459093.031363, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_cc8053cd552f", "timestamp": 1794459093.1098926, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_1bae50d4a9a4", "timestamp": 1794459093.1120453, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_e3d0b2f6e9a8", "timestamp": 1794459093.1163452, "emergencyStop": true, "action": "EMERGENCY_STOP_TRIGGERED", "reason": "Red-team active lockout test", "jobsKilled": 0, "status": "HALTED"}
+{"auditId": "audit_fa20587b08c1", "timestamp": 1794459093.1198323, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Cleanup", "status": "RESUMED"}
+{"auditId": "audit_50c0371af45e", "timestamp": 1794459093.1229131, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_0fb465310919", "timestamp": 1794459093.125872, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_c80d772deddd", "timestamp": 1794459093.1283774, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_c7a73bb0aa30", "timestamp": 1794459093.130364, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_4448a5ebe7ed", "timestamp": 1794459093.1323612, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_f37ce0b63916", "timestamp": 1794459093.1336455, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Class teardown", "status": "RESUMED"}
+{"auditId": "audit_ad9b16ae33de", "timestamp": 1794459190.9038637, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Class setup", "status": "RESUMED"}
+{"auditId": "audit_31453c782a57", "timestamp": 1794459190.9082756, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_8d8c943fdb3c", "timestamp": 1794459190.9173353, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_07ad41848a6e", "timestamp": 1794459190.918482, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_bfff946dc71d", "timestamp": 1794459190.9195886, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_2cfec62d4e91", "timestamp": 1794459190.9207091, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_a771d584eb51", "timestamp": 1794459190.9218235, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_3ddcc8d8f509", "timestamp": 1794459190.922953, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_3d1741e96068", "timestamp": 1794459192.9820764, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_c1a6cb1af132", "timestamp": 1794459192.9820764, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_f8cf73865649", "timestamp": 1794459192.992481, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_bdb6018eacbc", "timestamp": 1794459192.9945898, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_a2a3bed021eb", "timestamp": 1794459193.2825193, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_666ebe3212c1", "timestamp": 1794459193.2866213, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_0047a8b94b09", "timestamp": 1794459193.2887416, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_3d7533071881", "timestamp": 1794459193.2892718, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_f30f0ed40084", "timestamp": 1794459193.347517, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_8d32c0a194a9", "timestamp": 1794459193.3485365, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_a89ec8b8f989", "timestamp": 1794459193.4862669, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_5a9d9eefa2be", "timestamp": 1794459193.48808, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_0c189930c6e7", "timestamp": 1794459193.4987082, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_e6df1b0d397f", "timestamp": 1794459193.499255, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_bbadc8567f9d", "timestamp": 1794459194.9653523, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_f8e0bf828189", "timestamp": 1794459194.9701445, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_f56cb08fa1a5", "timestamp": 1794459194.9766047, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_58d17be547bd", "timestamp": 1794459194.9778075, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_42a3f6a749a5", "timestamp": 1794459196.5572803, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_0b9c5b20164a", "timestamp": 1794459196.5668905, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_bb899b861266", "timestamp": 1794459196.5788853, "emergencyStop": true, "action": "EMERGENCY_STOP_TRIGGERED", "reason": "Verification audit trigger", "jobsKilled": 0, "status": "HALTED"}
+{"auditId": "audit_a65d68d7b732", "timestamp": 1794459196.5875223, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Verification audit reset", "status": "RESUMED"}
+{"auditId": "audit_62e0cd6f45e4", "timestamp": 1794459196.5875223, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_b97fb89ace1a", "timestamp": 1794459196.5968847, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_90dbb48f57ae", "timestamp": 1794459196.5999484, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_f0088f2a97e1", "timestamp": 1794459196.6030245, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_72396c406892", "timestamp": 1794459197.4356716, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_832357dc08a8", "timestamp": 1794459197.4389362, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_228e81b2c02d", "timestamp": 1794459197.4413166, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_a3edacbde0c4", "timestamp": 1794459197.4430985, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_26cb91a07b44", "timestamp": 1794459197.444981, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_442446ade438", "timestamp": 1794459197.446171, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_d386f8c69cde", "timestamp": 1794459197.4478955, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_80ca392452e5", "timestamp": 1794459197.4496772, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_09ce5b37a40d", "timestamp": 1794459197.4519846, "emergencyStop": true, "action": "EMERGENCY_STOP_TRIGGERED", "reason": "Red-team active lockout test", "jobsKilled": 0, "status": "HALTED"}
+{"auditId": "audit_48483635299d", "timestamp": 1794459197.4537246, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Cleanup", "status": "RESUMED"}
+{"auditId": "audit_9a113eee0d93", "timestamp": 1794459197.4549263, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_2eb081cd8d1b", "timestamp": 1794459197.456133, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_4cebf390c69b", "timestamp": 1794459197.457863, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_f7cf8276fd8e", "timestamp": 1794459197.4590042, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
+{"auditId": "audit_d4e062d69150", "timestamp": 1794459197.4601557, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
+{"auditId": "audit_9adb3808fc6e", "timestamp": 1794459197.4613004, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Class teardown", "status": "RESUMED"}
+{"auditId": "audit_afb42969ef09", "timestamp": 1794459313.3669186, "emergencyStop": true, "action": "EMERGENCY_STOP_TRIGGERED", "reason": "Verification test abort", "jobsKilled": 0, "status": "HALTED"}
+{"auditId": "audit_592e5ebd0c61", "timestamp": 1794459313.870632, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Authorized founder reset", "status": "RESUMED"}
+{"auditId": "audit_52c16151f929", "timestamp": 1794463557.4953892, "emergencyStop": true, "action": "EMERGENCY_STOP_TRIGGERED", "reason": "Verification test abort", "jobsKilled": 0, "status": "HALTED"}
+{"auditId": "audit_36e446537479", "timestamp": 1794463558.0535102, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Authorized founder reset", "status": "RESUMED"}
+{"auditId": "audit_7bfeb438a147", "timestamp": 1794468310.851917, "emergencyStop": true, "action": "EMERGENCY_STOP_TRIGGERED", "reason": "Verification test abort", "jobsKilled": 0, "status": "HALTED"}
+{"auditId": "audit_dc47ac50530f", "timestamp": 1794468311.7857652, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Authorized founder reset", "status": "RESUMED"}

@@ -18,6 +18,9 @@
  * - Read-only analytical extraction: sensitive tokens (passwords/API keys) are flagged for masking in Module 09.
  */
 
+import { execFile } from "child_process";
+import { promisify } from "util";
+import path from "path";
 import type {
   ProcessedVisualFrame,
   OCRToken,
@@ -28,24 +31,100 @@ import type {
   BoundingBox,
 } from "./types.ts";
 
+const execFileAsync = promisify(execFile);
+
 export class OCREngine {
+  /**
+   * Resolves the Python executable path portably.
+   */
+  private _resolvePython(): string {
+    return process.env.PYTHON_PATH || "python";
+  }
+
+  /**
+   * Resolves the native capture driver script path.
+   */
+  private _getDriverScriptPath(): string {
+    return path.join(/*turbopackIgnore: true*/ process.cwd(), "ultron_engine", "screen_capture_driver.py");
+  }
+
+  /**
+   * Harvests real live accessible text and controls from the active desktop window via MSAA/IAccessible.
+   */
+  public async extractLiveAccessibilityLines(targetHwndHex?: string): Promise<OCRLine[]> {
+    try {
+      const python = this._resolvePython();
+      const script = this._getDriverScriptPath();
+      const args = ["ui_elements"];
+      if (targetHwndHex) args.push(targetHwndHex);
+
+      const { stdout } = await execFileAsync(python, [script, ...args], {
+        timeout: 4000,
+        windowsHide: true,
+      });
+
+      const parsed = JSON.parse(stdout);
+      if (parsed.success && Array.isArray(parsed.elements) && parsed.elements.length > 0) {
+        return parsed.elements.map((el: { name: string; type: string; bounds: BoundingBox }, elIdx: number) => {
+          const words = el.name.split(/\s+/).filter(Boolean);
+          const wordW = Math.max(10, Math.round(el.bounds.width / Math.max(1, words.length)));
+          const tokens: OCRToken[] = words.map((w, wIdx) => ({
+            text: w,
+            confidence: 0.98,
+            bounds: {
+              x: el.bounds.x + wIdx * wordW,
+              y: el.bounds.y,
+              width: wordW,
+              height: el.bounds.height,
+            },
+            lineIndex: elIdx,
+            wordIndex: wIdx,
+          }));
+
+          const lower = el.name.toLowerCase();
+          const isError = lower.includes("error") || lower.includes("fail") || lower.includes("exception");
+          const isCode = el.type === "editable_text" || el.type === "document" || lower.includes("function") || lower.includes("class");
+
+          return {
+            text: el.name,
+            tokens,
+            bounds: el.bounds,
+            isHeading: el.bounds.height > 40 || lower.includes("title") || lower.includes("hud"),
+            isCodeBlock: isCode,
+            isErrorMessage: isError,
+          };
+        });
+      }
+    } catch {
+      // Non-fatal fallback to synthetic layout lines
+    }
+    return [];
+  }
+
   /**
    * Performs spatial text extraction and semantic parsing on a processed visual frame.
    *
    * @param frame - ProcessedVisualFrame from Module 03.
    * @param contextualHint - Optional application title hint to inform language and domain models.
+   * @param liveLines - Optional real accessible text lines harvested directly from the OS tree.
    * @returns Comprehensive OCRIntelligenceResult.
    */
   public extractText(
     frame: ProcessedVisualFrame,
-    contextualHint?: string
+    contextualHint?: string,
+    liveLines?: OCRLine[]
   ): OCRIntelligenceResult {
     const startTime = Date.now();
     const w = frame.originalDimensions.width;
     const h = frame.originalDimensions.height;
 
-    // 1. Generate Structured Text Lines
-    const lines = this.generateRecognizedLines(w, h, contextualHint);
+    // 1. Generate Structured Text Lines: prefer genuine live lines from OS accessibility
+    let lines: OCRLine[];
+    if (liveLines && liveLines.length > 0) {
+      lines = liveLines;
+    } else {
+      lines = this.generateRecognizedLines(w, h, contextualHint);
+    }
 
     // 2. Extract Specialized Code Blocks
     const codeBlocks = this.extractCodeBlocks(lines);

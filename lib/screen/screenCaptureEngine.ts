@@ -28,6 +28,8 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import path from "path";
 import crypto from "crypto";
+import fs from "fs";
+import os from "os";
 import type {
   CaptureMode,
   CaptureOptions,
@@ -42,6 +44,7 @@ export class ScreenCaptureEngine {
   private _lastCaptureTime: number = 0;
   private _monitorsCache: DisplayMonitor[] = [];
   private _cacheExpiresAt: number = 0;
+  private _sequenceNumber: number = 0;
 
   /**
    * Resolves the Python executable path portably.
@@ -192,15 +195,19 @@ export class ScreenCaptureEngine {
   }
 
   /**
-   * Captures a single desktop frame using the optimal available mechanism.
+   * Captures a single desktop frame using the native Win32 GDI capture driver.
+   * Delivers genuine, complete 24bpp uncompressed BMP image bytes directly from desktop RAM.
    *
-   * @param options - CaptureOptions specifying mode, bounds, and quality.
+   * @param options - CaptureOptions specifying mode, bounds, and display.
    * @param sessionId - Active session token.
-   * @returns CapturedFrame metadata and buffer.
+   * @param allowSyntheticFallback - If true, permits synthetic fallback for isolated test suites.
+   * @returns CapturedFrame metadata and actual image byte buffer.
+   * @throws Error if capture fails and synthetic fallback is disabled.
    */
   public async captureFrame(
     options: CaptureOptions = { mode: "full_screen" },
-    sessionId: string = "unspecified_session"
+    sessionId: string = "unspecified_session",
+    allowSyntheticFallback: boolean = false
   ): Promise<CapturedFrame> {
     const startTime = Date.now();
     const monitors = await this.getConnectedMonitors();
@@ -211,33 +218,75 @@ export class ScreenCaptureEngine {
     let buffer: Buffer;
     let actualWidth = targetDisplay.resolution.width;
     let actualHeight = targetDisplay.resolution.height;
+    let isSynthetic = false;
+
+    // Use an ephemeral temp file to transfer binary image bytes with zero truncation
+    const tempBmpFile = path.join(os.tmpdir(), `ultron_frame_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.bmp`);
 
     try {
       const python = this._resolvePython();
       const script = this._getDriverScriptPath();
-      const driverMode = options.mode === "active_window" ? "active_window" : "fullscreen";
+      const driverArgs = ["capture"];
 
-      const { stdout } = await execFileAsync(python, [script, "capture", driverMode], {
-        timeout: 5000,
+      if (options.mode === "active_window") {
+        driverArgs.push("active_window");
+      } else if (options.mode === "selected_region" && options.region) {
+        driverArgs.push(
+          "selected_region",
+          String(options.region.x),
+          String(options.region.y),
+          String(options.region.width),
+          String(options.region.height)
+        );
+      } else {
+        driverArgs.push("fullscreen");
+      }
+
+      driverArgs.push("--out-file", tempBmpFile);
+
+      const { stdout } = await execFileAsync(python, [script, ...driverArgs], {
+        timeout: 6000,
         windowsHide: true,
-        maxBuffer: 30 * 1024 * 1024, // 30 MB buffer
       });
 
       const parsed = JSON.parse(stdout);
-      if (parsed.success && parsed.dataLength > 0) {
-        // Driver returns raw BMP output or dataLength confirmation
-        buffer = this.generateSyntheticFrameBuffer(parsed.width, parsed.height, options.mode);
+      if (parsed.success && parsed.filePath && fs.existsSync(parsed.filePath)) {
+        buffer = fs.readFileSync(parsed.filePath);
+        actualWidth = parsed.width;
+        actualHeight = parsed.height;
+      } else if (parsed.success && parsed.base64) {
+        buffer = Buffer.from(parsed.base64, "base64");
         actualWidth = parsed.width;
         actualHeight = parsed.height;
       } else {
-        buffer = this.generateSyntheticFrameBuffer(actualWidth, actualHeight, options.mode);
+        throw new Error(parsed.error || "Capture driver returned failure");
       }
-    } catch {
-      // Driver unavailable: fall back seamlessly to synthetic frame
+    } catch (driverErr) {
+      if (!allowSyntheticFallback) {
+        throw new Error(
+          `Physical screen capture failed: ${driverErr instanceof Error ? driverErr.message : String(driverErr)}`,
+          { cause: driverErr }
+        );
+      }
+      // Isolated test mode fallback only
       buffer = this.generateSyntheticFrameBuffer(actualWidth, actualHeight, options.mode);
+      isSynthetic = true;
+    } finally {
+      // Ephemeral cleanup: remove temp capture file immediately
+      if (fs.existsSync(tempBmpFile)) {
+        try {
+          fs.unlinkSync(tempBmpFile);
+        } catch {
+          // Non-fatal temp unlink
+        }
+      }
     }
 
-    // Clip to region if selected_region mode is requested
+    if (!buffer || buffer.length === 0) {
+      throw new Error("Screen capture produced an empty or invalid image buffer");
+    }
+
+    // Clip to region if selected_region mode is requested and dimensions are present
     if (options.mode === "selected_region" && options.region) {
       actualWidth = options.region.width;
       actualHeight = options.region.height;
@@ -250,16 +299,18 @@ export class ScreenCaptureEngine {
 
     this._lastPixelHash = pixelHash;
     this._lastCaptureTime = Date.now();
+    this._sequenceNumber++;
     const captureLatencyMs = Math.max(1, Date.now() - startTime);
 
     return {
       frameId: `frame_${crypto.randomUUID().slice(0, 12)}`,
       sessionId,
+      sequenceNumber: this._sequenceNumber,
       timestamp: Date.now(),
       mode: options.mode,
       display: targetDisplay,
       imageBuffer: buffer,
-      mimeType: "image/png",
+      mimeType: "image/bmp",
       dimensions: {
         width: actualWidth,
         height: actualHeight,
@@ -268,6 +319,7 @@ export class ScreenCaptureEngine {
       changeDetected,
       changePercentage,
       captureLatencyMs,
+      isSyntheticTestFrame: isSynthetic,
     };
   }
 

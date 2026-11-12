@@ -25,6 +25,9 @@
  *   tokens; only transport sealing/authenticity helpers remain.
  */
 
+import fs from "fs";
+import path from "path";
+
 // Dynamic CSPRNG master transport secret (never hardcoded in production)
 let dynamicMasterKey: string | null = null;
 
@@ -49,13 +52,9 @@ export function getActiveMasterSecret(): string {
     // If in Node.js runtime, check for persistent local key to ensure cross-process consistency
     if (typeof process !== "undefined" && process.versions?.node) {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const fsMod = require("fs");
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const pathMod = require("path");
-        const keyPath = pathMod.join(/*turbopackIgnore: true*/ process.cwd(), ".vault_key");
-        if (fsMod.existsSync(keyPath)) {
-          const stored = fsMod.readFileSync(keyPath, "utf-8").trim();
+        const keyPath = path.join(/*turbopackIgnore: true*/ process.cwd(), ".vault_key");
+        if (fs.existsSync(keyPath)) {
+          const stored = fs.readFileSync(keyPath, "utf-8").trim();
           if (stored.length >= 32) {
             dynamicMasterKey = stored;
             return stored;
@@ -74,12 +73,8 @@ export function getActiveMasterSecret(): string {
 
     if (typeof process !== "undefined" && process.versions?.node) {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const fsMod = require("fs");
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const pathMod = require("path");
-        const keyPath = pathMod.join(/*turbopackIgnore: true*/ process.cwd(), ".vault_key");
-        fsMod.writeFileSync(keyPath, dynamicMasterKey, { encoding: "utf-8" });
+        const keyPath = path.join(/*turbopackIgnore: true*/ process.cwd(), ".vault_key");
+        fs.writeFileSync(keyPath, dynamicMasterKey, { encoding: "utf-8" });
       } catch {
         // Non-fatal if filesystem is restricted
       }

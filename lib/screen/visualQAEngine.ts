@@ -32,6 +32,7 @@ import type {
   ScreenActivityContext,
   BoundingBox,
 } from "./types.ts";
+import { defaultTemporalScreenIntelligence } from "./temporalScreenIntelligence.ts";
 
 export class VisualQAEngine {
   /**
@@ -61,90 +62,143 @@ export class VisualQAEngine {
     let confidence = 0.92;
     let limitations: string | undefined = undefined;
 
-    switch (preset) {
-      // 1. What is currently open on the screen?
-      case "what_is_open": {
-        const activeWin = windowInfo.activeWindow;
-        answer = `Currently open on your screen is **${activeWin?.title || "Visual Studio Code"}** (Process: \`${windowInfo.detectedApplication}\`). The active layout is a **${visualInfo.layoutCategory}**, and you are currently ${contextInfo.primaryActivity.toLowerCase()}.`;
-        evidenceElements.push(`Active Window: ${activeWin?.title}`);
-        evidenceElements.push(`Process: ${windowInfo.detectedApplication}`);
-        if (activeWin?.bounds) citedBoxes.push(activeWin.bounds);
-        break;
-      }
+    // Check for Temporal Questions ("what changed?", "what was on screen before this?")
+    if (
+      query.includes("what changed") ||
+      query.includes("kya badla") ||
+      query.includes("before this") ||
+      query.includes("previously") ||
+      query.includes("what was on screen") ||
+      query.includes("since")
+    ) {
+      const temporalState = defaultTemporalScreenIntelligence.getState();
+      const recent = temporalState.recentEvents;
 
-      // 2. Explain the visible error.
-      case "explain_visible_error": {
-        if (ocrInfo.detectedErrors.length > 0) {
-          const mainError = ocrInfo.detectedErrors.find((e) => e.includes("SyntaxError")) || ocrInfo.detectedErrors[0];
-          answer = `The visible error on your screen is: **"${mainError}"**. It is located in the integrated terminal/editor at \`lib/research/discoveryEngine.ts:486\`. A syntax error occurred due to an unexpected token '{', which prevents the TypeScript test suite from passing.`;
-          evidenceElements.push(...ocrInfo.detectedErrors);
-          const errLine = ocrInfo.lines.find((l) => l.isErrorMessage);
-          if (errLine?.bounds) citedBoxes.push(errLine.bounds);
-        } else {
-          answer = "There are currently no blocking error dialogs or red diagnostic alerts visible on your screen.";
-          confidence = 0.85;
-          limitations = "No error tokens detected in visible viewport.";
+      if (recent.length > 0) {
+        const eventsList = recent
+          .slice(-5)
+          .map((e, idx) => `${idx + 1}. [${new Date(e.timestamp).toLocaleTimeString()}] ${e.summary}`)
+          .join("\n");
+
+        answer = `**Desktop Temporal Timeline & State Transitions:**\n${eventsList}\n\n**Current Active Foreground:** ${temporalState.currentWindowTitle} (\`${temporalState.currentActiveApp}\`).`;
+        evidenceElements.push(...recent.slice(-3).map((e) => e.summary));
+      } else {
+        answer = `Desktop state has been continuous in **${windowInfo.activeWindow?.title || "the active window"}** (\`${windowInfo.detectedApplication}\`). No application switches or error status changes were observed in the recent timeline window.`;
+        confidence = 0.88;
+        limitations = "No transition events recorded in current short-term timeline buffer.";
+      }
+    } else if (
+      (query.includes("fix") || query.includes("how do i fix") || query.includes("solution") || query.includes("resolve")) &&
+      ocrInfo.detectedErrors.length > 0
+    ) {
+      // Remediation Guidance for Visible Errors
+      const mainError = ocrInfo.detectedErrors[0];
+      answer = `**Remediation for Visible Error:**\n- **Visibly Confirmed Error:** \`${mainError}\` in *${windowInfo.activeWindow?.title || "active window"}*.\n- **Recommended Fix:** Inspect the source or configuration referenced in the diagnostic line, verify file imports or parameter signatures, and re-execute the build/test runner.\n- **Visibly Confirmed Action Controls:** ${visualInfo.keyActionPoints.slice(0, 2).join(" | ") || "Terminal retry"}`;
+      evidenceElements.push(...ocrInfo.detectedErrors);
+      const errLine = ocrInfo.lines.find((l) => l.isErrorMessage);
+      if (errLine?.bounds) citedBoxes.push(errLine.bounds);
+    } else {
+      switch (preset) {
+        // 1. What is currently open on the screen?
+        case "what_is_open": {
+          const activeWin = windowInfo.activeWindow;
+          const appTitle = activeWin?.title || "Desktop Session";
+          const appProc = activeWin?.processName || windowInfo.detectedApplication;
+          answer = `Currently open on your screen is **${appTitle}** (Process: \`${appProc}\`). The active layout is a **${visualInfo.layoutCategory.replace("_", " ")}**, and you are currently ${contextInfo.primaryActivity.toLowerCase()}.`;
+          evidenceElements.push(`Active Window: ${appTitle}`);
+          evidenceElements.push(`Process: ${appProc}`);
+          if (activeWin?.browserUrl) {
+            evidenceElements.push(`Browser URL: ${activeWin.browserUrl}`);
+          }
+          if (activeWin?.bounds) citedBoxes.push(activeWin.bounds);
+          break;
         }
-        break;
-      }
 
-      // 3. Identify the visible UI elements.
-      case "identify_ui_elements": {
-        const elementTypes = visualInfo.elements.map((e) => `${e.label || e.type} (${e.type})`);
-        answer = `Identified **${visualInfo.elements.length} interactive UI elements** on screen: ${elementTypes.slice(0, 5).join(", ")}. These include window controls (Minimize, Close), active editor tabs, code workspace, and integrated terminal dock.`;
-        evidenceElements.push(...elementTypes);
-        citedBoxes.push(...visualInfo.elements.slice(0, 5).map((e) => e.bounds));
-        break;
-      }
-
-      // 4. Explain the visible code issue.
-      case "explain_code_issue": {
-        const errorLine = ocrInfo.lines.find((l) => l.text.includes("SyntaxError") || l.text.includes("FAIL"));
-        if (errorLine) {
-          answer = `The visible code issue is a **SyntaxError** at \`lib/research/discoveryEngine.ts:486\`. An unexpected token '{' was encountered where an identifier or async modifier was expected, likely caused by an unclosed block brace or malformed try/catch statement in the \`InternalDocumentAdapter\` class.`;
-          evidenceElements.push(errorLine.text);
-          citedBoxes.push(errorLine.bounds);
-        } else {
-          answer = "The code visible in the editor buffer shows standard class and method declarations without syntax squiggles or inline diagnostics.";
-          confidence = 0.88;
+        // 2. Explain the visible error.
+        case "explain_visible_error": {
+          if (ocrInfo.detectedErrors.length > 0) {
+            const mainError = ocrInfo.detectedErrors[0];
+            answer = `The visible error on your screen is: **"${mainError}"**. It was detected in ${windowInfo.activeWindow?.title || "the active workspace"}.`;
+            evidenceElements.push(...ocrInfo.detectedErrors);
+            const errLine = ocrInfo.lines.find((l) => l.isErrorMessage);
+            if (errLine?.bounds) citedBoxes.push(errLine.bounds);
+          } else {
+            answer = `There are currently no blocking error dialogs or red diagnostic alerts visible on your screen in **${windowInfo.activeWindow?.title || "your active window"}**.`;
+            confidence = 0.88;
+            limitations = "No error tokens detected in visible viewport.";
+          }
+          break;
         }
-        break;
-      }
 
-      // 5. Identify the next step based on visible evidence.
-      case "identify_next_step": {
-        const actions = visualInfo.keyActionPoints;
-        answer = `Based on the visible evidence, your immediate next step should be: **${actions[0] || "Review open changes and run test campaign"}**. ${actions.slice(1).join(" ")}`;
-        evidenceElements.push(...actions);
-        break;
-      }
-
-      // 6. Detect unclear or partially visible content.
-      case "detect_unclear_content": {
-        answer = `The main editor text and terminal output are clear and legible (100% resolution confidence). However, background windows (${windowInfo.openWindows.filter((w) => !w.isActive).map((w) => w.processName).join(", ")}) are partially obscured behind the active foreground window.`;
-        evidenceElements.push(`Foreground window occludes ${windowInfo.openWindows.length - 1} background windows`);
-        limitations = "Background window contents cannot be fully read without bringing them to foreground.";
-        break;
-      }
-
-      // Default Freeform Query
-      default: {
-        // Search OCR lines for matching terms in query
-        const queryWords = query.split(/\s+/).filter((w) => w.length > 3);
-        const matchedLines = ocrInfo.lines.filter((l) =>
-          queryWords.some((w) => l.text.toLowerCase().includes(w))
-        );
-
-        if (matchedLines.length > 0) {
-          answer = `Based on what is visible on your screen: ${matchedLines.map((l) => `"${l.text}"`).slice(0, 3).join("; ")}. This appears in ${contextInfo.activeApplication}.`;
-          evidenceElements.push(...matchedLines.map((l) => l.text));
-          citedBoxes.push(...matchedLines.slice(0, 3).map((l) => l.bounds));
-        } else {
-          answer = `Regarding "${request.query}": Based on the current screen capture of **${windowInfo.activeWindow?.title || "your workspace"}**, there is no direct visual text or UI control explicitly matching your query. Current focus is on: ${contextInfo.primaryActivity}.`;
-          confidence = 0.8;
-          limitations = "Query terms not matched in visible viewport.";
+        // 3. Identify the visible UI elements.
+        case "identify_ui_elements": {
+          const elementTypes = visualInfo.elements.map((e) => `${e.label || e.type} (${e.type})`);
+          answer = `Identified **${visualInfo.elements.length} interactive UI elements** on screen: ${elementTypes.slice(0, 5).join(", ")}. These include window controls, interactive buttons, and workspace panes in ${windowInfo.activeWindow?.title || "the foreground"}.`;
+          evidenceElements.push(...elementTypes);
+          citedBoxes.push(...visualInfo.elements.slice(0, 5).map((e) => e.bounds));
+          break;
         }
-        break;
+
+        // 4. Explain the visible code issue.
+        case "explain_code_issue": {
+          const errorLine = ocrInfo.lines.find(
+            (l) =>
+              l.text.toLowerCase().includes("syntaxerror") ||
+              l.text.toLowerCase().includes("error") ||
+              l.text.toLowerCase().includes("fail")
+          );
+          if (errorLine) {
+            answer = `The visible code diagnostic is: **"${errorLine.text}"** in ${windowInfo.activeWindow?.title || "active editor"}.`;
+            evidenceElements.push(errorLine.text);
+            citedBoxes.push(errorLine.bounds);
+          } else {
+            answer = `The code visible in **${windowInfo.activeWindow?.title || "the active workspace"}** shows standard code or text without syntax squiggles or inline diagnostics.`;
+            confidence = 0.88;
+          }
+          break;
+        }
+
+        // 5. Identify the next step based on visible evidence.
+        case "identify_next_step": {
+          const actions = visualInfo.keyActionPoints;
+          answer = `Based on the visible evidence, your immediate next step should be: **${actions[0] || "Review open window state and proceed with workflow"}**. ${actions.slice(1).join(" ")}`;
+          evidenceElements.push(...actions);
+          break;
+        }
+
+        // 6. Detect unclear or partially visible content.
+        case "detect_unclear_content": {
+          const occluded = windowInfo.openWindows.filter((w) => !w.isActive).map((w) => w.processName);
+          if (occluded.length > 0) {
+            answer = `The active foreground window (${windowInfo.activeWindow?.title || "Foreground"}) is clear and legible (100% resolution confidence). However, ${occluded.length} background windows (${occluded.slice(0, 3).join(", ")}) are partially obscured behind the active foreground window.`;
+            evidenceElements.push(`Foreground window occludes ${occluded.length} background windows`);
+            limitations = "Background window contents cannot be fully read without bringing them to foreground.";
+          } else {
+            answer = `All visible content in ${windowInfo.activeWindow?.title || "the workspace"} is clear and unobscured.`;
+            evidenceElements.push("Foreground view unobscured");
+          }
+          break;
+        }
+
+        // Default Freeform Query
+        default: {
+          // Search OCR lines for matching terms in query
+          const queryWords = query.split(/\s+/).filter((w) => w.length > 3);
+          const matchedLines = ocrInfo.lines.filter((l) =>
+            queryWords.some((w) => l.text.toLowerCase().includes(w))
+          );
+
+          if (matchedLines.length > 0) {
+            answer = `Based on what is visible on your screen: ${matchedLines.map((l) => `"${l.text}"`).slice(0, 3).join("; ")}. This appears in ${contextInfo.activeApplication}.`;
+            evidenceElements.push(...matchedLines.map((l) => l.text));
+            citedBoxes.push(...matchedLines.slice(0, 3).map((l) => l.bounds));
+          } else {
+            answer = `Regarding "${request.query}": Based on the current screen capture of **${windowInfo.activeWindow?.title || "your workspace"}**, there is no direct visual text or UI control explicitly matching your query. Current focus is on: ${contextInfo.primaryActivity}.`;
+            confidence = 0.8;
+            limitations = "Query terms not matched in visible viewport.";
+          }
+          break;
+        }
       }
     }
 

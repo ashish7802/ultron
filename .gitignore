@@ -54,5 +54,7 @@ next-env.d.ts
 ultron_engine/secure_vault/
 docs/audit/GATEWAY_AUDIT_LOG.json
 .vscode/
+.security_vault/
+.tasks/
 
 desktop.ini

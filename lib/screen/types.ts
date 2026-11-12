@@ -30,7 +30,7 @@
 // 1. MODULE 01: VISION CONTROL & INDICATOR TYPES
 // ==============================================================================
 
-export type CaptureOperationalState = "OFF" | "INITIALIZING" | "LIVE" | "PAUSED" | "TERMINATED" | "ERROR";
+export type CaptureOperationalState = "OFF" | "INITIALIZING" | "LIVE" | "ANALYZING" | "PAUSED" | "DEGRADED" | "ERROR" | "TERMINATED";
 
 export type PermissionSyncState = "GRANTED" | "DENIED" | "PROMPT" | "REVOKED";
 
@@ -46,6 +46,11 @@ export interface VisionControlStatus {
   lastFrameAt: number | null;
   emergencyTerminationAvailable: boolean;
   activeWindowSummary?: string;
+  visionEngineStatus?: string;
+  lastAnalysisStatus?: string;
+  modelAvailability?: string;
+  lastCaptureLatencyMs?: number;
+  lastInferenceLatencyMs?: number;
 }
 
 export interface VisionControlCommand {
@@ -94,11 +99,12 @@ export interface CaptureOptions {
 export interface CapturedFrame {
   frameId: string;
   sessionId: string;
+  sequenceNumber: number;
   timestamp: number;
   mode: CaptureMode;
   display: DisplayMonitor;
   imageBuffer: Buffer;
-  mimeType: "image/jpeg" | "image/png" | "image/webp";
+  mimeType: "image/jpeg" | "image/png" | "image/webp" | "image/bmp";
   dimensions: {
     width: number;
     height: number;
@@ -107,6 +113,7 @@ export interface CapturedFrame {
   changeDetected: boolean;
   changePercentage: number;
   captureLatencyMs: number;
+  isSyntheticTestFrame?: boolean;
 }
 
 // ==============================================================================
@@ -158,6 +165,7 @@ export interface DesktopWindowInfo {
   state: WindowVisualState;
   isExcluded: boolean;
   browserUrlContext?: string;
+  browserUrl?: string;
   zIndex: number;
 }
 
@@ -206,13 +214,18 @@ export interface RecognizedUIElement {
 export type ApplicationLayoutCategory =
   | "ide_code_editor"
   | "browser_webpage"
+  | "web_browser"
   | "terminal_cli"
   | "dashboard_analytics"
   | "document_reader"
   | "database_admin"
   | "chat_communication"
   | "dialog_settings"
-  | "system_desktop";
+  | "system_desktop"
+  | "media_player"
+  | "system_settings"
+  | "dialog_modal"
+  | "desktop_workspace";
 
 export interface VisualUnderstandingResult {
   layoutCategory: ApplicationLayoutCategory;
@@ -221,6 +234,7 @@ export interface VisualUnderstandingResult {
   sceneExplanation: string;
   keyActionPoints: string[];
   confidenceScore: number;
+  sceneConfidence?: number;
   understandingLatencyMs: number;
 }
 
@@ -292,6 +306,7 @@ export interface ScreenActivityContext {
   salientTextSnippet: string;
   recentStateDelta: string;
   contextTimestamp: number;
+  timestamp?: number;
   relevanceToCoFounderMission: number; // 0.0 to 1.0
 }
 
@@ -379,9 +394,13 @@ export interface ScreenSession {
 
 export interface VisualContextPayload {
   sessionId: string;
+  frameId?: string;
+  sequenceNumber?: number;
   timestamp: number;
+  frameAgeMs?: number;
   activeApp: string;
   windowTitle: string;
+  browserUrl?: string;
   activitySummary: string;
   ocrSummary: string;
   detectedUI: {
@@ -390,6 +409,10 @@ export interface VisualContextPayload {
     errorsCount: number;
   };
   visibleErrors: string[];
+  visualEvidence?: string[];
+  ocrEvidence?: string[];
+  visualConfidence?: number;
+  uncertainty?: string;
   isRedundantFrame: boolean;
   formattedPromptContext: string;
 }

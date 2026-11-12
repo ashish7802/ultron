@@ -94,80 +94,73 @@ export class WindowDetectionEngine {
    */
   public async detectActiveWindows(): Promise<WindowDetectionResult> {
     let activeWin: DesktopWindowInfo | null = null;
+    let openWins: DesktopWindowInfo[] = [];
 
     // 1. Attempt native Win32 resolution via capture driver
     try {
       const python = this._resolvePython();
       const script = this._getDriverScriptPath();
       const { stdout } = await execFileAsync(python, [script, "monitors"], {
-        timeout: 3000,
+        timeout: 4000,
         windowsHide: true,
       });
 
       const parsed = JSON.parse(stdout);
-      if (parsed.success && parsed.activeWindow && parsed.activeWindow.title) {
-        const raw = parsed.activeWindow;
-        activeWin = {
-          handle: raw.handle || "0x0001",
-          title: raw.title,
-          processName: this._inferProcessName(raw.title),
-          processId: raw.processId || 1000,
-          bounds: raw.bounds || { x: 0, y: 0, width: 1920, height: 1080 },
-          isActive: true,
-          state: "normal",
-          isExcluded: this.isWindowSensitive(raw.title),
-          browserUrlContext: this.extractBrowserContext(raw.title),
-          zIndex: 1,
-        };
+      if (parsed.success) {
+        if (parsed.activeWindow && parsed.activeWindow.title) {
+          const raw = parsed.activeWindow;
+          activeWin = {
+            handle: raw.handle || "0x0001",
+            title: raw.title,
+            processName: raw.processName || this._inferProcessName(raw.title),
+            processId: raw.processId || 1000,
+            bounds: raw.bounds || { x: 0, y: 0, width: 1920, height: 1080 },
+            isActive: true,
+            state: "normal",
+            isExcluded: this.isWindowSensitive(raw.title, raw.processName),
+            browserUrlContext: this.extractBrowserContext(raw.title),
+            zIndex: 1,
+          };
+        }
+
+        if (Array.isArray(parsed.openWindows) && parsed.openWindows.length > 0) {
+          openWins = parsed.openWindows.map((w: Record<string, unknown>, idx: number) => ({
+            handle: (w.handle as string) || `0x${(idx + 1).toString(16)}`,
+            title: (w.title as string) || "Desktop Window",
+            processName: (w.processName as string) || this._inferProcessName((w.title as string) || ""),
+            processId: (w.processId as number) || 1000 + idx,
+            bounds: (w.bounds as DesktopWindowInfo["bounds"]) || { x: 0, y: 0, width: 1920, height: 1080 },
+            isActive: Boolean(w.isActive),
+            state: "normal",
+            isExcluded: this.isWindowSensitive((w.title as string) || "", (w.processName as string) || ""),
+            browserUrlContext: this.extractBrowserContext((w.title as string) || ""),
+            zIndex: idx + 1,
+          }));
+        }
       }
     } catch {
       // Driver unavailable: proceed to deterministic fallback
     }
 
-    // 2. Deterministic default when running in headless environment or when active window is blank
+    // 2. Fallback only if no active window was detectable (e.g. headless CI container)
     if (!activeWin || !activeWin.title) {
       activeWin = {
         handle: "0x1A2B",
-        title: "Visual Studio Code - ultron-desktop [Workspace]",
-        processName: "Code.exe",
-        processId: 4520,
+        title: "Active Desktop Workspace",
+        processName: "explorer.exe",
+        processId: 1000,
         bounds: { x: 0, y: 0, width: 1920, height: 1080 },
         isActive: true,
-        state: "maximized",
+        state: "normal",
         isExcluded: false,
         browserUrlContext: undefined,
         zIndex: 1,
       };
     }
 
-    // 3. Assemble open window list
-    const openWins: DesktopWindowInfo[] = [
-      activeWin,
-      {
-        handle: "0x3C4D",
-        title: "Google Chrome - ULTRON Architecture & Documentation",
-        processName: "chrome.exe",
-        processId: 8120,
-        bounds: { x: 100, y: 100, width: 1200, height: 800 },
-        isActive: false,
-        state: "normal",
-        isExcluded: false,
-        browserUrlContext: "https://docs.ultron.local",
-        zIndex: 2,
-      },
-      {
-        handle: "0x5E6F",
-        title: "Windows PowerShell - Developer CLI",
-        processName: "WindowsTerminal.exe",
-        processId: 9044,
-        bounds: { x: 200, y: 200, width: 900, height: 600 },
-        isActive: false,
-        state: "normal",
-        isExcluded: false,
-        browserUrlContext: undefined,
-        zIndex: 3,
-      },
-    ];
+    if (openWins.length === 0) {
+      openWins = [activeWin];
+    }
 
     const currentApp = activeWin.processName || "UnknownApp";
     const appSwitchDetected = this._previousActiveApp !== null && this._previousActiveApp !== currentApp;

@@ -120,24 +120,26 @@ export class ScreenContextEngine {
     title: string,
     ocrResult: OCRIntelligenceResult
   ): string {
+    const cleanTitle = title || "Active Desktop Window";
+
     if (workflow === "debugging") {
       const err = ocrResult.detectedErrors[0] || "syntax error";
-      return `Investigating and debugging test failure in Visual Studio Code: "${err.slice(0, 80)}"`;
+      return `Investigating and debugging test failure in ${cleanTitle}: "${err.slice(0, 80)}"`;
     }
 
     if (workflow === "coding") {
-      return `Editing TypeScript source file in Visual Studio Code (${title})`;
+      return `Working on source code in ${cleanTitle}`;
     }
 
     if (workflow === "browsing_documentation") {
-      return `Reviewing online technical documentation in browser (${title})`;
+      return `Reviewing web content or documentation in browser (${cleanTitle})`;
     }
 
     if (workflow === "terminal_ops") {
-      return `Executing system CLI commands and test builds in developer terminal`;
+      return `Executing system CLI commands and builds in terminal (${cleanTitle})`;
     }
 
-    return `Working in ${title}`;
+    return `Working in ${cleanTitle}`;
   }
 
   /**

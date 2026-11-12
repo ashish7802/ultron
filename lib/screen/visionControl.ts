@@ -26,6 +26,7 @@ import type {
   VisionControlStatus,
   VisionControlCommand,
 } from "./types.ts";
+import { defaultFrameStreamingEngine } from "./frameStreamingEngine.ts";
 
 export type StatusListener = (status: VisionControlStatus) => void;
 
@@ -82,13 +83,15 @@ export class VisionControlEngine {
    * Computes the current, verified VisionControlStatus.
    *
    * Anti-Hallucination Enforcement:
-   * Guarantees that `isCapturing` is strictly true ONLY when state is 'LIVE'
-   * and an active session exists.
+   * Guarantees that `isCapturing` is strictly true ONLY when state is 'LIVE', 'ANALYZING',
+   * or 'DEGRADED', and an active session exists.
    *
    * @returns VisionControlStatus payload.
    */
   public getStatus(): VisionControlStatus {
-    const isLive = this._state === "LIVE" && Boolean(this._activeSessionId);
+    const isLive =
+      (this._state === "LIVE" || this._state === "ANALYZING" || this._state === "DEGRADED") &&
+      Boolean(this._activeSessionId);
     let color: "red" | "green" | "amber" | "gray";
     let text: string;
 
@@ -96,6 +99,14 @@ export class VisionControlEngine {
       case "LIVE":
         color = "green";
         text = "VISION: LIVE";
+        break;
+      case "ANALYZING":
+        color = "green";
+        text = "VISION: ANALYZING";
+        break;
+      case "DEGRADED":
+        color = "amber";
+        text = "VISION: DEGRADED";
         break;
       case "INITIALIZING":
         color = "amber";
@@ -136,6 +147,19 @@ export class VisionControlEngine {
   }
 
   /**
+   * Updates the fine-grained operational state (e.g. transitioning between LIVE,
+   * ANALYZING, and DEGRADED during active capture sessions).
+   *
+   * @param newState - Target operational state.
+   */
+  public setOperationalState(newState: CaptureOperationalState): void {
+    if (this._state !== newState) {
+      this._state = newState;
+      this._broadcast();
+    }
+  }
+
+  /**
    * Synchronizes permission state from OS or session checks.
    *
    * @param state - Current permission status.
@@ -144,7 +168,7 @@ export class VisionControlEngine {
     this._permission = state;
     if (state === "REVOKED" || state === "DENIED") {
       // Permission lost: immediately drop capture state
-      if (this._state === "LIVE" || this._state === "PAUSED") {
+      if (this._state === "LIVE" || this._state === "ANALYZING" || this._state === "DEGRADED" || this._state === "PAUSED") {
         this.stopSession("Permission revoked by user or OS policy");
       }
     }
@@ -153,6 +177,9 @@ export class VisionControlEngine {
 
   /**
    * Starts a new verified vision capture session.
+   *
+   * Connects into FrameStreamingEngine to initiate live continuous frame acquisition
+   * with adaptive throttling and backpressure management.
    *
    * @param displayId - Optional monitor display target.
    * @returns Generated or bound session ID.
@@ -175,6 +202,13 @@ export class VisionControlEngine {
     this._permission = "GRANTED";
     this._state = "LIVE";
 
+    // Initiate continuous live streaming engine
+    try {
+      defaultFrameStreamingEngine.startStreaming(sessionId, { captureMode: "full_screen" });
+    } catch {
+      // Non-fatal if streaming encounters initial loopback setup delay
+    }
+
     this._broadcast();
     return sessionId;
   }
@@ -183,8 +217,9 @@ export class VisionControlEngine {
    * Pauses an active vision capture session without terminating the pipeline.
    */
   public pauseSession(): void {
-    if (this._state === "LIVE") {
+    if (this._state === "LIVE" || this._state === "ANALYZING") {
       this._state = "PAUSED";
+      defaultFrameStreamingEngine.pauseStreaming();
       this._broadcast();
     }
   }
@@ -195,6 +230,7 @@ export class VisionControlEngine {
   public resumeSession(): void {
     if (this._state === "PAUSED" && this._activeSessionId) {
       this._state = "LIVE";
+      defaultFrameStreamingEngine.resumeStreaming();
       this._broadcast();
     }
   }
@@ -209,6 +245,7 @@ export class VisionControlEngine {
     this._activeSessionId = null;
     this._startedAt = null;
     this._activeWindowSummary = reason || "Vision disabled";
+    defaultFrameStreamingEngine.stopStreaming(reason);
     this._broadcast();
   }
 
@@ -221,6 +258,7 @@ export class VisionControlEngine {
     this._activeSessionId = null;
     this._startedAt = null;
     this._activeWindowSummary = "EMERGENCY KILL TRIGGERED - BUFFERS PURGED";
+    defaultFrameStreamingEngine.stopStreaming("EMERGENCY KILL");
 
     if (this._emergencyPurgeCallback) {
       try {
@@ -244,7 +282,7 @@ export class VisionControlEngine {
    * @param windowTitle - Active window name during capture.
    */
   public recordFrameAcquired(windowTitle?: string): void {
-    if (this._state === "LIVE") {
+    if (this._state === "LIVE" || this._state === "ANALYZING" || this._state === "DEGRADED") {
       this._lastFrameAt = Date.now();
       if (windowTitle) {
         this._activeWindowSummary = windowTitle;

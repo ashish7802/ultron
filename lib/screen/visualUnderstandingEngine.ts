@@ -37,7 +37,8 @@ export class VisualUnderstandingEngine {
    */
   public analyzeScene(
     frame: ProcessedVisualFrame,
-    activeWindow?: DesktopWindowInfo | null
+    activeWindow?: DesktopWindowInfo | null,
+    liveElements?: RecognizedUIElement[]
   ): VisualUnderstandingResult {
     const startTime = Date.now();
     const title = activeWindow?.title || "";
@@ -46,8 +47,13 @@ export class VisualUnderstandingEngine {
     // 1. Determine Layout Category
     const layout = this.determineLayoutCategory(title, proc);
 
-    // 2. Identify UI Elements
-    const elements = this.detectUIElements(frame, layout);
+    // 2. Identify UI Elements: Prioritize genuine live accessible controls
+    let elements: RecognizedUIElement[];
+    if (liveElements && liveElements.length > 0) {
+      elements = liveElements;
+    } else {
+      elements = this.detectUIElements(frame, layout);
+    }
 
     // 3. Detect Visible Errors & Warnings
     const errors = this.detectVisibleErrors(title, elements);

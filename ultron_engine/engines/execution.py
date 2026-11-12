@@ -46,10 +46,44 @@ class ExecutionEngine(BaseEngine):
         issues = self.validate(action, params)
         if issues:
             return {"action": action, "status": "blocked", "issues": issues, "success": False}
-        # simulated execution with status tracking
-        await asyncio.sleep(0)
-        result = {"action": action, "status": "completed", "success": True,
-                  "params": params, "ts": time.time()}
+
+        # Real computer execution via native computer intelligence subsystem
+        real_result = {}
+        try:
+            if action in ("app_launch", "launch"):
+                from ..computer import app_manager
+                real_result = app_manager.launch_app(params.get("app") or params.get("target") or "")
+            elif action in ("shell", "exec"):
+                from ..computer import terminal_driver
+                real_result = terminal_driver.execute_command(
+                    params.get("command", ""),
+                    shell_name=params.get("shell", "powershell"),
+                    cwd=params.get("cwd")
+                )
+            elif action in ("file_read", "read_file"):
+                from ..computer import filesystem_driver
+                real_result = filesystem_driver.read_file(params.get("path", ""))
+            elif action in ("file_write", "write_file"):
+                from ..computer import filesystem_driver
+                real_result = filesystem_driver.write_file(
+                    params.get("path", ""),
+                    params.get("content", ""),
+                    overwrite=params.get("overwrite", False)
+                )
+            elif action in ("browser_open", "open_url"):
+                from ..computer import browser_driver
+                real_result = browser_driver.navigate_to_url(params.get("url", ""))
+        except Exception as e:
+            real_result = {"error": str(e), "success": False}
+
+        result = {
+            "action": action,
+            "status": "completed" if real_result.get("success", True) else "failed",
+            "success": real_result.get("success", True),
+            "params": params,
+            "execution": real_result,
+            "ts": time.time(),
+        }
         async with self._lock:
             self._history.append(result)
             if len(self._history) > 5000:
