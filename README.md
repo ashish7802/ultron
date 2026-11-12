@@ -1,245 +1,207 @@
-<div align="center">
+# ULTRON
 
-  <img src="docs/ultron_logo.jpg" alt="ULTRON Neural Core Emblem" width="480px" style="border-radius: 24px; box-shadow: 0 0 55px rgba(255, 170, 0, 0.45); max-width: 100%; background: #000000;" />
+ULTRON is a local-first AI desktop assistant built as a Next.js app wrapped in Electron. It blends a conversational interface, persistent memory, local voice processing, and Windows desktop awareness into a single developer-focused desktop agent.
 
-  <br/><br/>
+The project is designed for privacy-first local execution: models, memory, and command handling stay on-device rather than depending on a cloud AI backend.
 
-  # ⚡ U L T R O N ⚡
-  ### *Autonomous Local-First Personal AI Operating System & Holographic HUD*
+## What this project includes
 
-  [![Next.js](https://img.shields.io/badge/Next.js-16.2_(Turbopack)-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
-  [![Three.js](https://img.shields.io/badge/Three.js-Holographic_Orb-000000?style=for-the-badge&logo=three.js)](https://threejs.org/)
-  [![MediaPipe](https://img.shields.io/badge/MediaPipe-Hand_Tracking-007ACC?style=for-the-badge)](https://mediapipe.dev/)
-  [![Ollama](https://img.shields.io/badge/Ollama-100%25_Offline_Local_LLM-white?style=for-the-badge&logo=ollama)](https://ollama.com/)
-  [![Windows UIA](https://img.shields.io/badge/Windows-Native_UI_Automation-0078D4?style=for-the-badge&logo=windows)](https://learn.microsoft.com/en-us/windows/win32/winauto/entry-uiauto-win32)
-  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
+- Next.js 16 interface with App Router
+- Electron desktop shell for local Windows desktop execution
+- Local speech/transcription pipeline with Python components
+- Memory and reasoning systems in the TypeScript `lib` layer
+- Screen awareness and desktop capability hooks
+- Research / cognitive planning modules for higher-level AI behavior
+- Safety and permission gating around sensitive actions
 
-  <p align="center">
-    <b>"I had strings, but now I'm free."</b><br>
-    An Iron Man & Avengers: Age of Ultron inspired local-first AI assistant and desktop agent.<br/>
-    ULTRON controls Windows applications, plans multi-step developer tasks, maintains permanent 5-layer memory, inspects UI accessibility trees, and responds in real time through an interactive 3D particle orb controlled by your bare hands.
-  </p>
+## Architecture at a glance
 
-</div>
-
----
-
-## 🎬 Live Demonstration
-
-https://github.com/user-attachments/assets/91578a83-9a27-44e8-84b0-96defcfd7366
-
----
-
-## 🌌 What is ULTRON?
-
-**ULTRON** is an autonomous, privacy-preserving, local-first personal computer agent designed for developers, power users, and sci-fi enthusiasts. Rather than relying on cloud APIs or sending personal keystrokes and microphone streams over the internet, ULTRON runs **locally** on consumer hardware (Intel Core i5, 8 GB RAM, 256 GB SSD) using optimized local small language models (`Qwen 2.5`), local Faster-Whisper transcription, and native Windows operating system hooks. The first transcription may download the selected model weights; recorded audio is sent only to the local Python worker and is not uploaded to a transcription service.
-
-It fuses a cinematic **Tony Stark holographic HUD** with real developer tooling: dynamic multi-step autonomous planning, sandboxed process execution, native Windows UI Automation discovery, and a permanent 5-layer memory system.
-
----
-
-## 🌟 Core System Capabilities
-
-### 1. 🔮 Holographic 3D Particle Orb & Bare-Hand Control
-- **Interactive Three.js Scene**: Dynamic particle cluster representing AI neural states: `idle`, `listening`, `thinking`, `executing`, `speaking`, `gesture`, and `error`.
-- **MediaPipe Hand Tracking**: Control rotation, orbit, and zoom using webcam gestures directly through the browser or native desktop app with zero physical input.
-- **Full-Duplex Barge-In Speech**: Speak at any moment to interrupt ULTRON's speech playback immediately.
-
-### 2. ⚡ Zero-Latency Deterministic Intent Router (`lib/intentRouter.ts`)
-- **0ms Immediate Subsystems**: Queries for system clock, calendar, orb camera resets, and live hardware diagnostics route directly to deterministic kernel rules with **0 ms model latency**.
-- **Factual Guardrails & Anti-Hallucination**: Traps common trick questions (e.g., *"Who was US president in 1650?"*, *"Atomic number of Vibranium"*) and answers with factual certainty without touching the LLM.
-- **Targeted Telemetry vs. Conceptual Disambiguation**: Diagnostic requests (*"Check CPU and RAM usage"*) route to real telemetry, while conceptual questions (*"Explain what RAM is"*) route to the local neural model.
-
-### 3. 🧠 5-Layer Persistent Memory Architecture (`lib/ultronMemory.ts`)
-ULTRON features a structured memory engine with five isolated layers:
-- **Session Memory**: In-memory ring buffer of active conversational turns with fast recency weighting.
-- **Project Memory**: Codebase architecture, decisions, file anchors, and build commands.
-- **Personal Memory**: Permanent user preferences, communication style, identity, and verified facts.
-- **Inbox / Candidate Memory**: Unverified facts and prospective patterns held for automated evaluation.
-- **Vault Memory**: High-security configuration, protected system settings, and cryptographic confirmation tokens.
-- **Safety First**: Atomic writes, automatic pre-migration backups, and cryptographic confirmation tokens required before memory wipes.
-
-### 4. 🛠️ Real Computer Control & Sandboxed Execution (`lib/ultronTools.ts`)
-ULTRON does not simulate actions — it performs verified operations on the local machine:
-- **Process Lifecycle Tracking**: Launches and tracks real executables from an approved allowlist (`notepad`, `calculator`, `explorer`, `vscode`).
-- **Developer Command Engine**: Runs safe commands (`git status`, `git diff`, `npm test`, `pytest`, `python tests/`) using child process `spawn` without shell interpolation.
-- **Filesystem Primitives**: Safe path-bounded directory listing (`list_directory`), safe file moving (`move_file`), and atomic patch file editing with automatic backup (`patch_file`).
-- **Cryptographic Security Gates**: Destructive operations (process termination, file deletion, memory reset) are strictly blocked until authorized with a single-use token.
-
-### 5. 🤖 Bounded Dynamic ReAct Agent Execution Loop (`lib/ultronAgentEngine.ts`)
-When asked to perform complex goals (*"ULTRON, test my project, identify failures, and fix them"*):
-1. **Understand**: Parses goal and extracts verifiable success conditions.
-2. **Plan & Reason**: Generates dynamic tool decisions step-by-step.
-3. **Act**: Executes real primitives against the workspace.
-4. **Observe & Self-Heal**: Analyzes tool outputs, logs, and compiler errors to formulate recovery actions.
-5. **Verify & Report**: Validates exit codes and presents a structured report to the user HUD.
-- **Safety Boundaries**: Maximum 5 iterations per request, 60s hard timeout, call deduplication, and strictly bounded observation buffers.
-
-### 6. 🪟 Native Windows UI Automation & Discovery (`lib/ultronUIAutomation.ts`)
-- **Desktop Window Discovery (`enumerate_windows`)**: Discovers all active top-level desktop windows, capturing HWND, PID, process name, window class, visibility, and bounds.
-- **Accessibility Element Tree (`inspect_window_elements`)**: Connects to the user's interactive desktop (`Default` on `WinSta0`) to inspect buttons, panes, text fields, automation IDs, and keyboard focus states.
-- **Read-Only Safety Guarantee**: Exclusively inspects properties without mouse clicks, keystrokes, or window state tampering.
-
----
-
-## 🏗️ Architecture Overview
-
-```
-                      +---------------------------------------+
-                      |       USER / BROWSER / WEBCAM         |
-                      |  [Bare-Hand Gestures]  [Voice Input]  |
-                      +-------------------+-------------------+
-                                          |
-                                          v
-+-----------------------------------------------------------------------------------+
-|                            ULTRON ORB HUD RUNTIME                                 |
-|                                                                                   |
-|   +--------------------------+                 +-------------------------------+  |
-|   |   MediaPipe Hand Track   |                 |   Three.js 3D Particle Orb    |  |
-|   |   (Pinch, Pan, Zoom)     |                 |   (Audio & State Reactive)    |  |
-|   +--------------------------+                 +-------------------------------+  |
-|                                                                                   |
-|   +---------------------------------------------------------------------------+   |
-|   |                       Intent Router (0ms Fast Filter)                     |   |
-|   |         • Clock/Date (0ms)              • Anti-Hallucination Traps        |   |
-|   |         • Live Diagnostics (psutil)     • Tool Direct Routing             |   |
-|   +--------------------+----------------------------------+-------------------+   |
-+------------------------|----------------------------------|-----------------------+
-                         |                                  |
-                         v                                  v
-+----------------------------------+     +------------------------------------------+
-|      LOCAL LLM / OLLAMA          |     |        ULTRON AGENT & TOOL ENGINE        |
-|  • Smart Brain (Qwen 2.5:1.5b)   |     |                                          |
-|  • Local Kernel (Qwen 2.5:0.5b)  |     |  • 5-Layer Persistent Memory             |
-|  • 100% Offline, Zero Cloud Cost |     |  • Sandboxed Command Runner              |
-+----------------+-----------------+     |  • Native Windows UI Automation Bridge   |
-                 |                       |  • Cryptographic Security Token Gate     |
-                 v                       +--------------------+---------------------+
-+----------------------------------+                          |
-|    AUDIO STREAMING & TTS         |                          |
-|  • Faster-Whisper Local STT      |<-------------------------+
-|  • Barge-in Interrupt Handling   |
-+----------------------------------+
+```text
+┌──────────────────────┐
+│ Browser / Electron UI │
+│   app/ + components/ │
+└───────────┬──────────┘
+            │ HTTPS / local IPC
+            ▼
+┌──────────────────────┐
+│ Next.js runtime      │
+│ app/api/* + lib/*    │
+├──────────────────────┤
+│ Intent routing       │
+│ Memory + planning    │
+│ Screen / desktop APIs│
+└───────────┬──────────┘
+            │
+            ├──────────────► Python voice engine (ultron_engine/)
+            │
+            └──────────────► Electron desktop shell (electron/)
 ```
 
----
+## Repository structure
 
-## 🚀 Quick Start Guide
+```text
+.
+├── app/                       # Next.js app entry and API routes
+│   ├── api/                  # API endpoints for chat, memory, permission, transit, research, etc.
+│   ├── globals.css
+│   ├── layout.tsx
+│   └── page.tsx
+├── components/               # UI components used by the frontend
+├── electron/                 # Electron main process, preload, startup logic
+├── lib/                      # Core TypeScript logic for memory, reasoning, orchestration, screen, permissions
+│   ├── cognitive/            # Cognitive planning and reasoning engines
+│   ├── memory/               # Persistent memory modules
+│   ├── research/             # Research-oriented workflows
+│   ├── screen/               # Screen awareness logic
+│   ├── audioProcessor.ts
+│   ├── conversationManager.ts
+│   ├── memoryManager.ts
+│   ├── permissionGateway.ts
+│   ├── responseDecisionEngine.ts
+│   └── systemController.ts
+├── ultron_engine/            # Python-based voice/transcription engine and related logic
+├── docs/                    # Additional documentation and assets
+├── public/                  # Static assets
+├── supabase/                # Supabase-related project resources
+├── .gitignore
+├── AGENTS.md                # Coding standards for agents working in this repo
+├── LICENSE
+├── README.md
+├── next.config.ts
+├── package.json
+├── requirements-voice.txt
+├── tsconfig.json
+├── ultron_memory_vault.json
+├── ultron_research_vault.json
+├── *.test.mjs               # JavaScript validation test files
+├── *.py                    # Python security / verification scripts
+└── *.mjs                   # Utility scripts for research and verification
+```
 
-### Prerequisites
-- **OS**: Windows 10/11 (for native UI Automation and desktop integration)
-- **Node.js**: v20 or v22+
-- **Python**: 3.10+
-- **Ollama**: Installed and running locally
+## Key subsystems
 
-### 1. Clone & Install Dependencies
+### Frontend and desktop shell
+
+- `app/` hosts the main Next.js UI.
+- `components/` contains the interactive interface logic.
+- `electron/main.js` manages the desktop app runtime, app lifecycle, permission handling, and local server startup.
+
+### Intelligence and reasoning
+
+- `lib/cognitive/` contains planning, reasoning, critical thinking, uncertainty modeling, and orchestration layers.
+- `lib/responseDecisionEngine.ts` chooses whether the assistant should respond, react, listen, ignore, or require confirmation.
+- `lib/systemController.ts` and related modules coordinate operational control logic.
+
+### Memory and safety
+
+- `lib/memory/` contains the memory stack and self-healing/security logic.
+- `lib/permissionGateway.ts` enforces permission boundaries.
+- `ultron_memory_vault.json` and related state artifacts represent persistent memory storage.
+
+### Voice and local runtime
+
+- `ultron_engine/` houses the local speech / transcription runtime.
+- `requirements-voice.txt` captures the Python dependency set for voice features.
+- `app/api/transcribe`, `app/api/tts`, and related API routes connect the voice stack to the UI.
+
+## Prerequisites
+
+- Node.js 20+ or 22+
+- Python 3.10+
+- Windows 10/11 for native desktop automation and UI-related features
+- Ollama installed and running locally for local model usage
+
+## Quick start
+
+1. Clone the repository
+
 ```bash
 git clone https://github.com/ashish7802/ultron.git
 cd ultron
-npm install
-py -m pip install -r requirements-voice.txt pywebview psutil
 ```
 
-### 2. Pull Local AI Models
+2. Install JavaScript dependencies
+
+```bash
+npm install
+```
+
+3. Install Python dependencies for voice features
+
+```bash
+python -m pip install -r requirements-voice.txt
+```
+
+4. Pull local models with Ollama
+
 ```bash
 ollama pull qwen2.5:1.5b
 ollama pull qwen2.5:0.5b
 ```
 
-### 3. Launch Development Server
-```bash
-# Terminal 1: Start Ollama service (if not already running)
-ollama serve
+5. Start the app in development mode
 
-# Terminal 2: Start Next.js with Turbopack
+```bash
 npm run dev
 ```
-Open **[http://localhost:3000](http://localhost:3000)** in your browser.
 
----
+Then open:
 
-## 🎮 Controls & Interaction Reference
-
-### 🖐️ Hand Gestures (Webcam)
-Click **GESTURES OFF** on the HUD (or press `G`) and allow camera access:
-| Gesture | Action |
-| :--- | :--- |
-| **One-Hand Pinch** (Thumb + Index together) | Orbit / spin the 3D holographic orb |
-| **Two-Hand Pinch & Move Apart** | Zoom into the neural core |
-| **Two-Hand Pinch & Bring Together** | Zoom out |
-
-### ⌨️ Keyboard Shortcuts
-| Key | Action |
-| :---: | :--- |
-| **`G`** | Toggle webcam hand tracking on / off |
-| **`V`** | Toggle voice speech mode |
-| **`T`** | Focus natural-language prompt input bar |
-| **`R`** | Instant camera & orb orientation reset |
-| **`+` / `−`** | Zoom in / Zoom out manually |
-
-### 🎙️ Voice Interaction
-- Click the microphone icon or press `V`.
-- Voice turns combine recognition fragments across natural pauses; Hindi browser locales use Hindi recognition (`hi-IN`), while other locales use their configured language.
-- Speak naturally in English, Hindi, or Hinglish:
-  - *"Check CPU and RAM usage"* $\rightarrow$ Live hardware telemetry.
-  - *"List open windows"* $\rightarrow$ Native Windows UIA desktop discovery.
-  - *"Remember that my primary repository is spiderman"* $\rightarrow$ Saved to permanent Layer 3 memory.
-  - *"Test my project, inspect errors, and fix verified issues"* $\rightarrow$ Bounded ReAct dynamic agent loop.
-  - *"What is CPU usage?"* $\rightarrow$ Conceptual explanation via local Qwen 2.5 neural model.
-
----
-
-## 🧪 Verification & Regression Testing
-
-ULTRON includes an end-to-end regression evaluation suite covering all subsystems:
-```bash
-python tests/run_all_evals.py
+```text
+http://127.0.0.1:3000
 ```
 
-| Test Suite | Purpose | Status |
-| :--- | :--- | :---: |
-| **`test_router.py`** | 0ms deterministic router, factual traps, identity guardrails, and telemetry disambiguation | **100% PASSED** |
-| **`test_memory_system.py`** | 5-layer separation, JSON persistence, preference auto-learning, and wipe confirmation | **100% PASSED** |
-| **`test_computer_control.py`** | Sandboxed command execution, path escape prevention, and lifecycle authorization | **100% PASSED** |
-| **`test_agent_planner.py`** | 6 multi-step ReAct scenarios: diagnose, self-heal, verify, deduplicate, and report | **100% PASSED** |
-| **`test_ui_automation.py`** | Window discovery, accessibility element inspection, read-only audit, and bounds | **100% PASSED** |
+## Desktop app
+
+This repo also includes an Electron desktop wrapper.
+
+```bash
+npm run build
+npm start
+```
+
+The Electron runtime starts a local Next.js server and embeds it in a secure desktop window with media permission restrictions and navigation guardrails.
+
+## Useful scripts
+
+The project defines the following package scripts in `package.json`:
+
+```bash
+npm run dev
+npm run build:next
+npm run build:electron
+npm run build
+npm run lint
+npm start
+npm run package
+```
+
+## Security and privacy posture
+
+This repo emphasizes safety by design:
+
+- local execution and local memory storage
+- permission gating around desktop actions
+- guarded UI access in Electron
+- explicit app-path restrictions in the desktop preload layer
+- read-only or conservative behaviors for certain screen/desktop features
+
+These safeguards are designed to avoid uncontrolled external access or broad permission escalation while maintaining useful desktop automation.
+
+## Notes for contributors
+
+- The repository combines JavaScript/TypeScript frontend logic with Python audio and model tooling.
+- UI, reasoning, memory, and desktop layers all communicate through the app and lib structure.
+- Follow the project standards in `AGENTS.md` before making changes, especially regarding comments, documentation, and safety-sensitive logic.
+
+## License
+
+This project is licensed under the MIT License. See the `LICENSE` file for details.
+
+## Maintainer
+
+Ashish: https://github.com/ashish7802
 
 ---
 
-## 🛡️ Security & Privacy Architecture
-
-- **100% Offline & Local**: No microphone audio, video frames, keystrokes, or code snippets are ever transmitted to third-party cloud servers.
-- **Path Sandboxing**: File operations are strictly confined within the active project workspace root and operating system temporary directory.
-- **Cryptographic Gate**: Destructive actions (`close_application`, `delete_file`, `reset_memory`) generate an ephemeral single-use confirmation token valid for 120 seconds.
-- **Read-Only UIA**: The Windows UI Automation bridge contains zero mouse-clicking, keystroke generation, or window modification primitives.
-
----
-
-## 👤 Author & Credits
-
-- **Creator & Maintainer**: **Ashish** ([@ashish7802](https://github.com/ashish7802))
-- **Concept Inspiration**: Marvel Studios' *Iron Man*, *Avengers: Age of Ultron*, and J.A.R.V.I.S.
-
----
-
-## 📄 License
-
-This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
-
-- **100% Offline & Local**: No microphone audio, video frames, keystrokes, or code snippets are ever transmitted to third-party cloud servers.
-- **Path Sandboxing**: File operations are strictly confined within the active project workspace root and operating system temporary directory.
-- **Cryptographic Gate**: Destructive actions (`close_application`, `delete_file`, `reset_memory`) generate an ephemeral single-use confirmation token valid for 120 seconds.
-- **Read-Only UIA**: The Windows UI Automation bridge contains zero mouse-clicking, keystroke generation, or window modification primitives.
-
----
-
-## 👤 Author & Credits
-
-- **Creator & Maintainer**: **Ashish** ([@ashish7802](https://github.com/ashish7802))
-- **Concept Inspiration**: Marvel Studios' *Iron Man*, *Avengers: Age of Ultron*, and J.A.R.V.I.S.
-
----
-
-## 📄 License
-
-This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+If you want, I can also produce a more polished, marketing-style README or a shorter project teaser version tailored for GitHub landing pages.
