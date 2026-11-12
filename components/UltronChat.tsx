@@ -28,6 +28,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import MarkdownRenderer from "./MarkdownRenderer";
+import ScreenAwarenessIndicator from "./ScreenAwarenessIndicator";
 
 /** Metadata attached to assistant responses (citations, grounding source, execution time). */
 export interface MessageMeta {
@@ -1021,6 +1022,9 @@ export default function UltronChat() {
           </div>
 
           <div className="ultron-topbar-right">
+            {/* Screen Awareness Floating Indicator (Module 01) */}
+            <ScreenAwarenessIndicator />
+
             {/* Export Chat */}
             <button
               type="button"

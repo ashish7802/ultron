@@ -51,6 +51,7 @@ import {
   auditCandidateReply,
 } from "@/lib/cognitive/orchestrator";
 import { remediateCandidateResponse } from "@/lib/cognitive/selfEvaluationEngine";
+import { defaultVisualContextDeliveryEngine } from "@/lib/screen/contextDeliveryEngine";
 import type {
   ParsedContext,
   CognitiveTier,
@@ -481,11 +482,15 @@ async function queryOllama(
         "1. Be articulate, insightful, respectful, and direct.\n" +
         "2. For technical questions or code, provide comprehensive, structured answers with Markdown headers, bullet points, and production-ready commented code.\n";
 
+    const lastScreenContext = defaultVisualContextDeliveryEngine.getLastPayload();
+    const screenPromptBlock = lastScreenContext ? `\n${lastScreenContext.formattedPromptContext}\n` : "";
+
     const systemPrompt =
       baseDirectives +
       `Language Policy: ${langInfo.instruction}\n` +
       "Adhere strictly to the user's stored identity and preferences:\n" +
-      (memoryContext ? `${memoryContext}\n` : "");
+      (memoryContext ? `${memoryContext}\n` : "") +
+      screenPromptBlock;
 
     // Format previous turns for native chat message list (last 8 turns)
     const chatTurns: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
