@@ -84,8 +84,8 @@ export class MemoryCoordinator {
   public readonly security: MemorySecurityEngine;
 
   constructor(
-    vaultPath: string = path.join(process.cwd(), "ultron_memory_vault.json"),
-    backupPath: string = path.join(process.cwd(), "ultron_memory_vault.json.bak")
+    vaultPath: string = path.join(/*turbopackIgnore: true*/ process.cwd(), "ultron_memory_vault.json"),
+    backupPath: string = path.join(/*turbopackIgnore: true*/ process.cwd(), "ultron_memory_vault.json.bak")
   ) {
     this._vaultPath = vaultPath;
     this._backupPath = backupPath;

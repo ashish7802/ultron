@@ -45,7 +45,7 @@ const MAX_QUERY_LENGTH = 2000;
 const DEFAULT_MAX_SOURCES = 6;
 const MAX_MAX_SOURCES = 12;
 
-const RESEARCH_SCRIPT = path.join(process.cwd(), "ultron_engine", "quantum_research_agent.py");
+const RESEARCH_SCRIPT = path.join(/*turbopackIgnore: true*/ process.cwd(), "ultron_engine", "quantum_research_agent.py");
 
 export interface ResearchRequestBody {
   query: string;

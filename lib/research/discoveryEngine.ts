@@ -408,7 +408,7 @@ export class InternalDocumentAdapter implements SearchProviderAdapter {
     const targetFiles: string[] = [];
 
     // 1. Scoped scan of docs/ folder
-    const docsDir = path.join(process.cwd(), "docs");
+    const docsDir = path.join(/*turbopackIgnore: true*/ process.cwd(), "docs");
     if (fs.existsSync(docsDir)) {
       try {
         const docFiles = fs.readdirSync(docsDir);

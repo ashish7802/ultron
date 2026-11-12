@@ -103,8 +103,8 @@ export interface ResearchVaultData {
   citationVerifications: Record<string, CitationIntegrityVerificationRecord>;
 }
 
-const VAULT_FILE_PATH = path.join(process.cwd(), "ultron_research_vault.json");
-const VAULT_BACKUP_PATH = path.join(process.cwd(), "ultron_research_vault.json.bak");
+const VAULT_FILE_PATH = path.join(/*turbopackIgnore: true*/ process.cwd(), "ultron_research_vault.json");
+const VAULT_BACKUP_PATH = path.join(/*turbopackIgnore: true*/ process.cwd(), "ultron_research_vault.json.bak");
 
 /**
  * Derives a dynamic 256-bit AES key for persistent vault encryption at rest.
@@ -144,9 +144,10 @@ function encryptVaultData(data: ResearchVaultData): string {
  * Decrypts research vault data from disk using AES-256-GCM.
  *
  * @param rawContent - Raw encrypted JSON string.
+ * @param isRetry - Flag preventing infinite recursive recovery when backup is also unreadable.
  * @returns Parsed ResearchVaultData object.
  */
-function decryptVaultData(rawContent: string): ResearchVaultData {
+function decryptVaultData(rawContent: string, isRetry: boolean = false): ResearchVaultData {
   try {
     const parsed = JSON.parse(rawContent);
 
@@ -171,11 +172,11 @@ function decryptVaultData(rawContent: string): ResearchVaultData {
 
     throw new Error("Invalid research vault format");
   } catch {
-    // If decryption fails, attempt recovery from backup
-    if (fs.existsSync(VAULT_BACKUP_PATH)) {
+    // If decryption fails and not already retrying backup, attempt recovery from backup once
+    if (!isRetry && fs.existsSync(VAULT_BACKUP_PATH)) {
       try {
         const backupContent = fs.readFileSync(VAULT_BACKUP_PATH, "utf8");
-        return decryptVaultData(backupContent);
+        return decryptVaultData(backupContent, true);
       } catch {
         // Fall through to empty vault initialization
       }

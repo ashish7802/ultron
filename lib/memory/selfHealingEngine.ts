@@ -44,8 +44,8 @@ export class SelfHealingEngine {
   private _auditHistory: SelfHealingAuditEntry[] = [];
 
   constructor(
-    primaryPath: string = path.join(process.cwd(), "ultron_memory_vault.json"),
-    backupPath: string = path.join(process.cwd(), "ultron_memory_vault.json.bak")
+    primaryPath: string = path.join(/*turbopackIgnore: true*/ process.cwd(), "ultron_memory_vault.json"),
+    backupPath: string = path.join(/*turbopackIgnore: true*/ process.cwd(), "ultron_memory_vault.json.bak")
   ) {
     this._primaryPath = primaryPath;
     this._backupPath = backupPath;

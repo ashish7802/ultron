@@ -53,7 +53,7 @@ export function getActiveMasterSecret(): string {
         const fsMod = require("fs");
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const pathMod = require("path");
-        const keyPath = pathMod.join(process.cwd(), ".vault_key");
+        const keyPath = pathMod.join(/*turbopackIgnore: true*/ process.cwd(), ".vault_key");
         if (fsMod.existsSync(keyPath)) {
           const stored = fsMod.readFileSync(keyPath, "utf-8").trim();
           if (stored.length >= 32) {
@@ -78,7 +78,7 @@ export function getActiveMasterSecret(): string {
         const fsMod = require("fs");
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const pathMod = require("path");
-        const keyPath = pathMod.join(process.cwd(), ".vault_key");
+        const keyPath = pathMod.join(/*turbopackIgnore: true*/ process.cwd(), ".vault_key");
         fsMod.writeFileSync(keyPath, dynamicMasterKey, { encoding: "utf-8" });
       } catch {
         // Non-fatal if filesystem is restricted
@@ -89,7 +89,10 @@ export function getActiveMasterSecret(): string {
 }
 
 /**
- * Rotates the active master key in memory.
+ * Rotates the active master key in memory and synchronizes with persistent storage.
+ *
+ * WHY: When the master cryptographic key is rotated, any running or subsequent
+ * Node.js desktop process reading `.vault_key` must remain in cryptographic parity.
  *
  * @returns The newly generated 256-bit hex key.
  */
@@ -99,6 +102,20 @@ export function rotateMasterKey(): string {
   dynamicMasterKey = Array.from(array)
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
+
+  if (typeof process !== "undefined" && process.versions?.node) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const fsMod = require("fs");
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const pathMod = require("path");
+      const keyPath = pathMod.join(/*turbopackIgnore: true*/ process.cwd(), ".vault_key");
+      fsMod.writeFileSync(keyPath, dynamicMasterKey, { encoding: "utf-8" });
+    } catch {
+      // Non-fatal if filesystem is restricted
+    }
+  }
+
   return dynamicMasterKey;
 }
 
