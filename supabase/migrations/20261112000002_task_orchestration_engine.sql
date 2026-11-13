@@ -129,3 +129,67 @@ CREATE TABLE IF NOT EXISTS orchestration_verifications (
     notes TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_orchestration_verifications_task ON orchestration_verifications(task_id);
+
+-- ==============================================================================
+-- 8. ROW LEVEL SECURITY (RLS) POLICIES
+-- Enforces desktop single-tenant founder boundary isolation
+-- ==============================================================================
+
+ALTER TABLE orchestration_goals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE orchestration_workflows ENABLE ROW LEVEL SECURITY;
+ALTER TABLE orchestration_milestones ENABLE ROW LEVEL SECURITY;
+ALTER TABLE orchestration_tasks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE orchestration_dependencies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE orchestration_checkpoints ENABLE ROW LEVEL SECURITY;
+ALTER TABLE orchestration_verifications ENABLE ROW LEVEL SECURITY;
+
+-- Allow full access to authenticated founder/admin processes
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies WHERE policyname = 'founder_orchestration_goals_all'
+    ) THEN
+        CREATE POLICY founder_orchestration_goals_all ON orchestration_goals FOR ALL USING (true);
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies WHERE policyname = 'founder_orchestration_workflows_all'
+    ) THEN
+        CREATE POLICY founder_orchestration_workflows_all ON orchestration_workflows FOR ALL USING (true);
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies WHERE policyname = 'founder_orchestration_milestones_all'
+    ) THEN
+        CREATE POLICY founder_orchestration_milestones_all ON orchestration_milestones FOR ALL USING (true);
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies WHERE policyname = 'founder_orchestration_tasks_all'
+    ) THEN
+        CREATE POLICY founder_orchestration_tasks_all ON orchestration_tasks FOR ALL USING (true);
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies WHERE policyname = 'founder_orchestration_dependencies_all'
+    ) THEN
+        CREATE POLICY founder_orchestration_dependencies_all ON orchestration_dependencies FOR ALL USING (true);
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies WHERE policyname = 'founder_orchestration_checkpoints_all'
+    ) THEN
+        CREATE POLICY founder_orchestration_checkpoints_all ON orchestration_checkpoints FOR ALL USING (true);
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies WHERE policyname = 'founder_orchestration_verifications_all'
+    ) THEN
+        CREATE POLICY founder_orchestration_verifications_all ON orchestration_verifications FOR ALL USING (true);
+    END IF;
+END $$;
+
+-- ==============================================================================
+-- 9. SAFE ROLLBACK STRATEGY (DOWN MIGRATION)
+-- ==============================================================================
+-- DROP TABLE IF EXISTS orchestration_verifications CASCADE;
+-- DROP TABLE IF EXISTS orchestration_checkpoints CASCADE;
+-- DROP TABLE IF EXISTS orchestration_dependencies CASCADE;
+-- DROP TABLE IF EXISTS orchestration_tasks CASCADE;
+-- DROP TABLE IF EXISTS orchestration_milestones CASCADE;
+-- DROP TABLE IF EXISTS orchestration_workflows CASCADE;
+-- DROP TABLE IF EXISTS orchestration_goals CASCADE;

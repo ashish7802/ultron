@@ -28,6 +28,7 @@ import type {
   VisualUnderstandingResult,
   OCRIntelligenceResult,
   VisualContextPayload,
+  CapturedFrame,
 } from "./types.ts";
 import { canCaptureScreen } from "../screenPrivacyController.ts";
 import { defaultVisionControl } from "./visionControl.ts";
@@ -39,6 +40,7 @@ import { defaultOCREngine } from "./ocrEngine.ts";
 import { defaultScreenContextEngine } from "./screenContextEngine.ts";
 import { defaultTemporalScreenIntelligence } from "./temporalScreenIntelligence.ts";
 import { defaultVisionOcrFusionEngine } from "./visionOcrFusionEngine.ts";
+import { defaultMultimodalVisionEngine } from "./multimodalVisionEngine.ts";
 
 export interface ContextPayloadOptions {
   frameId?: string;
@@ -51,6 +53,7 @@ export interface ContextPayloadOptions {
 export class VisualContextDeliveryEngine {
   private _lastDeliveredHash: string | null = null;
   private _lastPayload: VisualContextPayload | null = null;
+  private _isProcessingFrame: boolean = false;
 
   /**
    * Builds an optimized VisualContextPayload for cognitive grounding.
@@ -272,69 +275,128 @@ Observed at: ${tsStr} (age: ${ageMs}ms)
         options?.sessionId || status.activeSessionId || undefined
       );
 
-      // 2. Detect active windows and accessibility elements
-      const windowInfo = await defaultWindowDetectionEngine.detectActiveWindows();
-      const activeWin = windowInfo.activeWindow;
-
-      // 3. Process frame metrics
-      const processed = defaultVisualProcessingEngine.processFrame(frame);
-
-      // 4. Multimodal scene understanding and OCR
-      const visual = defaultVisualUnderstandingEngine.analyzeScene(processed, activeWin);
-      const ocr = defaultOCREngine.extractText(processed, activeWin?.title);
-
-      // 5. Synthesize high-level activity context
-      const context = defaultScreenContextEngine.synthesizeContext(windowInfo, visual, ocr);
-
-      // 6. Multimodal & OCR fusion layer
-      const fusion = defaultVisionOcrFusionEngine.fuse(
-        {
-          analysisId: `fusion_${frame.frameId}`,
-          frameId: frame.frameId,
-          timestamp: frame.timestamp,
-          modelUsed: "local-os-multimodal",
-          isLiveModelInference: false,
-          sceneSummary: visual.sceneExplanation,
-          detectedApplication: activeWin?.processName || "desktop",
-          layoutCategory: visual.layoutCategory,
-          recognizedElements: visual.elements,
-          detectedErrors: visual.visibleErrors,
-          actionPoints: visual.keyActionPoints,
-          visualConfidence: visual.confidenceScore,
-          inferenceLatencyMs: 10,
-        },
-        ocr,
-        activeWin
-      );
-
-      // 7. Track temporal transitions
-      const targetSessionId = options?.sessionId || status.activeSessionId || "screen_sess_live";
-      defaultTemporalScreenIntelligence.recordFrameObservation(targetSessionId, activeWin, fusion);
-
-      // 8. Build delivered payload
-      const payload = this.buildContextPayload(
-        targetSessionId,
-        context,
-        visual,
-        ocr,
-        frame.pixelHash,
-        {
-          frameId: frame.frameId,
-          sequenceNumber: frame.sequenceNumber,
-          frameTimestamp: frame.timestamp,
-          browserUrl: activeWin?.browserUrl,
-          isSyntheticTestFrame: frame.isSyntheticTestFrame,
-        }
-      );
-
-      defaultVisionControl.recordFrameAcquired(activeWin?.title);
-      defaultVisionControl.setOperationalState("LIVE");
-
-      return payload;
+      return await this._processCapturedFrame(frame, options?.sessionId || status.activeSessionId || undefined);
     } catch {
       defaultVisionControl.setOperationalState("DEGRADED");
       return this._lastPayload;
     }
+  }
+
+  /**
+   * Processes an incoming captured frame from the streaming pipeline or on-demand tick.
+   * Concurrency-safe: prevents inference stampedes and racing analysis passes.
+   *
+   * @param frame - CapturedFrame from physical driver.
+   * @param sessionId - Optional explicit session ID.
+   * @returns VisualContextPayload or null.
+   */
+  public async processStreamingFrame(frame: CapturedFrame): Promise<VisualContextPayload | null> {
+    if (this._isProcessingFrame) {
+      // Drop frame to enforce backpressure and preserve ordered sequence
+      return null;
+    }
+
+    this._isProcessingFrame = true;
+    try {
+      return await this._processCapturedFrame(frame, frame.sessionId);
+    } finally {
+      this._isProcessingFrame = false;
+    }
+  }
+
+  /**
+   * Internal processing pipeline: Window Detection -> OCR -> Real Vision Inference -> Fusion -> Temporal tracking.
+   */
+  private async _processCapturedFrame(frame: CapturedFrame, targetSessionId?: string): Promise<VisualContextPayload | null> {
+    // 1. Validate physical image byte integrity
+    if (!frame.imageBuffer || frame.imageBuffer.length < 8) {
+      throw new Error("Invalid or corrupted screen capture buffer");
+    }
+
+    // 2. Detect active windows and OS accessibility elements
+    const windowInfo = await defaultWindowDetectionEngine.detectActiveWindows();
+    const activeWin = windowInfo.activeWindow;
+
+    // 3. Process frame metrics
+    const processed = defaultVisualProcessingEngine.processFrame(frame);
+
+    // 4. Run spatial OCR extraction
+    const ocr = defaultOCREngine.extractText(processed, activeWin?.title);
+
+    // 5. Ingest UI elements and run REAL Multimodal Vision Inference
+    const uiElements = defaultVisualUnderstandingEngine.analyzeScene(processed, activeWin).elements;
+    const visualAnalysis = await defaultMultimodalVisionEngine.analyzeFrame(
+      frame,
+      activeWin,
+      uiElements
+    );
+
+    // 6. Validate frame ID alignment between physical capture and vision model
+    if (visualAnalysis.frameId !== frame.frameId) {
+      throw new Error(`Frame ID mismatch: expected ${frame.frameId}, got ${visualAnalysis.frameId}`);
+    }
+
+    // 7. Synthesize structured context from verified visual & OCR results
+    const visualResult: VisualUnderstandingResult = {
+      layoutCategory: visualAnalysis.layoutCategory,
+      elements: visualAnalysis.recognizedElements,
+      visibleErrors: visualAnalysis.detectedErrors,
+      sceneExplanation: visualAnalysis.sceneSummary,
+      keyActionPoints: visualAnalysis.actionPoints,
+      confidenceScore: visualAnalysis.visualConfidence,
+      sceneConfidence: visualAnalysis.visualConfidence,
+      understandingLatencyMs: visualAnalysis.inferenceLatencyMs,
+    };
+
+    const context = defaultScreenContextEngine.synthesizeContext(windowInfo, visualResult, ocr);
+
+    // 8. Multimodal & OCR fusion layer with strict source attribution
+    const fusion = defaultVisionOcrFusionEngine.fuse(visualAnalysis, ocr, activeWin);
+
+    // 9. Track temporal transitions
+    const effectiveSessionId = targetSessionId || defaultVisionControl.getStatus().activeSessionId || "screen_sess_live";
+    defaultTemporalScreenIntelligence.recordFrameObservation(effectiveSessionId, activeWin, fusion);
+
+    // 10. Deliver structured payload
+    const payload = this.buildContextPayload(
+      effectiveSessionId,
+      context,
+      visualResult,
+      ocr,
+      frame.pixelHash,
+      {
+        frameId: frame.frameId,
+        sequenceNumber: frame.sequenceNumber,
+        frameTimestamp: frame.timestamp,
+        browserUrl: activeWin?.browserUrl,
+        isSyntheticTestFrame: frame.isSyntheticTestFrame,
+      }
+    );
+
+    defaultVisionControl.recordFrameAcquired(
+      activeWin?.title,
+      frame.captureLatencyMs,
+      visualAnalysis.inferenceLatencyMs,
+      visualAnalysis.modelUsed
+    );
+
+    // Set verified operational state: LIVE if live model inference ran; DEGRADED if model is offline/unsupported
+    if (visualAnalysis.isLiveModelInference) {
+      defaultVisionControl.setOperationalState("LIVE");
+    } else {
+      defaultVisionControl.setOperationalState("DEGRADED");
+    }
+
+    return payload;
+  }
+
+  /**
+   * Emergency purge hook: immediately invalidates cached screen context within 5ms.
+   */
+  public clearContext(): void {
+    this._lastPayload = null;
+    this._lastDeliveredHash = null;
+    defaultTemporalScreenIntelligence.reset();
   }
 
   /**
@@ -347,3 +409,8 @@ Observed at: ${tsStr} (age: ${ageMs}ms)
 
 /** Global singleton instance of VisualContextDeliveryEngine. */
 export const defaultVisualContextDeliveryEngine = new VisualContextDeliveryEngine();
+
+// Register emergency purge hook to immediately invalidate visual context on emergency kill
+defaultVisionControl.registerEmergencyPurgeHook(() => {
+  defaultVisualContextDeliveryEngine.clearContext();
+});

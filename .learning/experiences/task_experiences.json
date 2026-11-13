@@ -1,0 +1,462 @@
+[
+  {
+    "experienceId": "exp_1794533355286_4aae8b23",
+    "taskId": "perf_task_0",
+    "goal": "Quick query 0",
+    "category": "QUERY",
+    "projectId": "default_project",
+    "strategyUsed": "FAST",
+    "steps": [],
+    "outcome": "SUCCESS",
+    "executionDurationMs": 10,
+    "totalTokensUsed": 0,
+    "resourceUsage": {
+      "peakMemoryMb": 64,
+      "cpuPercent": 10
+    },
+    "verifiedByTest": true,
+    "timestamp": 1794533355287,
+    "lessonsExtracted": [
+      "lsn_1794533355287_25930f"
+    ],
+    "transferableToProjects": [],
+    "hash": "8c9151c69bccdd1491bbde297cdae49e4efd2c0c80a94440d8665b4c13128a89"
+  },
+  {
+    "experienceId": "exp_1794533355296_4c647269",
+    "taskId": "perf_task_1",
+    "goal": "Quick query 1",
+    "category": "QUERY",
+    "projectId": "default_project",
+    "strategyUsed": "FAST",
+    "steps": [],
+    "outcome": "SUCCESS",
+    "executionDurationMs": 10,
+    "totalTokensUsed": 0,
+    "resourceUsage": {
+      "peakMemoryMb": 64,
+      "cpuPercent": 10
+    },
+    "verifiedByTest": true,
+    "timestamp": 1794533355296,
+    "lessonsExtracted": [
+      "lsn_1794533355324_fd57a2"
+    ],
+    "transferableToProjects": [],
+    "hash": "a2298ee7321c639ffa3fa609d8319e95885fe6766e5822ba35559909d614fcd8"
+  },
+  {
+    "experienceId": "exp_1794533355330_849bd1c3",
+    "taskId": "perf_task_2",
+    "goal": "Quick query 2",
+    "category": "QUERY",
+    "projectId": "default_project",
+    "strategyUsed": "FAST",
+    "steps": [],
+    "outcome": "SUCCESS",
+    "executionDurationMs": 10,
+    "totalTokensUsed": 0,
+    "resourceUsage": {
+      "peakMemoryMb": 64,
+      "cpuPercent": 10
+    },
+    "verifiedByTest": true,
+    "timestamp": 1794533355330,
+    "lessonsExtracted": [
+      "lsn_1794533355330_5dec11"
+    ],
+    "transferableToProjects": [],
+    "hash": "57fd7149747bff03baaf5ebed7f183876f390866cb13459a39ddfc419ca80794"
+  },
+  {
+    "experienceId": "exp_1794533355336_9d5ef5ca",
+    "taskId": "perf_task_3",
+    "goal": "Quick query 3",
+    "category": "QUERY",
+    "projectId": "default_project",
+    "strategyUsed": "FAST",
+    "steps": [],
+    "outcome": "SUCCESS",
+    "executionDurationMs": 10,
+    "totalTokensUsed": 0,
+    "resourceUsage": {
+      "peakMemoryMb": 64,
+      "cpuPercent": 10
+    },
+    "verifiedByTest": true,
+    "timestamp": 1794533355336,
+    "lessonsExtracted": [
+      "lsn_1794533355336_6b9390"
+    ],
+    "transferableToProjects": [],
+    "hash": "5b25c3f95ad22f8c5907a0b4a7f06a2b246cec0389f413b8450650a377dccbb4"
+  },
+  {
+    "experienceId": "exp_1794533355346_5ece56e6",
+    "taskId": "perf_task_4",
+    "goal": "Quick query 4",
+    "category": "QUERY",
+    "projectId": "default_project",
+    "strategyUsed": "FAST",
+    "steps": [],
+    "outcome": "SUCCESS",
+    "executionDurationMs": 10,
+    "totalTokensUsed": 0,
+    "resourceUsage": {
+      "peakMemoryMb": 64,
+      "cpuPercent": 10
+    },
+    "verifiedByTest": true,
+    "timestamp": 1794533355346,
+    "lessonsExtracted": [
+      "lsn_1794533355346_83fdec"
+    ],
+    "transferableToProjects": [],
+    "hash": "50c6fa01ba17938724a9246fc4125bdc6d7ab0f5d260b265bd22785080009299"
+  },
+  {
+    "experienceId": "exp_1794533355351_6af7e821",
+    "taskId": "perf_task_5",
+    "goal": "Quick query 5",
+    "category": "QUERY",
+    "projectId": "default_project",
+    "strategyUsed": "FAST",
+    "steps": [],
+    "outcome": "SUCCESS",
+    "executionDurationMs": 10,
+    "totalTokensUsed": 0,
+    "resourceUsage": {
+      "peakMemoryMb": 64,
+      "cpuPercent": 10
+    },
+    "verifiedByTest": true,
+    "timestamp": 1794533355351,
+    "lessonsExtracted": [
+      "lsn_1794533355351_cf1fb5"
+    ],
+    "transferableToProjects": [],
+    "hash": "7ba498f077b4a8b7458d504a52b21c251a0e2103de9b81da096de53cf145af4f"
+  },
+  {
+    "experienceId": "exp_1794533355357_3521cef1",
+    "taskId": "perf_task_6",
+    "goal": "Quick query 6",
+    "category": "QUERY",
+    "projectId": "default_project",
+    "strategyUsed": "FAST",
+    "steps": [],
+    "outcome": "SUCCESS",
+    "executionDurationMs": 10,
+    "totalTokensUsed": 0,
+    "resourceUsage": {
+      "peakMemoryMb": 64,
+      "cpuPercent": 10
+    },
+    "verifiedByTest": true,
+    "timestamp": 1794533355357,
+    "lessonsExtracted": [
+      "lsn_1794533355357_41978e"
+    ],
+    "transferableToProjects": [],
+    "hash": "3f6f2dbd19626e68ff499fb62d04c97840dc75dbc8e17788f8e3e70227312ce7"
+  },
+  {
+    "experienceId": "exp_1794533355363_89030b48",
+    "taskId": "perf_task_7",
+    "goal": "Quick query 7",
+    "category": "QUERY",
+    "projectId": "default_project",
+    "strategyUsed": "FAST",
+    "steps": [],
+    "outcome": "SUCCESS",
+    "executionDurationMs": 10,
+    "totalTokensUsed": 0,
+    "resourceUsage": {
+      "peakMemoryMb": 64,
+      "cpuPercent": 10
+    },
+    "verifiedByTest": true,
+    "timestamp": 1794533355363,
+    "lessonsExtracted": [
+      "lsn_1794533355363_2f184a"
+    ],
+    "transferableToProjects": [],
+    "hash": "25dea4ea30a6d37b9820a2f11979374c49d855656a246442cdd9c98ada489f9e"
+  },
+  {
+    "experienceId": "exp_1794533355381_98140583",
+    "taskId": "perf_task_8",
+    "goal": "Quick query 8",
+    "category": "QUERY",
+    "projectId": "default_project",
+    "strategyUsed": "FAST",
+    "steps": [],
+    "outcome": "SUCCESS",
+    "executionDurationMs": 10,
+    "totalTokensUsed": 0,
+    "resourceUsage": {
+      "peakMemoryMb": 64,
+      "cpuPercent": 10
+    },
+    "verifiedByTest": true,
+    "timestamp": 1794533355381,
+    "lessonsExtracted": [
+      "lsn_1794533355381_4d5d36"
+    ],
+    "transferableToProjects": [],
+    "hash": "ec98c8defdb6447b8a0ce0b343eda4b130bcad49ccd05c55fa9bc73e1e9be5db"
+  },
+  {
+    "experienceId": "exp_1794533355385_6483f78d",
+    "taskId": "perf_task_9",
+    "goal": "Quick query 9",
+    "category": "QUERY",
+    "projectId": "default_project",
+    "strategyUsed": "FAST",
+    "steps": [],
+    "outcome": "SUCCESS",
+    "executionDurationMs": 10,
+    "totalTokensUsed": 0,
+    "resourceUsage": {
+      "peakMemoryMb": 64,
+      "cpuPercent": 10
+    },
+    "verifiedByTest": true,
+    "timestamp": 1794533355385,
+    "lessonsExtracted": [
+      "lsn_1794533355385_865715"
+    ],
+    "transferableToProjects": [],
+    "hash": "da92989785007c644d52b1877eb4872fc029c43896e3fd392b954a3f31c93998"
+  },
+  {
+    "experienceId": "exp_1794533355393_b2fca089",
+    "taskId": "perf_task_10",
+    "goal": "Quick query 10",
+    "category": "QUERY",
+    "projectId": "default_project",
+    "strategyUsed": "FAST",
+    "steps": [],
+    "outcome": "SUCCESS",
+    "executionDurationMs": 10,
+    "totalTokensUsed": 0,
+    "resourceUsage": {
+      "peakMemoryMb": 64,
+      "cpuPercent": 10
+    },
+    "verifiedByTest": true,
+    "timestamp": 1794533355393,
+    "lessonsExtracted": [
+      "lsn_1794533355394_7b313f"
+    ],
+    "transferableToProjects": [],
+    "hash": "fa59b5d131470df0ecb9f292ed7441605f59db386dd14ed2abfb28f1c7cf6545"
+  },
+  {
+    "experienceId": "exp_1794533355398_91c7c763",
+    "taskId": "perf_task_11",
+    "goal": "Quick query 11",
+    "category": "QUERY",
+    "projectId": "default_project",
+    "strategyUsed": "FAST",
+    "steps": [],
+    "outcome": "SUCCESS",
+    "executionDurationMs": 10,
+    "totalTokensUsed": 0,
+    "resourceUsage": {
+      "peakMemoryMb": 64,
+      "cpuPercent": 10
+    },
+    "verifiedByTest": true,
+    "timestamp": 1794533355398,
+    "lessonsExtracted": [
+      "lsn_1794533355398_6b1523"
+    ],
+    "transferableToProjects": [],
+    "hash": "dad18c990bf4f0e71dfc64f8290636e9c7312a515a5b14d5a47a6b1977747c2d"
+  },
+  {
+    "experienceId": "exp_1794533355404_f6323ad1",
+    "taskId": "perf_task_12",
+    "goal": "Quick query 12",
+    "category": "QUERY",
+    "projectId": "default_project",
+    "strategyUsed": "FAST",
+    "steps": [],
+    "outcome": "SUCCESS",
+    "executionDurationMs": 10,
+    "totalTokensUsed": 0,
+    "resourceUsage": {
+      "peakMemoryMb": 64,
+      "cpuPercent": 10
+    },
+    "verifiedByTest": true,
+    "timestamp": 1794533355404,
+    "lessonsExtracted": [
+      "lsn_1794533355405_2ebda5"
+    ],
+    "transferableToProjects": [],
+    "hash": "ac09678f1dac83ab8658061400406e5e2aafad488345ba3110b4a0335c96c734"
+  },
+  {
+    "experienceId": "exp_1794533355411_06ac6e56",
+    "taskId": "perf_task_13",
+    "goal": "Quick query 13",
+    "category": "QUERY",
+    "projectId": "default_project",
+    "strategyUsed": "FAST",
+    "steps": [],
+    "outcome": "SUCCESS",
+    "executionDurationMs": 10,
+    "totalTokensUsed": 0,
+    "resourceUsage": {
+      "peakMemoryMb": 64,
+      "cpuPercent": 10
+    },
+    "verifiedByTest": true,
+    "timestamp": 1794533355411,
+    "lessonsExtracted": [
+      "lsn_1794533355412_9103f8"
+    ],
+    "transferableToProjects": [],
+    "hash": "1fbd37d84ccf3a8af04ef2074bed65f3248bbffbaf70a55d14626f9c1364633d"
+  },
+  {
+    "experienceId": "exp_1794533355417_a3507ecd",
+    "taskId": "perf_task_14",
+    "goal": "Quick query 14",
+    "category": "QUERY",
+    "projectId": "default_project",
+    "strategyUsed": "FAST",
+    "steps": [],
+    "outcome": "SUCCESS",
+    "executionDurationMs": 10,
+    "totalTokensUsed": 0,
+    "resourceUsage": {
+      "peakMemoryMb": 64,
+      "cpuPercent": 10
+    },
+    "verifiedByTest": true,
+    "timestamp": 1794533355417,
+    "lessonsExtracted": [
+      "lsn_1794533355417_fc4709"
+    ],
+    "transferableToProjects": [],
+    "hash": "3cc35a7c51571480d059ad01eec99bf2113279dc905bcfd355d615fee1e767f0"
+  },
+  {
+    "experienceId": "exp_1794533355420_ec4f7a66",
+    "taskId": "perf_task_15",
+    "goal": "Quick query 15",
+    "category": "QUERY",
+    "projectId": "default_project",
+    "strategyUsed": "FAST",
+    "steps": [],
+    "outcome": "SUCCESS",
+    "executionDurationMs": 10,
+    "totalTokensUsed": 0,
+    "resourceUsage": {
+      "peakMemoryMb": 64,
+      "cpuPercent": 10
+    },
+    "verifiedByTest": true,
+    "timestamp": 1794533355420,
+    "lessonsExtracted": [
+      "lsn_1794533355420_339edf"
+    ],
+    "transferableToProjects": [],
+    "hash": "397cb784b41c486b66dcae37d4787e6b5fe5780c4be48651c6293e4cd9ae958a"
+  },
+  {
+    "experienceId": "exp_1794533355426_fba56eaa",
+    "taskId": "perf_task_16",
+    "goal": "Quick query 16",
+    "category": "QUERY",
+    "projectId": "default_project",
+    "strategyUsed": "FAST",
+    "steps": [],
+    "outcome": "SUCCESS",
+    "executionDurationMs": 10,
+    "totalTokensUsed": 0,
+    "resourceUsage": {
+      "peakMemoryMb": 64,
+      "cpuPercent": 10
+    },
+    "verifiedByTest": true,
+    "timestamp": 1794533355426,
+    "lessonsExtracted": [
+      "lsn_1794533355426_4052da"
+    ],
+    "transferableToProjects": [],
+    "hash": "2ee688a86ba18d592bd822aa9a7e233af5a700dab53e681a00c2d7ca768a69d2"
+  },
+  {
+    "experienceId": "exp_1794533355431_b527354b",
+    "taskId": "perf_task_17",
+    "goal": "Quick query 17",
+    "category": "QUERY",
+    "projectId": "default_project",
+    "strategyUsed": "FAST",
+    "steps": [],
+    "outcome": "SUCCESS",
+    "executionDurationMs": 10,
+    "totalTokensUsed": 0,
+    "resourceUsage": {
+      "peakMemoryMb": 64,
+      "cpuPercent": 10
+    },
+    "verifiedByTest": true,
+    "timestamp": 1794533355431,
+    "lessonsExtracted": [
+      "lsn_1794533355431_6e9818"
+    ],
+    "transferableToProjects": [],
+    "hash": "feeef50a41833e45105d53c1bd4f730e7b8999d6f04e39f79d000baf9a653e84"
+  },
+  {
+    "experienceId": "exp_1794533355435_1ce72d72",
+    "taskId": "perf_task_18",
+    "goal": "Quick query 18",
+    "category": "QUERY",
+    "projectId": "default_project",
+    "strategyUsed": "FAST",
+    "steps": [],
+    "outcome": "SUCCESS",
+    "executionDurationMs": 10,
+    "totalTokensUsed": 0,
+    "resourceUsage": {
+      "peakMemoryMb": 64,
+      "cpuPercent": 10
+    },
+    "verifiedByTest": true,
+    "timestamp": 1794533355435,
+    "lessonsExtracted": [
+      "lsn_1794533355435_7584e5"
+    ],
+    "transferableToProjects": [],
+    "hash": "4e177d30091f6d82c4e711d73353cd878a31060b160ecf4e2ba66bd8ff2c0416"
+  },
+  {
+    "experienceId": "exp_1794533355438_e24a4c81",
+    "taskId": "perf_task_19",
+    "goal": "Quick query 19",
+    "category": "QUERY",
+    "projectId": "default_project",
+    "strategyUsed": "FAST",
+    "steps": [],
+    "outcome": "SUCCESS",
+    "executionDurationMs": 10,
+    "totalTokensUsed": 0,
+    "resourceUsage": {
+      "peakMemoryMb": 64,
+      "cpuPercent": 10
+    },
+    "verifiedByTest": true,
+    "timestamp": 1794533355438,
+    "lessonsExtracted": [
+      "lsn_1794533355438_f545b7"
+    ],
+    "transferableToProjects": [],
+    "hash": "8cce71405a33a7e03022b34bd9f909ba0979d9f11de9d12c79542cb08a246678"
+  }
+]

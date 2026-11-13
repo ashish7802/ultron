@@ -39,6 +39,7 @@ user32 = ctypes.windll.user32
 gdi32 = ctypes.windll.gdi32
 kernel32 = ctypes.windll.kernel32
 oleacc = ctypes.oledll.oleacc
+gdiplus = ctypes.windll.gdiplus
 
 # Enable Per-Monitor DPI Awareness
 try:
@@ -86,6 +87,48 @@ gdi32.DeleteObject.argtypes = [wintypes.HGDIOBJ]
 gdi32.DeleteObject.restype = wintypes.BOOL
 gdi32.DeleteDC.argtypes = [wintypes.HDC]
 gdi32.DeleteDC.restype = wintypes.BOOL
+
+# GDI+ Structures and Prototypes for Native Image Compression
+class GdiplusStartupInput(ctypes.Structure):
+    _fields_ = [
+        ("GdiplusVersion", wintypes.UINT),
+        ("DebugEventCallback", ctypes.c_void_p),
+        ("SuppressBackgroundThread", wintypes.BOOL),
+        ("SuppressExternalCodecs", wintypes.BOOL),
+    ]
+
+class GUID(ctypes.Structure):
+    _fields_ = [
+        ("Data1", wintypes.DWORD),
+        ("Data2", wintypes.WORD),
+        ("Data3", wintypes.WORD),
+        ("Data4", ctypes.c_byte * 8),
+    ]
+
+# Native Windows GDI+ Image Format Encoder CLSIDs
+CLSID_PNG = GUID(0x557cf406, 0x1a04, 0x11d3, (ctypes.c_byte * 8)(0x9a, 0x73, 0x00, 0x00, 0xf8, 0x1e, 0xf3, 0x2e))
+CLSID_JPEG = GUID(0x557cf401, 0x1a04, 0x11d3, (ctypes.c_byte * 8)(0x9a, 0x73, 0x00, 0x00, 0xf8, 0x1e, 0xf3, 0x2e))
+CLSID_BMP = GUID(0x557cf400, 0x1a04, 0x11d3, (ctypes.c_byte * 8)(0x9a, 0x73, 0x00, 0x00, 0xf8, 0x1e, 0xf3, 0x2e))
+
+# GDI+ Function Prototypes for 64-bit compatibility
+gdiplus.GdipCreateBitmapFromHBITMAP.argtypes = [wintypes.HBITMAP, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+gdiplus.GdipCreateBitmapFromHBITMAP.restype = ctypes.c_int
+gdiplus.GdipSaveImageToFile.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR, ctypes.c_void_p, ctypes.c_void_p]
+gdiplus.GdipSaveImageToFile.restype = ctypes.c_int
+gdiplus.GdipDisposeImage.argtypes = [ctypes.c_void_p]
+gdiplus.GdipDisposeImage.restype = ctypes.c_int
+
+_gdiplus_token = None
+
+def init_gdiplus():
+    """Initializes Windows GDI+ subsystem for native, dependency-free PNG/JPEG encoding."""
+    global _gdiplus_token
+    if _gdiplus_token is None:
+        token = ctypes.c_void_p()
+        si = GdiplusStartupInput(1, None, False, False)
+        status = gdiplus.GdiplusStartup(ctypes.byref(token), ctypes.byref(si), None)
+        if status == 0:
+            _gdiplus_token = token
 
 class RECT(ctypes.Structure):
     _fields_ = [
@@ -261,10 +304,22 @@ def get_all_visible_windows():
     user32.EnumDesktopWindows(None, WNDENUMPROC(enum_cb), 0)
     return windows
 
-def capture_rect_to_bmp(x, y, width, height, hwnd=None):
+def capture_rect_to_image(x, y, width, height, hwnd=None, out_file=None, format_type="bmp"):
     """
-    Captures physical desktop or window pixels into an uncompressed 24bpp BMP byte array.
-    Guarantees full GDI resource cleanup in all return and exception paths.
+    Captures physical desktop or window pixels into an uncompressed 24bpp BMP byte array
+    or encodes directly to compressed PNG via native Windows GDI+.
+
+    Args:
+        x (int): Screen X coordinate.
+        y (int): Screen Y coordinate.
+        width (int): Capture width in physical pixels.
+        height (int): Capture height in physical pixels.
+        hwnd (int, optional): Window handle for active window capture.
+        out_file (str, optional): Target file path to write image bytes.
+        format_type (str): "bmp" or "png".
+
+    Returns:
+        tuple: (bytes_data or None, mime_type, byte_length)
     """
     width = max(1, width)
     height = max(1, height)
@@ -294,12 +349,38 @@ def capture_rect_to_bmp(x, y, width, height, hwnd=None):
         h_old = gdi32.SelectObject(hdc_mem, hbitmap)
 
         if hwnd and user32.IsWindow(hwnd):
-            # PrintWindow supports modern accelerated and layered surfaces
-            ok = user32.PrintWindow(hwnd, hdc_mem, 2) # PW_RENDERFULLCONTENT
+            # PrintWindow PW_RENDERFULLCONTENT (0x02) supports modern accelerated surfaces
+            ok = user32.PrintWindow(hwnd, hdc_mem, 2)
             if not ok:
-                gdi32.BitBlt(hdc_mem, 0, 0, width, height, hdc_src, 0, 0, 0x00CC0020)
+                # If PrintWindow fails (e.g. GPU accelerated window without backing store),
+                # fall back to composited desktop screen DC at window screen coordinates
+                hdc_screen = user32.GetDC(None)
+                if hdc_screen:
+                    try:
+                        gdi32.BitBlt(hdc_mem, 0, 0, width, height, hdc_screen, x, y, 0x00CC0020)
+                    finally:
+                        user32.ReleaseDC(None, hdc_screen)
+                else:
+                    gdi32.BitBlt(hdc_mem, 0, 0, width, height, hdc_src, 0, 0, 0x00CC0020)
         else:
             gdi32.BitBlt(hdc_mem, 0, 0, width, height, hdc_src, x, y, 0x00CC0020)
+
+        # Handle native PNG compression via GDI+
+        is_png = format_type.lower() == "png" or (out_file and out_file.lower().endswith(".png"))
+        if is_png and out_file:
+            init_gdiplus()
+            pbitmap = ctypes.c_void_p()
+            st = gdiplus.GdipCreateBitmapFromHBITMAP(hbitmap, 0, ctypes.byref(pbitmap))
+            if st != 0 or not pbitmap:
+                raise RuntimeError(f"GdipCreateBitmapFromHBITMAP failed with status {st}")
+            try:
+                save_st = gdiplus.GdipSaveImageToFile(pbitmap, out_file, ctypes.byref(CLSID_PNG), None)
+                if save_st != 0:
+                    raise RuntimeError(f"GdipSaveImageToFile PNG failed with status {save_st}")
+                file_size = os.path.getsize(out_file)
+                return (None, "image/png", file_size)
+            finally:
+                gdiplus.GdipDisposeImage(pbitmap)
 
         # Allocate BITMAPINFOHEADER for 24bpp top-down DIB
         row_stride = ((width * 3 + 3) & ~3)
@@ -308,10 +389,10 @@ def capture_rect_to_bmp(x, y, width, height, hwnd=None):
         bmi = BITMAPINFOHEADER()
         bmi.biSize = ctypes.sizeof(BITMAPINFOHEADER)
         bmi.biWidth = width
-        bmi.biHeight = -height # Negative denotes top-down DIB
+        bmi.biHeight = -height  # Negative denotes top-down DIB
         bmi.biPlanes = 1
         bmi.biBitCount = 24
-        bmi.biCompression = 0 # BI_RGB
+        bmi.biCompression = 0  # BI_RGB
         bmi.biSizeImage = pixel_array_size
 
         pixel_buf = (ctypes.c_char * pixel_array_size)()
@@ -329,7 +410,14 @@ def capture_rect_to_bmp(x, y, width, height, hwnd=None):
         bmp_header[10:14] = (file_header_size + info_header_size).to_bytes(4, 'little')
 
         info_header_bytes = bytearray(ctypes.string_at(ctypes.byref(bmi), info_header_size))
-        return bytes(bmp_header) + bytes(info_header_bytes) + bytes(pixel_buf)
+        bmp_data = bytes(bmp_header) + bytes(info_header_bytes) + bytes(pixel_buf)
+
+        if out_file:
+            with open(out_file, "wb") as f:
+                f.write(bmp_data)
+            return (None, "image/bmp", len(bmp_data))
+
+        return (bmp_data, "image/bmp", len(bmp_data))
 
     finally:
         if hdc_mem and h_old:
@@ -343,6 +431,11 @@ def capture_rect_to_bmp(x, y, width, height, hwnd=None):
                 user32.ReleaseDC(hwnd, hdc_src)
             else:
                 user32.ReleaseDC(None, hdc_src)
+
+def capture_rect_to_bmp(x, y, width, height, hwnd=None):
+    """Legacy compatibility wrapper returning raw BMP byte array."""
+    data, _, _ = capture_rect_to_image(x, y, width, height, hwnd=hwnd, format_type="bmp")
+    return data
 
 def extract_accessible_ui_elements(target_hwnd=None):
     """
@@ -484,43 +577,55 @@ def main():
                 w = int(sys.argv[5])
                 h = int(sys.argv[6])
 
-            # Output path argument support
+            # Format and output path argument support
             out_file = None
             if "--out-file" in sys.argv:
                 idx = sys.argv.index("--out-file")
                 if idx + 1 < len(sys.argv):
                     out_file = sys.argv[idx + 1]
 
-            bmp_data = capture_rect_to_bmp(x, y, w, h, target_hwnd)
+            fmt = "bmp"
+            if "--format" in sys.argv:
+                idx = sys.argv.index("--format")
+                if idx + 1 < len(sys.argv):
+                    fmt = sys.argv[idx + 1].lower()
+            elif out_file and out_file.lower().endswith(".png"):
+                fmt = "png"
+
+            raw_bytes, mime_type, length = capture_rect_to_image(
+                x, y, w, h, hwnd=target_hwnd, out_file=out_file, format_type=fmt
+            )
             latency = round((time.perf_counter() - start_t) * 1000, 2)
 
             if out_file:
-                with open(out_file, "wb") as f:
-                    f.write(bmp_data)
+                sample = b""
+                if os.path.exists(out_file):
+                    with open(out_file, "rb") as f:
+                        sample = f.read(128)
                 print(json.dumps({
                     "success": True,
                     "width": w,
                     "height": h,
                     "mode": target_mode,
-                    "mimeType": "image/bmp",
+                    "mimeType": mime_type,
                     "latencyMs": latency,
                     "filePath": out_file,
-                    "dataLength": len(bmp_data),
-                    "pixelHash": base64.b64encode(bmp_data[:128]).decode("ascii")
+                    "dataLength": length,
+                    "pixelHash": base64.b64encode(sample).decode("ascii")
                 }))
                 return
 
-            b64 = base64.b64encode(bmp_data).decode("ascii")
+            b64 = base64.b64encode(raw_bytes).decode("ascii")
             print(json.dumps({
                 "success": True,
                 "width": w,
                 "height": h,
                 "mode": target_mode,
-                "mimeType": "image/bmp",
+                "mimeType": mime_type,
                 "latencyMs": latency,
                 "base64": b64,
-                "dataLength": len(bmp_data),
-                "pixelHash": base64.b64encode(bmp_data[:128]).decode("ascii")
+                "dataLength": len(raw_bytes),
+                "pixelHash": base64.b64encode(raw_bytes[:128]).decode("ascii")
             }))
             return
 

@@ -244,6 +244,22 @@ export default function ScreenAwarenessIndicator() {
             Permission: <span style={{ color: "#38bdf8" }}>{status.permissionState}</span>
           </div>
 
+          {status.modelAvailability && (
+            <div style={{ marginBottom: "6px", color: "#94a3b8" }}>
+              Vision Engine:{" "}
+              <span style={{ color: status.operationalState === "LIVE" ? "#34d399" : "#fbbf24" }}>
+                {status.modelAvailability}
+              </span>
+            </div>
+          )}
+
+          {(status.lastCaptureLatencyMs !== undefined || status.lastInferenceLatencyMs !== undefined) && (
+            <div style={{ marginBottom: "6px", fontSize: "11px", color: "#94a3b8" }}>
+              Latency: {status.lastCaptureLatencyMs !== undefined ? `Cap: ${status.lastCaptureLatencyMs}ms ` : ""}
+              {status.lastInferenceLatencyMs !== undefined ? `| Inf: ${status.lastInferenceLatencyMs}ms` : ""}
+            </div>
+          )}
+
           {status.lastFrameAt && (
             <div style={{ marginBottom: "6px", color: "#94a3b8" }}>
               Last Frame: <span style={{ color: "#34d399" }}>{Math.round((Date.now() - status.lastFrameAt) / 1000)}s ago</span>

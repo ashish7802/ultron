@@ -81,6 +81,16 @@ export class FrameStreamingEngine {
     this._privacyEngine = privacyEngine || defaultPrivacySecurityEngine;
     this._sessionManager = sessionManager || defaultScreenSessionManager;
     this._windowEngine = windowEngine || defaultWindowDetectionEngine;
+
+    // Connect the frame streaming engine directly into the visual context delivery pipeline
+    this.subscribe(async (frame) => {
+      try {
+        const { defaultVisualContextDeliveryEngine } = await import("./contextDeliveryEngine.ts");
+        await defaultVisualContextDeliveryEngine.processStreamingFrame(frame);
+      } catch (err) {
+        console.warn("[FRAME STREAMING] Context delivery subscriber error:", err);
+      }
+    });
   }
 
   /**

@@ -123,7 +123,10 @@ export type PermissionActionType =
   | "credential_write"
   | "credential_revoke"
   | "policy_update"
-  | "emergency_unlock";
+  | "emergency_unlock"
+  | "payment_exec"
+  | "external_publish"
+  | "prod_deploy";
 
 export type ActionRiskLevel = "low" | "medium" | "high" | "critical";
 
@@ -133,6 +136,8 @@ export type ApprovalStatus =
   | "rejected"
   | "executing"
   | "executed"
+  | "completed"
+  | "failed"
   | "cancelled"
   | "expired"
   | "revoked";
@@ -146,10 +151,12 @@ export interface ActionScope {
 
 export interface PermissionApprovalRequest {
   requestId: string;
+  actionId?: string; // Unique Action Identifier
   actionType: PermissionActionType;
   title: string;
   description: string;
   target: string;
+  resourceId?: string; // Resource Identifier
   params: Record<string, unknown>;
   affectedResources: string[];
   riskLevel: ActionRiskLevel;
@@ -163,11 +170,15 @@ export interface PermissionApprovalRequest {
   status: ApprovalStatus;
   approvalToken: string; // Token given to founder/UI to sign decision
   executionGrantToken: string | null; // Single-use execution authorization
+  founderIdentity?: string; // Verified Founder Identity bound to this approval
   decidedByActor?: string;
   decidedAt?: number;
   decisionReason?: string;
   isDestructive: boolean;
   rollbackPlan?: string;
+  executedAt?: number;
+  executionStatus?: "PENDING" | "EXECUTING" | "COMPLETED" | "FAILED";
+  finalResultRef?: string; // Reference to execution result or output
 }
 
 /* ==============================================================================
@@ -354,6 +365,7 @@ export interface ChainedAuditEntry {
   riskLevel: ActionRiskLevel;
   sessionRef?: string;
   approvalRef?: string;
+  correlationId?: string;
   executionStatus: "SUCCESS" | "FAILURE" | "DENIED" | "BLOCKED" | "REVOKED";
   resultSummary?: string;
   failureReason?: string;

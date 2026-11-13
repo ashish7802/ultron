@@ -78,16 +78,16 @@ export class TaskReportingEngine {
       totalDurationMs = workflow.completedAt - workflow.startedAt;
     }
 
-    // Determine final status
+    // Determine final status: Strictly requires COMPLETED state and 100% verified tasks
     let finalStatus: TaskReportingSummary["finalStatus"] = "FAILED";
     if (workflow.state === "COMPLETED" && verifiedTasks === totalTasks && totalTasks > 0) {
       finalStatus = "VERIFIED_COMPLETE";
-    } else if (verifiedTasks > 0 && failedTasks > 0) {
-      finalStatus = "PARTIALLY_COMPLETE";
     } else if (workflow.state === "CANCELLED") {
       finalStatus = "CANCELLED";
-    } else if (verifiedTasks > 0 && failedTasks === 0) {
-      finalStatus = "VERIFIED_COMPLETE";
+    } else if (verifiedTasks > 0) {
+      finalStatus = "PARTIALLY_COMPLETE";
+    } else {
+      finalStatus = "FAILED";
     }
 
     // Format human-readable duration

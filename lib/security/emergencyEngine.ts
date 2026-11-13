@@ -30,6 +30,7 @@ import path from "path";
 import { revokeAllSessions } from "./identityEngine.ts";
 import { revokeScreenCaptureConsent } from "./privacyEngine.ts";
 import { recordSecurityEvent } from "./monitoringEngine.ts";
+import { invalidateAllActiveGrants } from "./permissionEngine.ts";
 import type {
   EmergencyLockdownState,
   LockdownTriggerParams,
@@ -152,6 +153,7 @@ export function triggerEmergencyStop(params: LockdownTriggerParams): EmergencyLo
   const now = Date.now();
   const sessionsRevoked = params.revokeAllSessions !== false ? revokeAllSessions(params.reason) : 0;
   revokeScreenCaptureConsent();
+  const grantsInvalidated = invalidateAllActiveGrants(params.reason);
 
   // Set default recovery key hash if none exists
   const defaultRecoveryKey = process.env.ULTRON_RECOVERY_KEY || "FOUNDER_RECOVERY_OVERRIDE_KEY";
@@ -162,7 +164,7 @@ export function triggerEmergencyStop(params: LockdownTriggerParams): EmergencyLo
     lockedAt: now,
     lockedByActor: params.actor,
     triggerReason: params.reason,
-    activeExecutionsTerminated: 1, // Marks current in-flight queue
+    activeExecutionsTerminated: grantsInvalidated > 0 ? grantsInvalidated : 1, // Marks current in-flight queue
     sessionsRevokedCount: sessionsRevoked,
     recoveryVerificationRequired: true,
     recoveryPassphraseHash,

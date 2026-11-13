@@ -208,24 +208,15 @@ export class MultimodalVisionEngine {
       }
     }
 
-    // 2. High-Fidelity OS Grounded Synthesis (when vision model is offline or uninstalled)
-    if (!sceneSummary) {
-      const appName = activeWindow?.processName || "System Workspace";
-      const title = activeWindow?.title || "Desktop Session";
-      const elCount = harvestedElements.length;
-
-      sceneSummary =
-        `Screen is active displaying **${title}** running under process \`${appName}\`. ` +
-        `Detected layout: **${layout.replace("_", " ")}** with ${elCount} verified interactive UI elements ` +
-        `across ${frame.dimensions.width}x${frame.dimensions.height} desktop pixels.`;
-
+    // 2. When vision model is offline or uninstalled, NEVER substitute fabricated visual observations
+    if (!isLiveModel) {
       if (endpoint.status === "UNSUPPORTED") {
-        uncertainty = `Multimodal vision model is not installed in local Ollama (${endpoint.modelId} is text-only). Analysis grounded via native Windows OS pixel and accessibility telemetry.`;
-        visualConfidence = 0.88;
+        uncertainty = `Multimodal vision model is not installed in local Ollama (${endpoint.modelId} is text-only). Real neural visual scene inference is unavailable.`;
       } else {
-        uncertainty = "Vision engine operating via native Windows pixel and OS accessibility telemetry (local vision endpoint offline).";
-        visualConfidence = 0.85;
+        uncertainty = "Multimodal vision model endpoint is offline. Neural visual scene inference is unavailable.";
       }
+      sceneSummary = `[VISUAL MODEL OFFLINE]: Neural vision inference unavailable (${uncertainty}). Operating in DEGRADED mode using strictly verified OS telemetry.`;
+      visualConfidence = 0.5;
     }
 
     // 3. Error detection from active window title and accessibility elements
@@ -261,7 +252,7 @@ export class MultimodalVisionEngine {
       analysisId: `ana_${crypto.randomUUID().slice(0, 12)}`,
       frameId: frame.frameId,
       timestamp: Date.now(),
-      modelUsed: isLiveModel ? endpoint.modelId : "native_os_telemetry",
+      modelUsed: isLiveModel ? endpoint.modelId : "none",
       isLiveModelInference: isLiveModel,
       sceneSummary,
       detectedApplication: activeWindow?.processName || "Desktop",

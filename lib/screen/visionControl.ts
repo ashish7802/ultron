@@ -27,6 +27,7 @@ import type {
   VisionControlCommand,
 } from "./types.ts";
 import { defaultFrameStreamingEngine } from "./frameStreamingEngine.ts";
+import { activateScreenCapture, purgeScreenBuffers } from "../screenPrivacyController.ts";
 
 export type StatusListener = (status: VisionControlStatus) => void;
 
@@ -38,6 +39,9 @@ export class VisionControlEngine {
   private _startedAt: number | null = null;
   private _lastFrameAt: number | null = null;
   private _activeWindowSummary: string = "No active capture";
+  private _lastCaptureLatencyMs?: number;
+  private _lastInferenceLatencyMs?: number;
+  private _modelAvailability?: string;
   private _listeners: Set<StatusListener> = new Set();
   private _emergencyPurgeCallback?: () => void;
 
@@ -143,6 +147,21 @@ export class VisionControlEngine {
       lastFrameAt: this._lastFrameAt,
       emergencyTerminationAvailable: isLive || this._state === "PAUSED",
       activeWindowSummary: this._activeWindowSummary,
+      lastCaptureLatencyMs: this._lastCaptureLatencyMs,
+      lastInferenceLatencyMs: this._lastInferenceLatencyMs,
+      modelAvailability:
+        this._modelAvailability ||
+        (this._state === "DEGRADED"
+          ? "Model Offline (Degraded)"
+          : this._state === "LIVE"
+          ? "Live Multimodal Active"
+          : "Standby"),
+      visionEngineStatus:
+        this._state === "DEGRADED"
+          ? "DEGRADED_OS_TELEMETRY_ONLY"
+          : this._state === "LIVE"
+          ? "OPERATIONAL_MULTIMODAL"
+          : "STANDBY",
     };
   }
 
@@ -202,8 +221,9 @@ export class VisionControlEngine {
     this._permission = "GRANTED";
     this._state = "LIVE";
 
-    // Initiate continuous live streaming engine
+    // Initiate continuous live streaming engine and screen privacy clearance
     try {
+      activateScreenCapture(15 * 60 * 1000);
       defaultFrameStreamingEngine.startStreaming(sessionId, { captureMode: "full_screen" });
     } catch {
       // Non-fatal if streaming encounters initial loopback setup delay
@@ -245,6 +265,11 @@ export class VisionControlEngine {
     this._activeSessionId = null;
     this._startedAt = null;
     this._activeWindowSummary = reason || "Vision disabled";
+    try {
+      purgeScreenBuffers();
+    } catch {
+      // Non-fatal cleanup
+    }
     defaultFrameStreamingEngine.stopStreaming(reason);
     this._broadcast();
   }
@@ -259,6 +284,11 @@ export class VisionControlEngine {
     this._startedAt = null;
     this._activeWindowSummary = "EMERGENCY KILL TRIGGERED - BUFFERS PURGED";
     defaultFrameStreamingEngine.stopStreaming("EMERGENCY KILL");
+    try {
+      purgeScreenBuffers();
+    } catch {
+      // Non-fatal cleanup
+    }
 
     if (this._emergencyPurgeCallback) {
       try {
@@ -280,12 +310,29 @@ export class VisionControlEngine {
    * Notifies the control engine of a successfully acquired frame to update telemetry.
    *
    * @param windowTitle - Active window name during capture.
+   * @param captureMs - Latency of physical capture.
+   * @param inferenceMs - Latency of multimodal vision inference.
+   * @param modelName - Active model identifier.
    */
-  public recordFrameAcquired(windowTitle?: string): void {
+  public recordFrameAcquired(
+    windowTitle?: string,
+    captureMs?: number,
+    inferenceMs?: number,
+    modelName?: string
+  ): void {
     if (this._state === "LIVE" || this._state === "ANALYZING" || this._state === "DEGRADED") {
       this._lastFrameAt = Date.now();
       if (windowTitle) {
         this._activeWindowSummary = windowTitle;
+      }
+      if (captureMs !== undefined) {
+        this._lastCaptureLatencyMs = captureMs;
+      }
+      if (inferenceMs !== undefined) {
+        this._lastInferenceLatencyMs = inferenceMs;
+      }
+      if (modelName !== undefined) {
+        this._modelAvailability = modelName;
       }
       this._broadcast();
     }

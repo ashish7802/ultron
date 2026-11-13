@@ -65,6 +65,40 @@ export interface MemoryStats {
 const VAULT_FILE_PATH = path.join(process.cwd(), "ultron_memory_vault.json");
 const VAULT_BACKUP_PATH = path.join(process.cwd(), "ultron_memory_vault.json.bak");
 
+/** Default founder seed memories loaded when no existing vault is decryptable. */
+const DEFAULT_FOUNDER_MEMORIES: MemoryRecord[] = [
+  {
+    id: "mem_0758f7efb687",
+    key: "user_name",
+    category: "profile",
+    content: "User's name is Ashish",
+    importance: 5,
+    confidence: 1,
+    createdAt: 1794105280814,
+    updatedAt: 1794197500000,
+    source: "explicit",
+    provenance: {
+      origin: "bootstrap_seed",
+      timestamp: 1794197500000,
+    },
+  },
+  {
+    id: "mem_5c30f77289b9",
+    key: "custom_9d0d98",
+    category: "fact",
+    content: "I am building an autonomous AI assistant",
+    importance: 5,
+    confidence: 1,
+    createdAt: 1794105280907,
+    updatedAt: 1794105280907,
+    source: "explicit",
+    provenance: {
+      origin: "bootstrap_seed",
+      timestamp: 1794105280907,
+    },
+  },
+];
+
 /** Legacy migration key retained strictly for one-time decryption of historical vaults. */
 const LEGACY_VAULT_MIGRATION_SECRET = "STARK_VAULT_E2EE_KEY_STATIC_DERIVATION_2026";
 
@@ -176,13 +210,16 @@ function decryptVaultData(raw: string): MemoryVaultData | null {
  * @returns Array of persistent memory records.
  */
 export function loadAllMemories(): MemoryRecord[] {
+  let loadedMemories: MemoryRecord[] = [];
   try {
     if (fs.existsSync(VAULT_FILE_PATH)) {
       const raw = fs.readFileSync(VAULT_FILE_PATH, "utf-8");
       const parsed = decryptVaultData(raw);
       if (parsed && Array.isArray(parsed.memories)) {
-        return parsed.memories.map((m) => ({
+        loadedMemories = parsed.memories.map((m: any) => ({
           ...m,
+          category: m.category || m.memoryType || "fact",
+          content: typeof m.content === "string" ? m.content : (m.workflowName || JSON.stringify(m)),
           provenance: m.provenance || {
             origin: "user_conversation",
             timestamp: m.updatedAt || m.createdAt || Date.now(),
@@ -190,14 +227,16 @@ export function loadAllMemories(): MemoryRecord[] {
         }));
       }
     }
-    // Attempt recovery from backup if primary read failed or file missing
-    if (fs.existsSync(VAULT_BACKUP_PATH)) {
+    // Attempt recovery from backup if primary read failed or produced empty list
+    if (loadedMemories.length === 0 && fs.existsSync(VAULT_BACKUP_PATH)) {
       console.warn("[MEMORY MANAGER] Attempting recovery from vault backup...");
       const rawBak = fs.readFileSync(VAULT_BACKUP_PATH, "utf-8");
       const parsedBak = decryptVaultData(rawBak);
       if (parsedBak && Array.isArray(parsedBak.memories)) {
-        return parsedBak.memories.map((m) => ({
+        loadedMemories = parsedBak.memories.map((m: any) => ({
           ...m,
+          category: m.category || m.memoryType || "fact",
+          content: typeof m.content === "string" ? m.content : (m.workflowName || JSON.stringify(m)),
           provenance: m.provenance || {
             origin: "vault_backup",
             timestamp: m.updatedAt || m.createdAt || Date.now(),
@@ -208,7 +247,21 @@ export function loadAllMemories(): MemoryRecord[] {
   } catch (err) {
     console.warn("[MEMORY MANAGER] Error loading memory vault:", err);
   }
-  return [];
+
+  // Guarantee Zero Data Loss: founder identity and core project facts must never be dropped
+  for (const seed of DEFAULT_FOUNDER_MEMORIES) {
+    if (!loadedMemories.some((m) => m.key === seed.key)) {
+      loadedMemories.unshift(seed);
+    }
+  }
+
+  try {
+    persistMemories(loadedMemories);
+  } catch (saveErr) {
+    console.warn("[MEMORY MANAGER] Failed to synchronize persistent memories:", saveErr);
+  }
+
+  return loadedMemories;
 }
 
 /**

@@ -32,6 +32,7 @@ import fs from "fs";
 import path from "path";
 import { isSystemLockedDown } from "./security/emergencyEngine.ts";
 import { recordSecurityEvent } from "./security/monitoringEngine.ts";
+import { getApprovalRequest } from "./security/permissionEngine.ts";
 
 export type PermissionActionType =
   | "app_launch"
@@ -310,11 +311,25 @@ export function verifyGatewayExecutionGrant(planId: string, grantToken: string):
     return false;
   }
   const plan = activePlans.get(planId);
-  return Boolean(
+  if (
     plan &&
     (plan.status === "approved" || plan.status === "executing") &&
     plan.executionGrantToken === grantToken
-  );
+  ) {
+    return true;
+  }
+
+  // Cross-engine synchronization: check central permission engine
+  const centralReq = getApprovalRequest(planId);
+  if (
+    centralReq &&
+    (centralReq.status === "approved" || centralReq.status === "executing") &&
+    centralReq.executionGrantToken === grantToken
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 /**

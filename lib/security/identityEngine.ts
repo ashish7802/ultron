@@ -153,13 +153,19 @@ export function getLocalDeviceBinding(): DeviceBinding {
 /**
  * Creates and registers a new authenticated desktop session for a given role.
  *
+ * Security Invariant:
+ * Biometric verification timestamp is ONLY set when verifiedBiometrics is explicitly true,
+ * ensuring unverified sessions never claim biometric verification occurred (ChatGPT Finding F-01).
+ *
  * @param role - Target user role (defaults to "founder" for local desktop).
  * @param userId - Target user identifier.
+ * @param verifiedBiometrics - True if genuine OS-backed biometric verification succeeded.
  * @returns Fresh DesktopSession.
  */
 export function createAuthenticatedSession(
   role: UserRole = "founder",
-  userId: string = FOUNDER_IDENTITY.userId
+  userId: string = FOUNDER_IDENTITY.userId,
+  verifiedBiometrics: boolean = false
 ): DesktopSession {
   const sessionToken = "ultron_sec_" + crypto.randomBytes(32).toString("hex");
   const sessionId = "sess_" + crypto.randomBytes(12).toString("hex");
@@ -176,7 +182,7 @@ export function createAuthenticatedSession(
     expiresAt: now + SESSION_TTL_MS,
     lastActiveAt: now,
     isRevoked: false,
-    lastBiometricVerificationAt: role === "founder" ? now : undefined,
+    lastBiometricVerificationAt: verifiedBiometrics ? now : undefined,
   };
 
   activeSessions.set(sessionToken, session);

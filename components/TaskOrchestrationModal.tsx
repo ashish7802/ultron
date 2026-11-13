@@ -187,6 +187,29 @@ export default function TaskOrchestrationModal({
     }
   };
 
+  const handleCancelWorkflow = async (workflowId: string) => {
+    if (!confirm("Are you sure you want to abort and cancel this workflow?")) return;
+    try {
+      setLoading(true);
+      const res = await fetch("/api/orchestration", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "cancel", workflowId, reason: "Cancelled by founder via HUD modal." }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        await fetchData();
+        await inspectWorkflow(workflowId);
+      } else {
+        alert(`Failed to cancel workflow: ${data.error}`);
+      }
+    } catch (err) {
+      alert(`Error cancelling workflow: ${err}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -365,11 +388,29 @@ export default function TaskOrchestrationModal({
                           Category: <span style={{ color: "#38bdf8" }}>{selectedWorkflow.goal.category}</span> | ID: <code>{selectedWorkflow.id}</code>
                         </div>
                       </div>
-                      <div style={{ textAlign: "right" }}>
-                        <div style={{ fontSize: "18px", fontWeight: "bold", color: "#10b981" }}>
-                          {selectedProgress?.overallPercentage || 0}%
+                      <div style={{ textAlign: "right", display: "flex", alignItems: "center", gap: "12px" }}>
+                        {(selectedWorkflow.state === "RUNNING" || selectedWorkflow.state === "PENDING_APPROVAL" || selectedWorkflow.state === "PAUSED") && (
+                          <button
+                            onClick={() => handleCancelWorkflow(selectedWorkflow.id)}
+                            style={{
+                              padding: "4px 8px",
+                              backgroundColor: "rgba(239, 68, 68, 0.2)",
+                              border: "1px solid #ef4444",
+                              color: "#ef4444",
+                              borderRadius: "4px",
+                              fontSize: "11px",
+                              cursor: "pointer",
+                            }}
+                          >
+                            🛑 Abort Workflow
+                          </button>
+                        )}
+                        <div>
+                          <div style={{ fontSize: "18px", fontWeight: "bold", color: "#10b981" }}>
+                            {selectedProgress?.overallPercentage || 0}%
+                          </div>
+                          <div style={{ fontSize: "10px", color: "#64748b" }}>Progress</div>
                         </div>
-                        <div style={{ fontSize: "10px", color: "#64748b" }}>Progress</div>
                       </div>
                     </div>
 

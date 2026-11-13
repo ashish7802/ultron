@@ -302,6 +302,26 @@ export function registerResourcePolicy(policy: ResourceAccessPolicy, actorRole: 
 }
 
 /**
+ * Revokes a registered resource access policy dynamically.
+ *
+ * @param policyId - Policy identifier to revoke.
+ * @param actorRole - Role of actor revoking policy (must be founder).
+ * @returns Boolean success flag.
+ */
+export function revokeResourcePolicy(policyId: string, actorRole: UserRole): boolean {
+  if (actorRole !== "founder") {
+    console.warn("[ACCESS CONTROL] Policy revocation denied: Only founder may revoke access policies.");
+    return false;
+  }
+  const idx = activePolicies.findIndex((p) => p.policyId === policyId);
+  if (idx >= 0) {
+    activePolicies.splice(idx, 1);
+    return true;
+  }
+  return false;
+}
+
+/**
  * Returns all active resource access policies.
  *
  * @returns Array of policies.

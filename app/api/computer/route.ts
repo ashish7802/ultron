@@ -16,6 +16,9 @@
  */
 
 import { NextResponse, type NextRequest } from "next/server";
+import path from "path";
+import { validateSessionToken } from "@/lib/security/identityEngine";
+import { verifyExecutionGrant } from "@/lib/security/permissionEngine";
 import {
   defaultDesktopEngine,
   defaultApplicationIntelligence,
@@ -27,7 +30,42 @@ import {
   defaultComputerWorkflowOrchestrator,
 } from "@/lib/computer/index.ts";
 
+/**
+ * Validates request origin and extracts session token.
+ */
+function extractAuthSession(req: NextRequest) {
+  const token =
+    req.headers.get("x-ultron-session-token") ||
+    req.cookies.get("ultron_session")?.value ||
+    req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+  return { token: token || "", validation: validateSessionToken(token) };
+}
+
+/**
+ * Validates path safety to prevent directory traversal and access to sensitive files.
+ */
+function isPathSafe(targetPath: string | undefined): boolean {
+  if (!targetPath || typeof targetPath !== "string") return false;
+  const resolved = path.resolve(targetPath);
+  const forbiddenPatterns = [
+    /windows[\\/]system32[\\/]config/i,
+    /[\\/]\.vault_key$/i,
+    /[\\/]\.security_vault/i,
+    /[\\/]\.env(\..+)?$/i,
+    /[\\/]\.ssh[\\/]/i,
+  ];
+  return !forbiddenPatterns.some((pattern) => pattern.test(resolved));
+}
+
 export async function GET(req: NextRequest) {
+  const { validation } = extractAuthSession(req);
+  if (!validation.isValid || !validation.session) {
+    return NextResponse.json(
+      { success: false, error: "Unauthorized: Valid session required to access Computer Intelligence." },
+      { status: 401 }
+    );
+  }
+
   const url = new URL(req.url);
   const action = url.searchParams.get("action") || "status";
 

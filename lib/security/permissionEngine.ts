@@ -26,6 +26,8 @@
  */
 
 import crypto from "crypto";
+import fs from "fs";
+import path from "path";
 import type {
   PermissionActionType,
   ActionRiskLevel,
@@ -33,6 +35,13 @@ import type {
   PermissionApprovalRequest,
   ActionScope,
 } from "./types.ts";
+
+/** Local storage directory and file for persistent approval state across server restarts. */
+const SECURITY_STORAGE_DIR = path.join(
+  /*turbopackIgnore: true*/ process.cwd(),
+  ".security_vault"
+);
+const APPROVALS_STORE_FILE = path.join(SECURITY_STORAGE_DIR, "approvals.json");
 
 /** 5-minute Time-To-Live for pending approval requests. */
 const REQUEST_TTL_MS = 5 * 60 * 1000;
@@ -43,6 +52,64 @@ const activeRequests = new Map<string, PermissionApprovalRequest>();
 /** Historical approval log (capped at 500 entries). */
 const historicalDecisions: PermissionApprovalRequest[] = [];
 const MAX_HISTORY = 500;
+
+/**
+ * Initializes the approvals store from persistent disk storage if available.
+ */
+function initializeApprovalsStore(): void {
+  try {
+    if (!fs.existsSync(SECURITY_STORAGE_DIR)) {
+      fs.mkdirSync(SECURITY_STORAGE_DIR, { recursive: true });
+    }
+    if (fs.existsSync(APPROVALS_STORE_FILE)) {
+      const raw = fs.readFileSync(APPROVALS_STORE_FILE, "utf-8");
+      const data = JSON.parse(raw);
+      if (Array.isArray(data.active)) {
+        for (const req of data.active) {
+          if (req && req.requestId) {
+            activeRequests.set(req.requestId, req);
+          }
+        }
+      }
+      if (Array.isArray(data.history)) {
+        for (const req of data.history) {
+          if (req && req.requestId) {
+            historicalDecisions.push(req);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[PermissionEngine] Failed to load approvals from disk:", err);
+  }
+}
+
+// Bootstrap persistence on load
+initializeApprovalsStore();
+
+/**
+ * Persists active requests and historical decisions to disk.
+ */
+function persistApprovals(): void {
+  try {
+    if (!fs.existsSync(SECURITY_STORAGE_DIR)) {
+      fs.mkdirSync(SECURITY_STORAGE_DIR, { recursive: true });
+    }
+    const payload = JSON.stringify(
+      {
+        active: Array.from(activeRequests.values()),
+        history: historicalDecisions.slice(0, MAX_HISTORY),
+      },
+      null,
+      2
+    );
+    const tmpFile = `${APPROVALS_STORE_FILE}.tmp.${Date.now()}`;
+    fs.writeFileSync(tmpFile, payload, "utf-8");
+    fs.renameSync(tmpFile, APPROVALS_STORE_FILE);
+  } catch (err) {
+    console.warn("[PermissionEngine] Failed to persist approvals to disk:", err);
+  }
+}
 
 /**
  * Computes a deterministic SHA-256 hash of canonical action parameters.
@@ -143,6 +210,34 @@ export function evaluateActionRisk(
         isDestructive: false,
       };
 
+    case "payment_exec":
+      return {
+        riskLevel: "critical",
+        riskExplanation: `Executes financial payment transaction on target "${target}". Irreversible external financial operation.`,
+        isDestructive: true,
+      };
+
+    case "external_publish":
+      return {
+        riskLevel: "critical",
+        riskExplanation: `Publishes data or artifacts to external public channel "${target}". Irreversible public dissemination.`,
+        isDestructive: true,
+      };
+
+    case "prod_deploy":
+      return {
+        riskLevel: "critical",
+        riskExplanation: `Triggers production deployment or infrastructure alteration on "${target}".`,
+        isDestructive: true,
+      };
+
+    case "file_read":
+      return {
+        riskLevel: "low",
+        riskExplanation: `Reads file content at "${target}" within authorized access scope.`,
+        isDestructive: false,
+      };
+
     case "browser_open":
     case "volume_change":
       return {
@@ -152,9 +247,10 @@ export function evaluateActionRisk(
       };
 
     default:
+      // Invariant: Never automatically downgrade action risk. If risk classification is uncertain, use the safer higher-risk classification.
       return {
-        riskLevel: "medium",
-        riskExplanation: `Executes system action on "${target}".`,
+        riskLevel: "high",
+        riskExplanation: `Unclassified or uncertain system operation on target "${target}". Elevated to HIGH risk under fail-safe policy.`,
         isDestructive: false,
       };
   }
@@ -184,6 +280,7 @@ export function createApprovalRequest(
   rollbackPlan?: string
 ): PermissionApprovalRequest {
   const requestId = "req_" + crypto.randomBytes(12).toString("hex");
+  const actionId = "act_" + crypto.randomBytes(8).toString("hex");
   const actionHash = computeCanonicalActionHash(actionType, target, params);
   const approvalToken = "appr_" + crypto.randomBytes(24).toString("hex");
   const { riskLevel, riskExplanation, isDestructive } = evaluateActionRisk(actionType, target);
@@ -198,10 +295,12 @@ export function createApprovalRequest(
 
   const request: PermissionApprovalRequest = {
     requestId,
+    actionId,
     actionType,
     title: `Authorization Required: ${actionType.replace("_", " ").toUpperCase()}`,
     description: `Requesting authorization to execute ${actionType} on target "${target}".`,
     target,
+    resourceId: target.trim(),
     params,
     affectedResources: scope.affectedResources,
     riskLevel,
@@ -217,9 +316,11 @@ export function createApprovalRequest(
     executionGrantToken: null,
     isDestructive,
     rollbackPlan,
+    executionStatus: "PENDING",
   };
 
   activeRequests.set(requestId, request);
+  persistApprovals();
   return request;
 }
 
@@ -230,6 +331,7 @@ export function createApprovalRequest(
  * - Rejects expired requests (fail-closed).
  * - Rejects already approved, executed, or cancelled requests.
  * - Validates cryptographic approval token signature.
+ * - Enforces Founder authority.
  * - Issues a fresh single-use execution grant token.
  *
  * @param requestId - Request identifier.
@@ -253,8 +355,10 @@ export function approveRequest(
 
   if (Date.now() > request.expiresAt) {
     request.status = "expired";
+    request.executionStatus = "FAILED";
     archiveDecision(request);
     activeRequests.delete(requestId);
+    persistApprovals();
     return { success: false, error: "Approval request has expired (5-minute TTL exceeded)." };
   }
 
@@ -266,14 +370,17 @@ export function approveRequest(
   const executionGrantToken = "exec_" + crypto.randomBytes(24).toString("hex");
   request.executionGrantToken = executionGrantToken;
   request.status = "approved";
+  request.founderIdentity = decidedByActor;
   request.decidedByActor = decidedByActor;
   request.decidedAt = Date.now();
+  request.executionStatus = "PENDING";
 
+  persistApprovals();
   return { success: true, executionGrantToken };
 }
 
 /**
- * Rejects or cancels an approval request.
+ * Rejects an approval request.
  *
  * @param requestId - Request identifier.
  * @param reason - Explanation for rejection.
@@ -289,12 +396,78 @@ export function rejectRequest(
   if (!request) return false;
 
   request.status = "rejected";
+  request.executionStatus = "FAILED";
   request.decidedByActor = decidedByActor;
   request.decidedAt = Date.now();
   request.decisionReason = reason;
 
   archiveDecision(request);
   activeRequests.delete(requestId);
+  persistApprovals();
+  return true;
+}
+
+/**
+ * Cancels a pending approval request before decision.
+ *
+ * @param requestId - Request identifier.
+ * @param reason - Cancellation reason.
+ * @param decidedByActor - Actor cancelling the request.
+ * @returns True if cancelled; false if not found or not pending.
+ */
+export function cancelRequest(
+  requestId: string,
+  reason: string = "Founder cancelled request",
+  decidedByActor: string = "founder"
+): boolean {
+  const request = activeRequests.get(requestId);
+  if (!request) return false;
+
+  if (request.status !== "pending") {
+    return false;
+  }
+
+  request.status = "cancelled";
+  request.executionStatus = "FAILED";
+  request.decidedByActor = decidedByActor;
+  request.decidedAt = Date.now();
+  request.decisionReason = reason;
+
+  archiveDecision(request);
+  activeRequests.delete(requestId);
+  persistApprovals();
+  return true;
+}
+
+/**
+ * Revokes an already approved action grant before execution completes.
+ *
+ * Enforces immediate invalidation of the single-use execution grant token.
+ *
+ * @param requestId - Request identifier.
+ * @param reason - Explanation for revocation.
+ * @param decidedByActor - Actor revoking the approval.
+ * @returns True if revoked; false if not found.
+ */
+export function revokeApproval(
+  requestId: string,
+  reason: string = "Founder revoked approval",
+  decidedByActor: string = "founder"
+): boolean {
+  const request = activeRequests.get(requestId);
+  if (!request) return false;
+
+  // Invalidate execution grant immediately
+  request.executionGrantToken = null;
+  request.status = "revoked";
+  request.executionStatus = "FAILED";
+  request.decidedByActor = decidedByActor;
+  request.decidedAt = Date.now();
+  request.decisionReason = reason;
+
+  archiveDecision(request);
+  activeRequests.delete(requestId);
+  persistApprovals();
   return true;
 }
 
@@ -304,7 +477,7 @@ export function rejectRequest(
  * Immediate Pre-Execution Verification:
  * 1. Confirms request exists and is in "approved" status.
  * 2. Confirms executionGrantToken matches.
- * 3. Confirms request has not expired.
+ * 3. Confirms request has not expired or been revoked.
  * 4. Re-computes SHA-256 action hash to verify parameters were NOT modified post-approval.
  *
  * @param requestId - Request ID.
@@ -315,7 +488,8 @@ export function rejectRequest(
 export function verifyExecutionGrant(
   requestId: string,
   presentedGrantToken: string,
-  currentParams?: Record<string, unknown>
+  currentParams?: Record<string, unknown>,
+  currentTarget?: string
 ): { authorized: boolean; reason?: string } {
   const request = activeRequests.get(requestId);
   if (!request) {
@@ -323,13 +497,15 @@ export function verifyExecutionGrant(
   }
 
   if (request.status !== "approved") {
-    return { authorized: false, reason: `Request is already ${request.status} (single-use grant already consumed or invalid).` };
+    return { authorized: false, reason: `Request is already ${request.status} (single-use grant already consumed, revoked or invalid).` };
   }
 
   if (Date.now() > request.expiresAt) {
     request.status = "expired";
+    request.executionStatus = "FAILED";
     archiveDecision(request);
     activeRequests.delete(requestId);
+    persistApprovals();
     return { authorized: false, reason: "Execution grant expired." };
   }
 
@@ -337,14 +513,27 @@ export function verifyExecutionGrant(
     return { authorized: false, reason: "Invalid execution grant token." };
   }
 
+  // Anti-tampering target resource scope check
+  if (currentTarget && currentTarget.trim().toLowerCase() !== request.target.trim().toLowerCase()) {
+    request.status = "rejected";
+    request.executionStatus = "FAILED";
+    request.decisionReason = "Target resource altered post-approval.";
+    archiveDecision(request);
+    activeRequests.delete(requestId);
+    persistApprovals();
+    return { authorized: false, reason: "Security Violation: Target resource scope altered post-approval." };
+  }
+
   // Anti-tampering parameter check
   if (currentParams) {
     const currentHash = computeCanonicalActionHash(request.actionType, request.target, currentParams);
     if (currentHash !== request.actionHash) {
       request.status = "rejected";
+      request.executionStatus = "FAILED";
       request.decisionReason = "Parameter tampering detected between approval and execution.";
       archiveDecision(request);
       activeRequests.delete(requestId);
+      persistApprovals();
       return { authorized: false, reason: "Security Violation: Parameters tampered with post-approval." };
     }
   }
@@ -352,6 +541,8 @@ export function verifyExecutionGrant(
   // Atomically transition status to "executing" to guarantee single-use consumption
   // and prevent concurrent execution race conditions or replay attacks.
   request.status = "executing";
+  request.executionStatus = "EXECUTING";
+  persistApprovals();
 
   return { authorized: true };
 }
@@ -371,12 +562,16 @@ export function finalizeExecution(
   const request = activeRequests.get(requestId);
   if (!request) return;
 
-  request.status = success ? "executed" : "rejected";
+  request.status = success ? "executed" : "failed";
+  request.executionStatus = success ? "COMPLETED" : "FAILED";
+  request.executedAt = Date.now();
+  request.finalResultRef = outcomeMessage || (success ? "Success" : "Failed");
   request.decisionReason = outcomeMessage;
   request.executionGrantToken = null; // Single-use guarantee: destroyed immediately
 
   archiveDecision(request);
   activeRequests.delete(requestId);
+  persistApprovals();
 }
 
 /**
@@ -401,11 +596,37 @@ export function getApprovalRequest(requestId: string): PermissionApprovalRequest
   const request = activeRequests.get(requestId);
   if (request && Date.now() > request.expiresAt) {
     request.status = "expired";
+    request.executionStatus = "FAILED";
     archiveDecision(request);
     activeRequests.delete(requestId);
+    persistApprovals();
     return undefined;
   }
   return request;
+}
+
+/**
+ * Invalidates all active execution grant tokens across all pending or approved requests.
+ * Invoked immediately upon Emergency Stop or Security Lockdown.
+ *
+ * @param reason - Diagnostic explanation for mass grant revocation.
+ * @returns Count of invalidated grants.
+ */
+export function invalidateAllActiveGrants(reason: string = "Emergency Stop triggered"): number {
+  let count = 0;
+  for (const [id, req] of activeRequests.entries()) {
+    if (req.status === "approved" || req.status === "executing") {
+      req.status = "revoked";
+      req.executionStatus = "FAILED";
+      req.executionGrantToken = null;
+      req.decisionReason = reason;
+      archiveDecision(req);
+      activeRequests.delete(id);
+      count++;
+    }
+  }
+  persistApprovals();
+  return count;
 }
 
 /**
@@ -416,14 +637,20 @@ export function getApprovalRequest(requestId: string): PermissionApprovalRequest
 export function listPendingRequests(): PermissionApprovalRequest[] {
   const now = Date.now();
   const list: PermissionApprovalRequest[] = [];
+  let expiredFound = false;
   for (const [id, req] of activeRequests.entries()) {
     if (now > req.expiresAt) {
       req.status = "expired";
+      req.executionStatus = "FAILED";
       archiveDecision(req);
       activeRequests.delete(id);
+      expiredFound = true;
     } else if (req.status === "pending") {
       list.push(req);
     }
+  }
+  if (expiredFound) {
+    persistApprovals();
   }
   return list;
 }
@@ -435,4 +662,22 @@ export function listPendingRequests(): PermissionApprovalRequest[] {
  */
 export function listApprovalHistory(): PermissionApprovalRequest[] {
   return [...historicalDecisions];
+}
+
+/**
+ * Lists approvals filtered optionally by status from both active and historical sets.
+ *
+ * @param status - Optional status filter.
+ * @returns Filtered array of requests.
+ */
+export function listAllApprovals(status?: ApprovalStatus): PermissionApprovalRequest[] {
+  const all: PermissionApprovalRequest[] = [];
+  for (const req of activeRequests.values()) {
+    all.push(req);
+  }
+  for (const req of historicalDecisions) {
+    all.push(req);
+  }
+  if (!status) return all;
+  return all.filter((r) => r.status === status);
 }

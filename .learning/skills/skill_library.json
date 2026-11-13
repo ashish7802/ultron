@@ -1,0 +1,73 @@
+[
+  {
+    "skillId": "skill_1794534236327_5ce81a",
+    "name": "AtomicSafeFileWriter",
+    "description": "Atomically writes file contents using temporary file and atomic rename to prevent corruption.",
+    "version": "1.0.0",
+    "status": "ACTIVE",
+    "category": "FILESYSTEM",
+    "requiredPermissions": [
+      "file_write"
+    ],
+    "inputs": [
+      {
+        "name": "targetPath",
+        "type": "string",
+        "description": "Absolute path to destination file",
+        "required": true
+      },
+      {
+        "name": "content",
+        "type": "string",
+        "description": "Payload string to write",
+        "required": true
+      }
+    ],
+    "outputs": [
+      {
+        "name": "success",
+        "type": "boolean",
+        "description": "Whether write succeeded",
+        "required": true
+      },
+      {
+        "name": "bytesWritten",
+        "type": "number",
+        "description": "Number of bytes committed",
+        "required": true
+      }
+    ],
+    "workflow": [
+      {
+        "stepNumber": 1,
+        "stepName": "CreateTmpFile",
+        "action": "write_temp",
+        "parameters": {
+          "ext": ".tmp"
+        },
+        "expectedResult": "Temp file created",
+        "canFailWithoutStopping": false
+      },
+      {
+        "stepNumber": 2,
+        "stepName": "AtomicRename",
+        "action": "fs_rename",
+        "parameters": {},
+        "expectedResult": "Renamed atomically",
+        "canFailWithoutStopping": false
+      }
+    ],
+    "validationCriteria": [
+      "Target file exists",
+      "File content matches input string exactly"
+    ],
+    "lastTestPassed": false,
+    "executionCount": 0,
+    "successRate": 1,
+    "averageDurationMs": 0,
+    "author": "FOUNDER",
+    "createdAt": 1794534236327,
+    "updatedAt": 1794534236327,
+    "documentationMarkdown": "# Skill: AtomicSafeFileWriter (v1.0.0)\n\n**Description:** Atomically writes file contents using temporary file and atomic rename to prevent corruption.\n\n**Required Permissions:** file_write\n\n## Input Parameters\n\n- `targetPath` (string, required): Absolute path to destination file\n- `content` (string, required): Payload string to write\n\n## Output Parameters\n\n- `success` (boolean): Whether write succeeded\n- `bytesWritten` (number): Number of bytes committed\n\n## Workflow Pipeline\n\n1. **CreateTmpFile** - Action: `write_temp` -> Expected: *Temp file created*\n2. **AtomicRename** - Action: `fs_rename` -> Expected: *Renamed atomically*\n"
+  }
+]

@@ -20,16 +20,25 @@ import {
   createApprovalRequest,
   approveRequest,
   rejectRequest,
+  cancelRequest,
+  revokeApproval,
   getApprovalRequest,
   listPendingRequests,
   listApprovalHistory,
+  listAllApprovals,
 } from "@/lib/security/permissionEngine";
 import { validateSessionToken } from "@/lib/security/identityEngine";
+import type { ApprovalStatus } from "@/lib/security/types";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const requestId = searchParams.get("requestId");
   const showHistory = searchParams.get("history") === "true";
+  const statusFilter = searchParams.get("status") as ApprovalStatus | null;
+
+  if (statusFilter) {
+    return NextResponse.json({ ok: true, approvals: listAllApprovals(statusFilter) });
+  }
 
   if (showHistory) {
     return NextResponse.json({ ok: true, history: listApprovalHistory() });
@@ -87,6 +96,22 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ ok: false, error: "requestId required." }, { status: 400 });
         }
         const success = rejectRequest(requestId, reason || "User rejected", auth.session.userRole);
+        return NextResponse.json({ ok: success });
+      }
+
+      case "cancel": {
+        if (!requestId) {
+          return NextResponse.json({ ok: false, error: "requestId required." }, { status: 400 });
+        }
+        const success = cancelRequest(requestId, reason || "Founder cancelled", auth.session.userRole);
+        return NextResponse.json({ ok: success });
+      }
+
+      case "revoke": {
+        if (!requestId) {
+          return NextResponse.json({ ok: false, error: "requestId required." }, { status: 400 });
+        }
+        const success = revokeApproval(requestId, reason || "Founder revoked approval", auth.session.userRole);
         return NextResponse.json({ ok: success });
       }
 

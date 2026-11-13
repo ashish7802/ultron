@@ -42,6 +42,7 @@
 import crypto from "crypto";
 import { validateSessionToken } from "./identityEngine.ts";
 import { evaluateAccess } from "./accessControlEngine.ts";
+import { isSystemLockedDown } from "./emergencyEngine.ts";
 import {
   createApprovalRequest,
   evaluateActionRisk,
@@ -162,7 +163,19 @@ export async function executeThroughGateway<TOutput>(
 ): Promise<GatewayExecutionResult<TOutput>> {
   const { actionType, target, params, actorId, sessionId, projectId, justification } = request;
 
-  // Step 1: Receive action request
+  // Step 1: Emergency Lockdown Check & Receive action request
+  if (isSystemLockedDown()) {
+    if (auditHook) {
+      auditHook(actorId, actionType, target, "critical", "BLOCKED", "Blocked by active Emergency Security Lockdown", sessionId);
+    }
+    return {
+      success: false,
+      requiresApproval: false,
+      error: "Action blocked at Step 1: System is under active Emergency Security Lockdown.",
+      pipelineStepCompleted: 1,
+    };
+  }
+
   // Step 2: Identify actor and session
   const sessionCheck = validateSessionToken(sessionId);
   if (!sessionCheck.isValid || !sessionCheck.session) {
@@ -198,7 +211,7 @@ export async function executeThroughGateway<TOutput>(
     resourceDomain,
     resourceIdentifier: cleanTarget,
     projectId,
-    isEmergencyLocked: false, // Updated by emergency engine if active
+    isEmergencyLocked: isSystemLockedDown(),
     environment: {
       ipAddress: "127.0.0.1",
       isLoopback: true,
@@ -270,7 +283,8 @@ export async function executeThroughGateway<TOutput>(
     const grantCheck = verifyExecutionGrant(
       request.params._approvalRequestId as string || "",
       grantToken,
-      sanitizedParams
+      sanitizedParams,
+      cleanTarget
     );
 
     if (!grantCheck.authorized) {

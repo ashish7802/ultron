@@ -153,6 +153,7 @@ export function appendAuditEntry(params: {
   details: string;
   sessionRef?: string;
   approvalRef?: string;
+  correlationId?: string;
 }): ChainedAuditEntry {
   const sequenceNumber = auditChain.length + 1;
   const previousEntryHash =
@@ -174,6 +175,7 @@ export function appendAuditEntry(params: {
     riskLevel: params.riskLevel,
     sessionRef: params.sessionRef,
     approvalRef: params.approvalRef,
+    correlationId: params.correlationId || `corr_${crypto.randomBytes(6).toString("hex")}`,
     executionStatus: params.executionStatus,
     resultSummary: params.resultSummary,
     failureReason: params.failureReason,

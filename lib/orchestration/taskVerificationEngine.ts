@@ -233,27 +233,65 @@ export class TaskVerificationEngine {
   }
 
   /**
+   * Verifies the cryptographic integrity of an existing VerificationEvidence record.
+   * Protects against retroactive tampering with verification certificates.
+   *
+   * @param evidence - The evidence record to check.
+   * @returns True if evidence hash matches the recomputed SHA-256 payload.
+   */
+  public verifyEvidenceIntegrity(evidence: VerificationEvidence): boolean {
+    if (!evidence || !evidence.evidenceHash) return false;
+
+    const evidencePayload = {
+      evidenceId: evidence.evidenceId,
+      taskId: evidence.taskId,
+      verified: evidence.verified,
+      passedCount: evidence.passedCriteriaCount,
+      criteriaResults: evidence.criteriaResults,
+      producedArtifacts: evidence.producedArtifacts,
+      timestamp: evidence.timestamp,
+    };
+
+    const expectedHash = crypto
+      .createHash("sha256")
+      .update(JSON.stringify(evidencePayload))
+      .digest("hex");
+
+    return expectedHash === evidence.evidenceHash;
+  }
+
+  /**
    * Inspects a deliverable file on disk and computes its SHA-256 hash.
+   * Returns null if a file deliverable does not physically exist.
    */
   private _inspectDeliverable(deliverable: string): VerificationEvidence["producedArtifacts"][0] | null {
+    const isFilePath = /\.[a-zA-Z0-9]{1,8}$/.test(deliverable) || deliverable.includes("/") || deliverable.includes("\\");
+
     try {
       const resolved = path.resolve(process.cwd(), deliverable);
       if (fs.existsSync(resolved)) {
         const stats = fs.statSync(resolved);
-        const content = fs.readFileSync(resolved);
-        const hash = crypto.createHash("sha256").update(content).digest("hex");
-        return {
-          name: deliverable,
-          pathOrUri: resolved,
-          sha256Hash: hash,
-          sizeBytes: stats.size,
-        };
+        if (stats.isFile()) {
+          const content = fs.readFileSync(resolved);
+          const hash = crypto.createHash("sha256").update(content).digest("hex");
+          return {
+            name: deliverable,
+            pathOrUri: resolved,
+            sha256Hash: hash,
+            sizeBytes: stats.size,
+          };
+        }
       }
     } catch {
-      // File may be virtual or external deliverable
+      // File inspection error
     }
 
-    // Fallback virtual artifact
+    // If it was supposed to be a concrete file deliverable on disk and doesn't exist, return null
+    if (isFilePath) {
+      return null;
+    }
+
+    // Virtual in-memory deliverable
     return {
       name: deliverable,
       sha256Hash: crypto.createHash("sha256").update(deliverable).digest("hex"),

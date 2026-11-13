@@ -16,25 +16,49 @@
  * - Rejects unauthenticated or unauthorized calls fail-closed.
  */
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { validateSessionToken } from "@/lib/security/identityEngine";
 import {
   defaultTaskOrchestrationEngine,
   defaultPersistentStateEngine,
   defaultProgressTrackingEngine,
   defaultHumanApprovalCoordinator,
   defaultTaskReportingEngine,
+  defaultWorkflowManagementEngine,
   type WorkflowInstance,
 } from "@/lib/orchestration";
 
-export async function GET(request: Request) {
+/**
+ * Validates session token from request headers or HttpOnly cookies.
+ */
+function extractAuthSession(request: NextRequest) {
+  const token =
+    request.headers.get("x-ultron-session-token") ||
+    request.cookies.get("ultron_session")?.value ||
+    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+  return { token: token || "", validation: validateSessionToken(token) };
+}
+
+export async function GET(request: NextRequest) {
+  const { validation } = extractAuthSession(request);
+  if (!validation.isValid || !validation.session) {
+    return NextResponse.json(
+      { success: false, error: "Unauthorized: Valid session required to access Task Orchestration." },
+      { status: 401 }
+    );
+  }
+
   try {
     const { searchParams } = new URL(request.url);
     const workflowId = searchParams.get("id");
     const action = searchParams.get("action");
 
-    // 1. Pending Approvals Queue
+    // 1. Pending Approvals Queue (Sanitize tokens: redact internal execution grant tokens)
     if (action === "pending_approvals") {
-      const pending = defaultHumanApprovalCoordinator.listPendingRequests();
+      const pending = defaultHumanApprovalCoordinator.listPendingRequests().map((p) => ({
+        ...p,
+        executionGrantToken: null,
+      }));
       return NextResponse.json({ success: true, count: pending.length, pending });
     }
 
@@ -83,15 +107,29 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const { token, validation } = extractAuthSession(request);
+  if (!validation.isValid || !validation.session) {
+    return NextResponse.json(
+      { success: false, error: "Unauthorized: Valid session required to perform orchestration operations." },
+      { status: 401 }
+    );
+  }
+
+  const actorRole = validation.session.userRole;
+
   try {
     const body = await request.json();
-    const { action, prompt, workflowId, taskId, approved, reason, founderSessionToken } = body;
+    const { action, prompt, workflowId, taskId, approved, reason } = body;
 
     // Action 1: Resume Paused Workflow
     if (action === "resume") {
       if (!workflowId) {
         return NextResponse.json({ success: false, error: "Missing workflowId" }, { status: 400 });
+      }
+      const wf = defaultPersistentStateEngine.getWorkflow(workflowId);
+      if (!wf) {
+        return NextResponse.json({ success: false, error: `Workflow "${workflowId}" not found.` }, { status: 404 });
       }
       const updated = await defaultTaskOrchestrationEngine.executeWorkflow(workflowId);
       return NextResponse.json({ success: true, workflow: updated });
@@ -103,16 +141,24 @@ export async function POST(request: Request) {
         return NextResponse.json({ success: false, error: "Missing taskId" }, { status: 400 });
       }
 
+      if (actorRole !== "founder" && actorRole !== "admin") {
+        return NextResponse.json(
+          { success: false, error: "Access Denied: Only Founder or Admin can resolve approvals." },
+          { status: 403 }
+        );
+      }
+
       let updated: WorkflowInstance;
       if (approved) {
         updated = await defaultTaskOrchestrationEngine.approveTaskAndResume(
           taskId,
-          founderSessionToken || "founder_session_default",
-          "founder"
+          token,
+          actorRole
         );
       } else {
         updated = await defaultTaskOrchestrationEngine.rejectTaskApproval(
           taskId,
+          token,
           reason || "Rejected by founder."
         );
       }
@@ -129,12 +175,20 @@ export async function POST(request: Request) {
       if (!wf) {
         return NextResponse.json({ success: false, error: "Workflow not found" }, { status: 404 });
       }
-      const cancelled = wf; // cancelWorkflow transitions it
+      const cancelled = defaultWorkflowManagementEngine.cancelWorkflow(wf, reason);
+      defaultPersistentStateEngine.saveWorkflow(cancelled);
+      defaultPersistentStateEngine.createCheckpoint(cancelled);
       return NextResponse.json({ success: true, workflow: cancelled });
     }
 
     // Action 4: Recover Interrupted Workflows
     if (action === "recover") {
+      if (actorRole !== "founder" && actorRole !== "admin") {
+        return NextResponse.json(
+          { success: false, error: "Access Denied: Founder authorization required for workflow recovery." },
+          { status: 403 }
+        );
+      }
       const recovered = defaultPersistentStateEngine.recoverInterruptedWorkflows();
       return NextResponse.json({
         success: true,

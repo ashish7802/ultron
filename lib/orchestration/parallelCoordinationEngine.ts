@@ -97,6 +97,34 @@ export class ParallelCoordinationEngine {
   }
 
   /**
+   * Asynchronously attempts to acquire an exclusive lock, waiting up to timeoutMs before failing.
+   *
+   * @param resourceId - Target resource ID.
+   * @param taskId - ID of the task requesting access.
+   * @param ttlMs - Lock TTL in milliseconds.
+   * @param timeoutMs - Maximum duration to wait for the lock.
+   * @returns True if acquired within the timeout window, false otherwise.
+   */
+  public async acquireResourceLockWithTimeout(
+    resourceId: string,
+    taskId: string,
+    ttlMs: number = 30000,
+    timeoutMs?: number
+  ): Promise<boolean> {
+    const maxWait = timeoutMs ?? this._config.acquireTimeoutMs;
+    const start = Date.now();
+
+    while (Date.now() - start <= maxWait) {
+      if (this.acquireResourceLock(resourceId, taskId, ttlMs)) {
+        return true;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+
+    return false;
+  }
+
+  /**
    * Releases an exclusive lock held by a task.
    *
    * @param resourceId - Target resource identifier.
@@ -184,7 +212,8 @@ export class ParallelCoordinationEngine {
 
             for (const item of task.deliverables) {
               const resKey = `res:${item}`;
-              if (!this.acquireResourceLock(resKey, task.id)) {
+              const acquired = await this.acquireResourceLockWithTimeout(resKey, task.id);
+              if (!acquired) {
                 lockFailed = true;
                 break;
               }

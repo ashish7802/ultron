@@ -53,13 +53,7 @@ import {
 import { remediateCandidateResponse } from "@/lib/cognitive/selfEvaluationEngine";
 import { defaultVisualContextDeliveryEngine } from "@/lib/screen/contextDeliveryEngine";
 import { defaultVisionControl } from "@/lib/screen/visionControl";
-import { defaultVisualQAEngine } from "@/lib/screen/visualQAEngine";
-import { defaultWindowDetectionEngine } from "@/lib/screen/windowDetectionEngine";
-import { defaultVisualUnderstandingEngine } from "@/lib/screen/visualUnderstandingEngine";
-import { defaultOCREngine } from "@/lib/screen/ocrEngine";
-import { defaultScreenContextEngine } from "@/lib/screen/screenContextEngine";
-import { defaultVisualProcessingEngine } from "@/lib/screen/visualProcessingEngine";
-import { defaultScreenCaptureEngine } from "@/lib/screen/screenCaptureEngine";
+import { defaultTemporalScreenIntelligence } from "@/lib/screen/temporalScreenIntelligence";
 import type {
   ParsedContext,
   CognitiveTier,
@@ -777,8 +771,9 @@ async function buildResponse(
   // Ollama states do not leak outbound network requests. Explicit web research remains fully
   // available when requested by the user via isResearchQuery (handled in Step 4).
 
-  // 7.5. Grounded Visual Question Answering (VQA) Grounding Fallback
-  // If Ollama is offline or unconfigured, and user explicitly asks about the active desktop or screen:
+  // 7.5. Grounded Visual Evidence Pipeline Integration
+  // Replaces legacy mock VQA fallback: strictly derives answers from physical capture, OS accessibility telemetry,
+  // spatial OCR, and real multimodal model analysis (with explicit DEGRADED reporting when model is offline).
   if (!reply) {
     const isVisualQuery =
       /\b(screen|window|error|display|desktop|what is on|what's on|kya open|kya dikh|explain this error|what code|what changed|what was on|what am i doing|fix this error|how do i fix)\b/i.test(
@@ -792,14 +787,65 @@ async function buildResponse(
           "Screen awareness is currently **OFF** or inactive. Please enable Screen Awareness using the indicator in the top header to allow me to inspect your desktop.";
       } else {
         try {
-          const windowInfo = await defaultWindowDetectionEngine.detectActiveWindows();
-          const frame = await defaultScreenCaptureEngine.captureFrame({ mode: "full_screen" });
-          const processed = defaultVisualProcessingEngine.processFrame(frame);
-          const visual = defaultVisualUnderstandingEngine.analyzeScene(processed, windowInfo.activeWindow);
-          const ocr = defaultOCREngine.extractText(processed, windowInfo.activeWindow?.title);
-          const context = defaultScreenContextEngine.synthesizeContext(windowInfo, visual, ocr);
-          const vqaRes = defaultVisualQAEngine.answerQuestion({ query }, windowInfo, visual, ocr, context);
-          reply = vqaRes.answer;
+          const payload = await defaultVisualContextDeliveryEngine.getFreshOrCachedContext({ forceFresh: true });
+          if (!payload) {
+            reply =
+              "Screen awareness is active, but visual context could not be captured. Operating system permission may be restricted.";
+          } else {
+            // Check if actual neural multimodal vision inference was performed
+            const isModelInferenceLive = payload.visualEvidence?.some(
+              (e) => e.startsWith("Model: ") && !e.includes("none")
+            );
+            const temporalState = defaultTemporalScreenIntelligence.getState();
+
+            // Detect temporal transition queries ("what changed?", "what was on screen before?")
+            const isTemporalQuery = /\b(what changed|kya badla|before this|previously|what was on|since)\b/i.test(query);
+
+            if (isTemporalQuery && temporalState.recentEvents.length > 0) {
+              const events = temporalState.recentEvents
+                .slice(-5)
+                .map((e, idx) => `${idx + 1}. [${new Date(e.timestamp).toLocaleTimeString()}] ${e.summary}`)
+                .join("\n");
+              reply =
+                `**Desktop Temporal State Transitions:**\n\n${events}\n\n` +
+                `**Current Active Window**: "${payload.windowTitle}" (Process: \`${payload.activeApp}\`)\n` +
+                `${payload.browserUrl ? `**Active URL**: ${payload.browserUrl}\n` : ""}` +
+                `*Telemetry observed ${((payload.frameAgeMs || 0) / 1000).toFixed(1)}s ago.*`;
+            } else if (isModelInferenceLive) {
+              // Multimodal Neural Model is ONLINE and analyzed the screen
+              reply =
+                `**Visual Scene Understanding (${payload.activeApp}):**\n\n` +
+                `${payload.activitySummary}\n\n` +
+                `**Extracted Text (OCR)**:\n${payload.ocrSummary ? payload.ocrSummary.split("\n").map((l) => `* ${l}`).join("\n") : "* (No text detected in viewport)"}\n\n` +
+                `${payload.visibleErrors.length > 0 ? `**Detected Errors**:\n${payload.visibleErrors.map((e) => `* ${e}`).join("\n")}\n\n` : ""}` +
+                `*Active Window: "${payload.windowTitle}"*`;
+            } else {
+              // Multimodal Vision Model is UNAVAILABLE / OFFLINE (DEGRADED mode)
+              // Strictly explain that model analysis is unavailable and provide ONLY verified OS/OCR data
+              const ocrLines =
+                payload.ocrEvidence && payload.ocrEvidence.length > 0
+                  ? payload.ocrEvidence.slice(0, 8).map((l) => `* ${l}`).join("\n")
+                  : "* (No text detected in viewport)";
+
+              const verifiedErrors =
+                payload.visibleErrors && payload.visibleErrors.length > 0
+                  ? payload.visibleErrors.map((e) => `* ${e}`).join("\n")
+                  : "None detected in visible viewport.";
+
+              reply =
+                `**Desktop Screen Telemetry (DEGRADED — Vision Model Offline):**\n\n` +
+                `> [!NOTE]\n` +
+                `> Multimodal vision model inference is currently **UNAVAILABLE** (no vision-capable model active in Ollama). ` +
+                `Visual scene interpretation, button recognition, and color analysis are disabled to prevent hallucination. ` +
+                `The information below is grounded strictly in verified operating system telemetry and spatial OCR extraction.\n\n` +
+                `- **Active Window**: **${payload.windowTitle}**\n` +
+                `- **Process**: \`${payload.activeApp}\`\n` +
+                `${payload.browserUrl ? `- **Browser URL**: ${payload.browserUrl}\n` : ""}` +
+                `- **Observed Text (OCR)**:\n${ocrLines}\n\n` +
+                `- **Verified Diagnostics / Errors**:\n${verifiedErrors}\n\n` +
+                `**Limitations**: Cannot visually describe UI shapes, diagrams, or icons until a multimodal vision model (such as \`llama3.2-vision\` or \`llava\`) is active.`;
+            }
+          }
         } catch (err) {
           reply = `Unable to inspect screen: ${err instanceof Error ? err.message : "Capture driver unavailable"}`;
         }

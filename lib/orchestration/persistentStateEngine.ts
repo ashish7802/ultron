@@ -270,10 +270,16 @@ export class PersistentTaskStateEngine {
         for (const task of Object.values(wf.tasks)) {
           if (task.status === "RUNNING") {
             // Process crashed while this task was running; reset to READY for safe restart
+            task.status = "READY";
             interruptedTasks.push(task);
           } else if (task.status === "AWAITING_APPROVAL") {
             pendingApprovals.push(task);
           }
+        }
+
+        // Persist reset tasks to durable disk storage
+        if (interruptedTasks.length > 0) {
+          this.saveWorkflow(wf);
         }
 
         recoverable.push({

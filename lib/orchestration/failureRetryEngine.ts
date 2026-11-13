@@ -193,19 +193,26 @@ export class FailureRetryEngine {
 
   /**
    * Handles downstream cascading when a task permanently fails:
-   * marks all dependent downstream tasks as BLOCKED / CANCELLED.
+   * transitively marks all dependent downstream tasks as BLOCKED.
    */
   public cascadeFailure(
     workflow: WorkflowInstance,
     failedTaskId: string
   ): string[] {
     const affectedTasks: string[] = [];
+    const queue: string[] = [failedTaskId];
+    const visited = new Set<string>();
 
-    for (const task of Object.values(workflow.tasks)) {
-      if (task.dependencies.includes(failedTaskId)) {
-        task.status = "BLOCKED";
-        task.error = `Prerequisite task "${failedTaskId}" failed permanently.`;
-        affectedTasks.push(task.id);
+    while (queue.length > 0) {
+      const currentFailed = queue.shift()!;
+      for (const task of Object.values(workflow.tasks)) {
+        if (task.dependencies.includes(currentFailed) && !visited.has(task.id)) {
+          visited.add(task.id);
+          task.status = "BLOCKED";
+          task.error = `Prerequisite task "${currentFailed}" failed permanently.`;
+          affectedTasks.push(task.id);
+          queue.push(task.id); // Transitive propagation to all downstream descendants
+        }
       }
     }
 

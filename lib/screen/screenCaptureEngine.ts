@@ -221,7 +221,10 @@ export class ScreenCaptureEngine {
     let isSynthetic = false;
 
     // Use an ephemeral temp file to transfer binary image bytes with zero truncation
-    const tempBmpFile = path.join(os.tmpdir(), `ultron_frame_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.bmp`);
+    const tempImageFile = path.join(
+      os.tmpdir(),
+      `ultron_frame_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.png`
+    );
 
     try {
       const python = this._resolvePython();
@@ -242,7 +245,7 @@ export class ScreenCaptureEngine {
         driverArgs.push("fullscreen");
       }
 
-      driverArgs.push("--out-file", tempBmpFile);
+      driverArgs.push("--out-file", tempImageFile, "--format", "png");
 
       const { stdout } = await execFileAsync(python, [script, ...driverArgs], {
         timeout: 6000,
@@ -273,9 +276,9 @@ export class ScreenCaptureEngine {
       isSynthetic = true;
     } finally {
       // Ephemeral cleanup: remove temp capture file immediately
-      if (fs.existsSync(tempBmpFile)) {
+      if (fs.existsSync(tempImageFile)) {
         try {
-          fs.unlinkSync(tempBmpFile);
+          fs.unlinkSync(tempImageFile);
         } catch {
           // Non-fatal temp unlink
         }
@@ -286,6 +289,19 @@ export class ScreenCaptureEngine {
       throw new Error("Screen capture produced an empty or invalid image buffer");
     }
 
+    // Binary byte integrity check
+    const isPngHeader =
+      buffer.length >= 8 &&
+      buffer[0] === 0x89 &&
+      buffer[1] === 0x50 &&
+      buffer[2] === 0x4e &&
+      buffer[3] === 0x47;
+    const isBmpHeader = buffer.length >= 2 && buffer[0] === 0x42 && buffer[1] === 0x4d;
+
+    if (!isPngHeader && !isBmpHeader && !isSynthetic) {
+      throw new Error("Corrupted physical frame: image magic bytes invalid (neither PNG nor BMP)");
+    }
+
     // Clip to region if selected_region mode is requested and dimensions are present
     if (options.mode === "selected_region" && options.region) {
       actualWidth = options.region.width;
@@ -293,7 +309,10 @@ export class ScreenCaptureEngine {
     }
 
     // Compute cryptographic SHA-256 pixel hash for change detection
-    const pixelHash = crypto.createHash("sha256").update(buffer.subarray(0, Math.min(buffer.length, 65536))).digest("hex");
+    const pixelHash = crypto
+      .createHash("sha256")
+      .update(buffer.subarray(0, Math.min(buffer.length, 65536)))
+      .digest("hex");
     const changeDetected = this._lastPixelHash === null || this._lastPixelHash !== pixelHash;
     const changePercentage = changeDetected ? (this._lastPixelHash === null ? 100 : 15.4) : 0.0;
 
@@ -310,7 +329,7 @@ export class ScreenCaptureEngine {
       mode: options.mode,
       display: targetDisplay,
       imageBuffer: buffer,
-      mimeType: "image/bmp",
+      mimeType: (isPngHeader ? "image/png" : "image/bmp") as "image/png" | "image/bmp",
       dimensions: {
         width: actualWidth,
         height: actualHeight,

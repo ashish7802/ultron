@@ -15,12 +15,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { defaultScreenCaptureEngine } from "@/lib/screen/screenCaptureEngine";
-import { defaultVisualProcessingEngine } from "@/lib/screen/visualProcessingEngine";
 import { defaultWindowDetectionEngine } from "@/lib/screen/windowDetectionEngine";
-import { defaultVisualUnderstandingEngine } from "@/lib/screen/visualUnderstandingEngine";
-import { defaultOCREngine } from "@/lib/screen/ocrEngine";
-import { defaultScreenContextEngine } from "@/lib/screen/screenContextEngine";
 import { defaultVisualContextDeliveryEngine } from "@/lib/screen/contextDeliveryEngine";
 import { defaultPrivacySecurityEngine } from "@/lib/screen/privacySecurityEngine";
 import { defaultScreenSessionManager } from "@/lib/screen/sessionManager";
@@ -77,47 +72,26 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // 2. Capture & Process Frame
-    const frame = await defaultScreenCaptureEngine.captureFrame({ mode: "full_screen" }, session?.sessionId);
-    const processed = defaultVisualProcessingEngine.processFrame(frame);
-
-    // 3. Visual Understanding & OCR
-    const visual = defaultVisualUnderstandingEngine.analyzeScene(processed, windowInfo.activeWindow);
-    const ocr = defaultOCREngine.extractText(processed, activeTitle);
-
-    // 4. Synthesize High-Level Context
-    const context = defaultScreenContextEngine.synthesizeContext(windowInfo, visual, ocr);
-
-    // 5. Deliver Formatted Context Payload
+    // 2. Execute Real Multimodal Context Synthesis Pipeline
     const targetSessionId = (body?.sessionId as string) || session?.sessionId || "sess_ephemeral";
-    const payload = defaultVisualContextDeliveryEngine.buildContextPayload(
-      targetSessionId,
-      context,
-      visual,
-      ocr,
-      frame.pixelHash,
-      {
-        frameId: frame.frameId,
-        sequenceNumber: frame.sequenceNumber,
-        frameTimestamp: frame.timestamp,
-        browserUrl: windowInfo.activeWindow?.browserUrl,
-        isSyntheticTestFrame: frame.isSyntheticTestFrame,
-      }
-    );
+    const payload = await defaultVisualContextDeliveryEngine.getFreshOrCachedContext({
+      forceFresh: true,
+      sessionId: targetSessionId,
+    });
 
-    defaultVisionControl.recordFrameAcquired(windowInfo.activeWindow?.title);
+    if (!payload) {
+      return NextResponse.json(
+        { success: false, error: "Screen context could not be captured or was unpermitted" },
+        { status: 500 }
+      );
+    }
+
+    const visionStatus = defaultVisionControl.getStatus();
 
     return NextResponse.json({
       success: true,
       payload,
-      context,
-      visual,
-      ocr: {
-        detectedErrors: ocr.detectedErrors,
-        tokenCount: ocr.tokenCount,
-        codeBlocksCount: ocr.codeBlocks.length,
-        ocrLatencyMs: ocr.ocrLatencyMs,
-      },
+      visionStatus,
     });
   } catch (error) {
     return NextResponse.json(

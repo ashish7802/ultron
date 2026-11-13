@@ -30,6 +30,8 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import MarkdownRenderer from "./MarkdownRenderer";
 import ScreenAwarenessIndicator from "./ScreenAwarenessIndicator";
 import TaskOrchestrationModal from "./TaskOrchestrationModal";
+import SecurityDashboardModal from "./SecurityDashboardModal";
+import LearningEvolutionModal from "./LearningEvolutionModal";
 
 /** Metadata attached to assistant responses (citations, grounding source, execution time). */
 export interface MessageMeta {
@@ -150,6 +152,7 @@ export default function UltronChat() {
   // ── Neural Memory Vault Modal State ─────────────────────────────────────
   const [isMemoryModalOpen, setIsMemoryModalOpen] = useState<boolean>(false);
   const [isOrchestrationModalOpen, setIsOrchestrationModalOpen] = useState<boolean>(false);
+  const [isLearningModalOpen, setIsLearningModalOpen] = useState<boolean>(false);
   const [memoriesList, setMemoriesList] = useState<MemoryItem[]>([]);
   const [newMemoryInput, setNewMemoryInput] = useState<string>("");
   const [newMemoryCat, setNewMemoryCat] = useState<"profile" | "preference" | "project" | "fact" | "instruction">("fact");
@@ -980,6 +983,21 @@ export default function UltronChat() {
             <span style={{ color: "#00f0ff" }}>Task Orchestration</span>
           </button>
 
+          {/* Learning & Evolution Engine Action */}
+          <button
+            type="button"
+            onClick={() => setIsLearningModalOpen(true)}
+            className="ultron-sidebar-memory-btn"
+            style={{ borderColor: "#a855f7" }}
+            title="Inspect self-improvement, skill library & evolution engine"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a855f7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2a8 8 0 0 0-8 8c0 3 2 5.5 4 7v3h8v-3c2-1.5 4-4 4-7a8 8 0 0 0-8-8z" />
+              <line x1="9" y1="22" x2="15" y2="22" />
+            </svg>
+            <span style={{ color: "#c084fc" }}>Learning & Evolution</span>
+          </button>
+
           {/* Stored Memories Action */}
           <button
             type="button"
@@ -1402,6 +1420,12 @@ export default function UltronChat() {
       <TaskOrchestrationModal
         isOpen={isOrchestrationModalOpen}
         onClose={() => setIsOrchestrationModalOpen(false)}
+      />
+
+      {/* ── LEARNING & EVOLUTION ENGINE MODAL ── */}
+      <LearningEvolutionModal
+        isOpen={isLearningModalOpen}
+        onClose={() => setIsLearningModalOpen(false)}
       />
     </div>
   );

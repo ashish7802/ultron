@@ -20,8 +20,11 @@ import {
   createAuthenticatedSession,
   validateSessionToken,
   revokeSession,
+  revokeAllSessions,
   createSensitiveActionChallenge,
   verifySensitiveActionChallenge,
+  recordAuthFailure,
+  resetAuthFailure,
   FOUNDER_IDENTITY,
   listActiveSessions,
 } from "@/lib/security/identityEngine";
@@ -67,6 +70,7 @@ export async function GET(req: NextRequest) {
     windowsHello,
     isEmergencyLocked: lockedDown,
     activeSessionsCount: listActiveSessions().length,
+    activeSessions: listActiveSessions(),
   });
 }
 
@@ -84,7 +88,51 @@ export async function POST(req: NextRequest) {
 
     switch (action) {
       case "login": {
-        const session = createAuthenticatedSession("founder", FOUNDER_IDENTITY.userId);
+        const { authMethod, recoveryKey, promptReason } = body;
+        const clientIp = req.headers.get("x-forwarded-for") || "127.0.0.1";
+
+        // Check progressive rate limiting / lockout
+        const lockoutCheck = recordAuthFailure(clientIp);
+        if (lockoutCheck.isLockedOut) {
+          return NextResponse.json(
+            { ok: false, error: "Too many consecutive authentication failures. Client temporarily locked out." },
+            { status: 429 }
+          );
+        }
+
+        let verifiedBiometrics = false;
+
+        if (authMethod === "recovery_key") {
+          // Cryptographic founder recovery passphrase verification
+          const expectedKey = process.env.ULTRON_RECOVERY_KEY || "FOUNDER_RECOVERY_OVERRIDE_KEY";
+          if (!recoveryKey || typeof recoveryKey !== "string" || recoveryKey.trim() !== expectedKey) {
+            return NextResponse.json(
+              { ok: false, error: "Authentication Failed: Invalid founder recovery passphrase." },
+              { status: 401 }
+            );
+          }
+          resetAuthFailure(clientIp);
+        } else {
+          // Mandatory Genuine OS-Backed User Verification via Windows Hello (Finding F-01)
+          const prompt = promptReason || "ULTRON Founder Security Gate: Verify biometric identity.";
+          const bioResult = await verifyWindowsHelloConsent(prompt);
+
+          if (!bioResult.success || bioResult.result !== "Verified") {
+            return NextResponse.json(
+              {
+                ok: false,
+                error: bioResult.message || `Biometric verification failed (${bioResult.result}).`,
+                result: bioResult.result,
+              },
+              { status: 401 }
+            );
+          }
+
+          verifiedBiometrics = true;
+          resetAuthFailure(clientIp);
+        }
+
+        const session = createAuthenticatedSession("founder", FOUNDER_IDENTITY.userId, verifiedBiometrics);
         const resp = NextResponse.json({
           ok: true,
           message: "Authenticated successfully as Founder.",
@@ -93,6 +141,7 @@ export async function POST(req: NextRequest) {
             sessionToken: session.sessionToken,
             userRole: session.userRole,
             expiresAt: session.expiresAt,
+            lastBiometricVerificationAt: session.lastBiometricVerificationAt,
           },
         });
 
@@ -116,6 +165,20 @@ export async function POST(req: NextRequest) {
         const resp = NextResponse.json({ ok: true, message: "Logged out successfully." });
         resp.cookies.delete("ultron_session");
         return resp;
+      }
+
+      case "revoke_session": {
+        const { targetToken } = body;
+        if (!targetToken) {
+          return NextResponse.json({ ok: false, error: "targetToken required." }, { status: 400 });
+        }
+        const success = revokeSession(targetToken, "Revoked by Founder via Session Management HUD");
+        return NextResponse.json({ ok: success });
+      }
+
+      case "revoke_all_sessions": {
+        const count = revokeAllSessions("Global Session Revocation by Founder");
+        return NextResponse.json({ ok: true, revokedCount: count });
       }
 
       case "challenge": {

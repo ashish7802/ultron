@@ -189,6 +189,11 @@ export function decomposeGoal(
     previousTaskId = taskId;
   }
 
+  // Hierarchical sequencing: root task depends on the final subtask so it executes in the final wave
+  if (previousTaskId) {
+    rootTask.dependencies = [previousTaskId];
+  }
+
   return {
     workflowId,
     tasks,

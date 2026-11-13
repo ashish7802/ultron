@@ -105,15 +105,30 @@ export class VisionOcrFusionEngine {
       }
     }
 
-    // 2. Ingest Visual Elements (High Ground Truth for layout & buttons)
+    // 2. Ingest Visual Elements & Layout (Preserving strict source attribution)
+    const visualSource: "VISUAL_MODEL" | "OS_ACCESSIBILITY" = visualAnalysis.isLiveModelInference
+      ? "VISUAL_MODEL"
+      : "OS_ACCESSIBILITY";
+
+    if (visualAnalysis.sceneSummary) {
+      fusedObservations.push({
+        id: `fused_scene_${crypto.randomUUID().slice(0, 8)}`,
+        source: visualSource,
+        category: "scene_layout",
+        content: visualAnalysis.sceneSummary,
+        confidence: visualAnalysis.visualConfidence,
+        corroborated: false,
+      });
+    }
+
     for (const el of visualAnalysis.recognizedElements.slice(0, 30)) {
       fusedObservations.push({
         id: `fused_vis_${crypto.randomUUID().slice(0, 8)}`,
-        source: "VISUAL_MODEL",
+        source: visualSource,
         category: "ui_element",
         content: `${el.label || el.type} (${el.type})`,
         bounds: el.bounds,
-        confidence: el.confidence || 0.9,
+        confidence: visualAnalysis.isLiveModelInference ? el.confidence || 0.9 : 0.85,
         corroborated: false,
       });
     }

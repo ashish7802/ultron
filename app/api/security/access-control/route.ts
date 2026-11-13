@@ -19,6 +19,7 @@ import {
   evaluateAccess,
   listResourcePolicies,
   registerResourcePolicy,
+  revokeResourcePolicy,
 } from "@/lib/security/accessControlEngine";
 import { validateSessionToken } from "@/lib/security/identityEngine";
 import { isSystemLockedDown } from "@/lib/security/emergencyEngine";
@@ -73,6 +74,30 @@ export async function POST(req: NextRequest) {
     }
 
     const success = registerResourcePolicy(policy, auth.session.userRole);
+    return NextResponse.json({ ok: success });
+  } catch (err) {
+    return NextResponse.json({
+      ok: false,
+      error: `Access control error: ${err instanceof Error ? err.message : String(err)}`,
+    }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  const token = req.headers.get("x-ultron-session-token") || req.cookies.get("ultron_session")?.value;
+  const auth = validateSessionToken(token);
+  if (!auth.isValid || !auth.session) {
+    return NextResponse.json({ ok: false, error: "Authentication required." }, { status: 401 });
+  }
+
+  try {
+    const { searchParams } = new URL(req.url);
+    const policyId = searchParams.get("policyId");
+    if (!policyId) {
+      return NextResponse.json({ ok: false, error: "policyId required." }, { status: 400 });
+    }
+
+    const success = revokeResourcePolicy(policyId, auth.session.userRole);
     return NextResponse.json({ ok: success });
   } catch (err) {
     return NextResponse.json({

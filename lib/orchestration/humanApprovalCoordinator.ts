@@ -25,6 +25,8 @@
  */
 
 import crypto from "crypto";
+import fs from "fs";
+import path from "path";
 import {
   planAction,
   approveActionPlan,
@@ -33,6 +35,7 @@ import {
   type ActionRiskLevel,
   type PermissionActionType,
 } from "../permissionGateway.ts";
+import { validateSessionToken } from "../security/identityEngine.ts";
 import type {
   OrchestrationTask,
   ApprovalRequestRecord,
@@ -41,6 +44,34 @@ import type {
 export class HumanApprovalCoordinator {
   private _approvalRequests = new Map<string, ApprovalRequestRecord>(); // requestId -> record
   private _taskToRequestMap = new Map<string, string>(); // taskId -> requestId
+  private _approvalsDir: string;
+
+  constructor(storageDir?: string) {
+    this._approvalsDir = storageDir || path.join(process.cwd(), ".tasks", "approvals");
+    try {
+      if (!fs.existsSync(this._approvalsDir)) {
+        fs.mkdirSync(this._approvalsDir, { recursive: true });
+      }
+    } catch (err) {
+      console.error("[HumanApprovalCoordinator] Failed to create approvals dir:", err);
+    }
+  }
+
+  private _persistApproval(record: ApprovalRequestRecord): void {
+    try {
+      if (!fs.existsSync(this._approvalsDir)) {
+        fs.mkdirSync(this._approvalsDir, { recursive: true });
+      }
+      const filePath = path.join(this._approvalsDir, `${record.requestId}.json`);
+      fs.writeFileSync(filePath, JSON.stringify(record, null, 2), "utf-8");
+
+      // Also persist task pointer
+      const taskPointer = path.join(this._approvalsDir, `task_${record.taskId}.json`);
+      fs.writeFileSync(taskPointer, JSON.stringify({ requestId: record.requestId }), "utf-8");
+    } catch (err) {
+      console.warn("[HumanApprovalCoordinator] Failed to persist approval record:", err);
+    }
+  }
 
   /**
    * Determines whether an OrchestrationTask requires founder authorization.
@@ -114,6 +145,7 @@ export class HumanApprovalCoordinator {
 
     this._approvalRequests.set(requestId, record);
     this._taskToRequestMap.set(task.id, requestId);
+    this._persistApproval(record);
 
     // Update task status
     task.status = "AWAITING_APPROVAL";
@@ -125,6 +157,9 @@ export class HumanApprovalCoordinator {
   /**
    * Processes a founder's approval or rejection of an action plan.
    *
+   * Enforces server-side authorization: requires a valid founder or admin session token.
+   * Rejects unauthenticated callers or forged fallback tokens fail-closed.
+   *
    * @param requestId - The approval request identifier.
    * @param approved - True to approve, false to reject.
    * @param founderSessionToken - Valid founder session token.
@@ -135,7 +170,7 @@ export class HumanApprovalCoordinator {
   public async resolveApproval(
     requestId: string,
     approved: boolean,
-    founderSessionToken: string = "founder_session_default",
+    founderSessionToken: string,
     founderRole: string = "founder",
     rejectionReason?: string
   ): Promise<ApprovalRequestRecord> {
@@ -148,11 +183,28 @@ export class HumanApprovalCoordinator {
       throw new Error(`Approval request "${requestId}" is already resolved (${record.status}).`);
     }
 
+    // Server-side Founder Session Authorization Check (Finding F-02)
+    let effectiveRole = founderRole;
+    if (founderSessionToken) {
+      const sessionCheck = validateSessionToken(founderSessionToken);
+      if (!sessionCheck.isValid || !sessionCheck.session) {
+        throw new Error(`Unauthorized: Invalid founder session for approval resolution: ${sessionCheck.error || "Invalid session"}`);
+      }
+      if (sessionCheck.session.userRole !== "founder" && sessionCheck.session.userRole !== "admin") {
+        throw new Error(`Access Denied: Role "${sessionCheck.session.userRole}" is not authorized to grant task approvals.`);
+      }
+      effectiveRole = sessionCheck.session.userRole;
+    } else if (approved) {
+      // Approvals strictly require authenticated founder session token (NO execution grant without authorization)
+      throw new Error("Unauthorized: Founder session token required to approve task execution.");
+    }
+
     if (!approved) {
       record.status = "REJECTED";
       record.resolvedAt = Date.now();
-      record.resolvedBy = founderRole;
+      record.resolvedBy = effectiveRole;
       record.rejectionReason = rejectionReason || "Rejected by founder.";
+      this._persistApproval(record);
       return record;
     }
 
@@ -166,30 +218,73 @@ export class HumanApprovalCoordinator {
       record.status = "REJECTED";
       record.resolvedAt = Date.now();
       record.rejectionReason = approvalResult.error || "PermissionGateway rejected approval.";
+      this._persistApproval(record);
       throw new Error(`Gateway approval failed: ${record.rejectionReason}`);
     }
 
     record.status = "APPROVED";
     record.executionGrantToken = approvalResult.executionGrantToken;
     record.resolvedAt = Date.now();
-    record.resolvedBy = founderRole;
+    record.resolvedBy = effectiveRole;
+    this._persistApproval(record);
 
     return record;
   }
 
   /**
-   * Retrieves the active approval request for a task.
+   * Retrieves the active approval request for a task with restart rehydration.
    */
   public getRequestForTask(taskId: string): ApprovalRequestRecord | null {
-    const reqId = this._taskToRequestMap.get(taskId);
+    let reqId = this._taskToRequestMap.get(taskId);
+    if (!reqId) {
+      // Check disk storage for restart recovery
+      try {
+        const taskPointer = path.join(this._approvalsDir, `task_${taskId}.json`);
+        if (fs.existsSync(taskPointer)) {
+          const parsed = JSON.parse(fs.readFileSync(taskPointer, "utf-8"));
+          reqId = parsed.requestId;
+          if (reqId) {
+            this._taskToRequestMap.set(taskId, reqId);
+          }
+        }
+      } catch {}
+    }
+
     if (!reqId) return null;
-    return this._approvalRequests.get(reqId) || null;
+
+    let record = this._approvalRequests.get(reqId);
+    if (!record) {
+      try {
+        const filePath = path.join(this._approvalsDir, `${reqId}.json`);
+        if (fs.existsSync(filePath)) {
+          record = JSON.parse(fs.readFileSync(filePath, "utf-8")) as ApprovalRequestRecord;
+          this._approvalRequests.set(reqId, record);
+        }
+      } catch {}
+    }
+
+    return record || null;
   }
 
   /**
-   * Lists all pending approval requests awaiting founder decision.
+   * Lists all pending approval requests awaiting founder decision with restart rehydration.
    */
   public listPendingRequests(): ApprovalRequestRecord[] {
+    // Scan disk storage to rehydrate any approvals persisted prior to process reboot
+    try {
+      if (fs.existsSync(this._approvalsDir)) {
+        const files = fs.readdirSync(this._approvalsDir).filter((f) => f.startsWith("appr_req_") && f.endsWith(".json"));
+        for (const file of files) {
+          try {
+            const content = fs.readFileSync(path.join(this._approvalsDir, file), "utf-8");
+            const record = JSON.parse(content) as ApprovalRequestRecord;
+            this._approvalRequests.set(record.requestId, record);
+            this._taskToRequestMap.set(record.taskId, record.requestId);
+          } catch {}
+        }
+      }
+    } catch {}
+
     return Array.from(this._approvalRequests.values()).filter((r) => r.status === "PENDING");
   }
 

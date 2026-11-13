@@ -538,11 +538,13 @@ Must be local only with zero cloud API costs.`;
     const tamperedMatches = defaultHumanApprovalCoordinator.verifyParameterIntegrity(sensitiveTask, tamperedParams);
     assert.strictEqual(tamperedMatches, false, "Modified parameters must fail integrity verification");
 
-    // 4. Resolve Approval: Rejection Flow
+    // 4. Resolve Approval: Rejection Flow with authentic founder session token
+    const { createAuthenticatedSession, FOUNDER_IDENTITY } = await import("./lib/security/identityEngine.ts");
+    const testSession = createAuthenticatedSession("founder", FOUNDER_IDENTITY.userId);
     const rejectedReq = await defaultHumanApprovalCoordinator.resolveApproval(
       approvalReq.requestId,
       false,
-      "founder_session_default",
+      testSession.sessionToken,
       "founder",
       "Founder denied modification"
     );
