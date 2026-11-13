@@ -1,7 +1,7 @@
 [
   {
-    "lessonId": "lsn_1794533355287_25930f",
-    "experienceId": "exp_1794533355286_4aae8b23",
+    "lessonId": "lsn_1794541810374_66dff4",
+    "experienceId": "exp_1794541810374_14aefd79",
     "title": "Verified Success Strategy for [QUERY]: FAST",
     "context": "Task goal: \"Quick query 0\"",
     "triggerCondition": "Task category matches \"QUERY\" and requires high reliability",
@@ -11,12 +11,12 @@
     "timesApplied": 1,
     "timesSuccessful": 1,
     "isProjectAgnostic": true,
-    "createdAt": 1794533355287,
-    "updatedAt": 1794533355287
+    "createdAt": 1794541810374,
+    "updatedAt": 1794541810374
   },
   {
-    "lessonId": "lsn_1794533355324_fd57a2",
-    "experienceId": "exp_1794533355296_4c647269",
+    "lessonId": "lsn_1794541810376_ddcc11",
+    "experienceId": "exp_1794541810376_35e824e7",
     "title": "Verified Success Strategy for [QUERY]: FAST",
     "context": "Task goal: \"Quick query 1\"",
     "triggerCondition": "Task category matches \"QUERY\" and requires high reliability",
@@ -26,12 +26,12 @@
     "timesApplied": 1,
     "timesSuccessful": 1,
     "isProjectAgnostic": true,
-    "createdAt": 1794533355324,
-    "updatedAt": 1794533355324
+    "createdAt": 1794541810376,
+    "updatedAt": 1794541810376
   },
   {
-    "lessonId": "lsn_1794533355330_5dec11",
-    "experienceId": "exp_1794533355330_849bd1c3",
+    "lessonId": "lsn_1794541810380_252919",
+    "experienceId": "exp_1794541810379_94c655a9",
     "title": "Verified Success Strategy for [QUERY]: FAST",
     "context": "Task goal: \"Quick query 2\"",
     "triggerCondition": "Task category matches \"QUERY\" and requires high reliability",
@@ -41,12 +41,12 @@
     "timesApplied": 1,
     "timesSuccessful": 1,
     "isProjectAgnostic": true,
-    "createdAt": 1794533355330,
-    "updatedAt": 1794533355330
+    "createdAt": 1794541810380,
+    "updatedAt": 1794541810380
   },
   {
-    "lessonId": "lsn_1794533355336_6b9390",
-    "experienceId": "exp_1794533355336_9d5ef5ca",
+    "lessonId": "lsn_1794541810384_860908",
+    "experienceId": "exp_1794541810384_d4c50ca1",
     "title": "Verified Success Strategy for [QUERY]: FAST",
     "context": "Task goal: \"Quick query 3\"",
     "triggerCondition": "Task category matches \"QUERY\" and requires high reliability",
@@ -56,12 +56,12 @@
     "timesApplied": 1,
     "timesSuccessful": 1,
     "isProjectAgnostic": true,
-    "createdAt": 1794533355336,
-    "updatedAt": 1794533355336
+    "createdAt": 1794541810384,
+    "updatedAt": 1794541810384
   },
   {
-    "lessonId": "lsn_1794533355346_83fdec",
-    "experienceId": "exp_1794533355346_5ece56e6",
+    "lessonId": "lsn_1794541810387_f3043e",
+    "experienceId": "exp_1794541810387_48f75f95",
     "title": "Verified Success Strategy for [QUERY]: FAST",
     "context": "Task goal: \"Quick query 4\"",
     "triggerCondition": "Task category matches \"QUERY\" and requires high reliability",
@@ -71,12 +71,12 @@
     "timesApplied": 1,
     "timesSuccessful": 1,
     "isProjectAgnostic": true,
-    "createdAt": 1794533355346,
-    "updatedAt": 1794533355346
+    "createdAt": 1794541810387,
+    "updatedAt": 1794541810387
   },
   {
-    "lessonId": "lsn_1794533355351_cf1fb5",
-    "experienceId": "exp_1794533355351_6af7e821",
+    "lessonId": "lsn_1794541810390_8e21e2",
+    "experienceId": "exp_1794541810389_03f5ce16",
     "title": "Verified Success Strategy for [QUERY]: FAST",
     "context": "Task goal: \"Quick query 5\"",
     "triggerCondition": "Task category matches \"QUERY\" and requires high reliability",
@@ -86,12 +86,12 @@
     "timesApplied": 1,
     "timesSuccessful": 1,
     "isProjectAgnostic": true,
-    "createdAt": 1794533355351,
-    "updatedAt": 1794533355351
+    "createdAt": 1794541810390,
+    "updatedAt": 1794541810390
   },
   {
-    "lessonId": "lsn_1794533355357_41978e",
-    "experienceId": "exp_1794533355357_3521cef1",
+    "lessonId": "lsn_1794541810392_049324",
+    "experienceId": "exp_1794541810392_a23d96cc",
     "title": "Verified Success Strategy for [QUERY]: FAST",
     "context": "Task goal: \"Quick query 6\"",
     "triggerCondition": "Task category matches \"QUERY\" and requires high reliability",
@@ -101,12 +101,12 @@
     "timesApplied": 1,
     "timesSuccessful": 1,
     "isProjectAgnostic": true,
-    "createdAt": 1794533355357,
-    "updatedAt": 1794533355357
+    "createdAt": 1794541810392,
+    "updatedAt": 1794541810392
   },
   {
-    "lessonId": "lsn_1794533355363_2f184a",
-    "experienceId": "exp_1794533355363_89030b48",
+    "lessonId": "lsn_1794541810396_8c94fe",
+    "experienceId": "exp_1794541810395_b3389875",
     "title": "Verified Success Strategy for [QUERY]: FAST",
     "context": "Task goal: \"Quick query 7\"",
     "triggerCondition": "Task category matches \"QUERY\" and requires high reliability",
@@ -116,12 +116,12 @@
     "timesApplied": 1,
     "timesSuccessful": 1,
     "isProjectAgnostic": true,
-    "createdAt": 1794533355363,
-    "updatedAt": 1794533355363
+    "createdAt": 1794541810396,
+    "updatedAt": 1794541810396
   },
   {
-    "lessonId": "lsn_1794533355381_4d5d36",
-    "experienceId": "exp_1794533355381_98140583",
+    "lessonId": "lsn_1794541810399_a89f44",
+    "experienceId": "exp_1794541810399_a48a304c",
     "title": "Verified Success Strategy for [QUERY]: FAST",
     "context": "Task goal: \"Quick query 8\"",
     "triggerCondition": "Task category matches \"QUERY\" and requires high reliability",
@@ -131,12 +131,12 @@
     "timesApplied": 1,
     "timesSuccessful": 1,
     "isProjectAgnostic": true,
-    "createdAt": 1794533355381,
-    "updatedAt": 1794533355381
+    "createdAt": 1794541810399,
+    "updatedAt": 1794541810399
   },
   {
-    "lessonId": "lsn_1794533355385_865715",
-    "experienceId": "exp_1794533355385_6483f78d",
+    "lessonId": "lsn_1794541810401_d633a9",
+    "experienceId": "exp_1794541810401_67ede199",
     "title": "Verified Success Strategy for [QUERY]: FAST",
     "context": "Task goal: \"Quick query 9\"",
     "triggerCondition": "Task category matches \"QUERY\" and requires high reliability",
@@ -146,12 +146,12 @@
     "timesApplied": 1,
     "timesSuccessful": 1,
     "isProjectAgnostic": true,
-    "createdAt": 1794533355385,
-    "updatedAt": 1794533355385
+    "createdAt": 1794541810401,
+    "updatedAt": 1794541810401
   },
   {
-    "lessonId": "lsn_1794533355394_7b313f",
-    "experienceId": "exp_1794533355393_b2fca089",
+    "lessonId": "lsn_1794541810404_90cfe1",
+    "experienceId": "exp_1794541810404_04dc7a40",
     "title": "Verified Success Strategy for [QUERY]: FAST",
     "context": "Task goal: \"Quick query 10\"",
     "triggerCondition": "Task category matches \"QUERY\" and requires high reliability",
@@ -161,12 +161,12 @@
     "timesApplied": 1,
     "timesSuccessful": 1,
     "isProjectAgnostic": true,
-    "createdAt": 1794533355394,
-    "updatedAt": 1794533355394
+    "createdAt": 1794541810404,
+    "updatedAt": 1794541810404
   },
   {
-    "lessonId": "lsn_1794533355398_6b1523",
-    "experienceId": "exp_1794533355398_91c7c763",
+    "lessonId": "lsn_1794541810406_5de569",
+    "experienceId": "exp_1794541810406_0efc0800",
     "title": "Verified Success Strategy for [QUERY]: FAST",
     "context": "Task goal: \"Quick query 11\"",
     "triggerCondition": "Task category matches \"QUERY\" and requires high reliability",
@@ -176,12 +176,12 @@
     "timesApplied": 1,
     "timesSuccessful": 1,
     "isProjectAgnostic": true,
-    "createdAt": 1794533355398,
-    "updatedAt": 1794533355398
+    "createdAt": 1794541810406,
+    "updatedAt": 1794541810406
   },
   {
-    "lessonId": "lsn_1794533355405_2ebda5",
-    "experienceId": "exp_1794533355404_f6323ad1",
+    "lessonId": "lsn_1794541810409_fa99a7",
+    "experienceId": "exp_1794541810409_4a64a1e9",
     "title": "Verified Success Strategy for [QUERY]: FAST",
     "context": "Task goal: \"Quick query 12\"",
     "triggerCondition": "Task category matches \"QUERY\" and requires high reliability",
@@ -191,12 +191,12 @@
     "timesApplied": 1,
     "timesSuccessful": 1,
     "isProjectAgnostic": true,
-    "createdAt": 1794533355405,
-    "updatedAt": 1794533355405
+    "createdAt": 1794541810409,
+    "updatedAt": 1794541810409
   },
   {
-    "lessonId": "lsn_1794533355412_9103f8",
-    "experienceId": "exp_1794533355411_06ac6e56",
+    "lessonId": "lsn_1794541810411_cfbcae",
+    "experienceId": "exp_1794541810411_07203b11",
     "title": "Verified Success Strategy for [QUERY]: FAST",
     "context": "Task goal: \"Quick query 13\"",
     "triggerCondition": "Task category matches \"QUERY\" and requires high reliability",
@@ -206,12 +206,12 @@
     "timesApplied": 1,
     "timesSuccessful": 1,
     "isProjectAgnostic": true,
-    "createdAt": 1794533355412,
-    "updatedAt": 1794533355412
+    "createdAt": 1794541810411,
+    "updatedAt": 1794541810411
   },
   {
-    "lessonId": "lsn_1794533355417_fc4709",
-    "experienceId": "exp_1794533355417_a3507ecd",
+    "lessonId": "lsn_1794541810415_719fdf",
+    "experienceId": "exp_1794541810415_019c26bd",
     "title": "Verified Success Strategy for [QUERY]: FAST",
     "context": "Task goal: \"Quick query 14\"",
     "triggerCondition": "Task category matches \"QUERY\" and requires high reliability",
@@ -221,12 +221,12 @@
     "timesApplied": 1,
     "timesSuccessful": 1,
     "isProjectAgnostic": true,
-    "createdAt": 1794533355417,
-    "updatedAt": 1794533355417
+    "createdAt": 1794541810415,
+    "updatedAt": 1794541810415
   },
   {
-    "lessonId": "lsn_1794533355420_339edf",
-    "experienceId": "exp_1794533355420_ec4f7a66",
+    "lessonId": "lsn_1794541810418_9b304e",
+    "experienceId": "exp_1794541810418_1ca4103b",
     "title": "Verified Success Strategy for [QUERY]: FAST",
     "context": "Task goal: \"Quick query 15\"",
     "triggerCondition": "Task category matches \"QUERY\" and requires high reliability",
@@ -236,12 +236,12 @@
     "timesApplied": 1,
     "timesSuccessful": 1,
     "isProjectAgnostic": true,
-    "createdAt": 1794533355420,
-    "updatedAt": 1794533355420
+    "createdAt": 1794541810418,
+    "updatedAt": 1794541810418
   },
   {
-    "lessonId": "lsn_1794533355426_4052da",
-    "experienceId": "exp_1794533355426_fba56eaa",
+    "lessonId": "lsn_1794541810421_b0918e",
+    "experienceId": "exp_1794541810420_14923cf7",
     "title": "Verified Success Strategy for [QUERY]: FAST",
     "context": "Task goal: \"Quick query 16\"",
     "triggerCondition": "Task category matches \"QUERY\" and requires high reliability",
@@ -251,12 +251,12 @@
     "timesApplied": 1,
     "timesSuccessful": 1,
     "isProjectAgnostic": true,
-    "createdAt": 1794533355426,
-    "updatedAt": 1794533355426
+    "createdAt": 1794541810421,
+    "updatedAt": 1794541810421
   },
   {
-    "lessonId": "lsn_1794533355431_6e9818",
-    "experienceId": "exp_1794533355431_b527354b",
+    "lessonId": "lsn_1794541810423_cd2693",
+    "experienceId": "exp_1794541810423_768b997d",
     "title": "Verified Success Strategy for [QUERY]: FAST",
     "context": "Task goal: \"Quick query 17\"",
     "triggerCondition": "Task category matches \"QUERY\" and requires high reliability",
@@ -266,12 +266,12 @@
     "timesApplied": 1,
     "timesSuccessful": 1,
     "isProjectAgnostic": true,
-    "createdAt": 1794533355431,
-    "updatedAt": 1794533355431
+    "createdAt": 1794541810423,
+    "updatedAt": 1794541810423
   },
   {
-    "lessonId": "lsn_1794533355435_7584e5",
-    "experienceId": "exp_1794533355435_1ce72d72",
+    "lessonId": "lsn_1794541810425_70dce1",
+    "experienceId": "exp_1794541810425_7c9e0791",
     "title": "Verified Success Strategy for [QUERY]: FAST",
     "context": "Task goal: \"Quick query 18\"",
     "triggerCondition": "Task category matches \"QUERY\" and requires high reliability",
@@ -281,12 +281,12 @@
     "timesApplied": 1,
     "timesSuccessful": 1,
     "isProjectAgnostic": true,
-    "createdAt": 1794533355435,
-    "updatedAt": 1794533355435
+    "createdAt": 1794541810425,
+    "updatedAt": 1794541810425
   },
   {
-    "lessonId": "lsn_1794533355438_f545b7",
-    "experienceId": "exp_1794533355438_e24a4c81",
+    "lessonId": "lsn_1794541810428_e4f837",
+    "experienceId": "exp_1794541810428_665e6799",
     "title": "Verified Success Strategy for [QUERY]: FAST",
     "context": "Task goal: \"Quick query 19\"",
     "triggerCondition": "Task category matches \"QUERY\" and requires high reliability",
@@ -296,7 +296,7 @@
     "timesApplied": 1,
     "timesSuccessful": 1,
     "isProjectAgnostic": true,
-    "createdAt": 1794533355438,
-    "updatedAt": 1794533355438
+    "createdAt": 1794541810428,
+    "updatedAt": 1794541810428
   }
 ]
