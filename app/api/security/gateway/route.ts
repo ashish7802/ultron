@@ -21,6 +21,12 @@ import { launchAppByName } from "@/lib/appLauncher";
 import { controlAudioVolume, openUrlInBrowser } from "@/lib/systemController";
 import type { GatewayExecutionRequest } from "@/lib/security/types";
 
+const ALLOWED_GATEWAY_ACTIONS = new Set<string>([
+  "app_launch",
+  "browser_open",
+  "volume_change",
+]);
+
 export async function POST(req: NextRequest) {
   const token = req.headers.get("x-ultron-session-token") || req.cookies.get("ultron_session")?.value;
   const auth = validateSessionToken(token);
@@ -36,6 +42,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "actionType and target are required." }, { status: 400 });
     }
 
+    // Enforce explicit allowlist: unknown operations are strictly rejected
+    if (!ALLOWED_GATEWAY_ACTIONS.has(actionType)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `Security Policy Violation: Action type '${actionType}' is not supported or permitted for gateway execution.`,
+        },
+        { status: 400 }
+      );
+    }
+
     const gatewayRequest: GatewayExecutionRequest = {
       actionType,
       target,
@@ -46,34 +63,29 @@ export async function POST(req: NextRequest) {
 
     // Executor mapping based on actionType
     const executor = async () => {
+      const planId = (params?._approvalRequestId as string) || "";
+      const grantToken = (executionGrantToken as string) || "";
+      const gatewayAuth = planId && grantToken ? { planId, grantToken } : undefined;
+
       switch (actionType) {
         case "app_launch": {
-          const res = await launchAppByName(target, {
-            planId: (params?._approvalRequestId as string) || "direct",
-            grantToken: executionGrantToken || "direct",
-          });
+          const res = await launchAppByName(target, gatewayAuth);
           return res;
         }
 
         case "browser_open": {
-          const res = await openUrlInBrowser(target, {
-            planId: (params?._approvalRequestId as string) || "direct",
-            grantToken: executionGrantToken || "direct",
-          });
+          const res = await openUrlInBrowser(target, gatewayAuth);
           return res;
         }
 
         case "volume_change": {
           const volAction = (params?.volumeAction as "up" | "down" | "mute") || "up";
-          const res = await controlAudioVolume(volAction, {
-            planId: (params?._approvalRequestId as string) || "direct",
-            grantToken: executionGrantToken || "direct",
-          });
+          const res = await controlAudioVolume(volAction, gatewayAuth);
           return res;
         }
 
         default:
-          return { success: true, message: `Executed ${actionType} on ${target}.` };
+          throw new Error(`Unsupported or unmapped action executor for '${actionType}'.`);
       }
     };
 

@@ -31,6 +31,7 @@ import { revokeAllSessions } from "./identityEngine.ts";
 import { revokeScreenCaptureConsent } from "./privacyEngine.ts";
 import { recordSecurityEvent } from "./monitoringEngine.ts";
 import { invalidateAllActiveGrants } from "./permissionEngine.ts";
+import { readVaultJsonSync, writeVaultJsonSync } from "./vaultStorage.ts";
 import type {
   EmergencyLockdownState,
   LockdownTriggerParams,
@@ -72,17 +73,10 @@ function hashRecoveryKey(recoveryKey: string): string {
  */
 function initializeLockdownState(): void {
   try {
-    const dir = path.dirname(LOCKDOWN_FILE);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    if (fs.existsSync(LOCKDOWN_FILE)) {
-      const raw = fs.readFileSync(LOCKDOWN_FILE, "utf-8");
-      const loaded: EmergencyLockdownState = JSON.parse(raw);
-      if (loaded.isLockedDown) {
-        currentState = loaded;
-        console.warn("[EMERGENCY SYSTEM] *** SYSTEM BOOTED IN ACTIVE EMERGENCY LOCKDOWN ***");
-      }
+    const loaded = readVaultJsonSync<EmergencyLockdownState | null>(LOCKDOWN_FILE, null);
+    if (loaded && loaded.isLockedDown) {
+      currentState = loaded;
+      console.warn("[EMERGENCY SYSTEM] *** SYSTEM BOOTED IN ACTIVE EMERGENCY LOCKDOWN ***");
     }
   } catch (err) {
     // Fail closed: if state read fails, enter lockdown
@@ -102,17 +96,11 @@ function initializeLockdownState(): void {
 initializeLockdownState();
 
 /**
- * Persists lockdown state to disk atomically.
+ * Persists lockdown state to disk atomically with concurrency locking.
  */
 function persistLockdownState(): void {
   try {
-    const dir = path.dirname(LOCKDOWN_FILE);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    const tempFile = `${LOCKDOWN_FILE}.tmp.${crypto.randomBytes(4).toString("hex")}`;
-    fs.writeFileSync(tempFile, JSON.stringify(currentState, null, 2), "utf-8");
-    fs.renameSync(tempFile, LOCKDOWN_FILE);
+    writeVaultJsonSync(LOCKDOWN_FILE, currentState);
   } catch (err) {
     console.error("[EMERGENCY SYSTEM] Failed to persist lockdown state:", err);
   }

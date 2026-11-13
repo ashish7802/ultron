@@ -28,6 +28,7 @@
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
+import { readVaultJsonSync, writeVaultJsonSync } from "./vaultStorage.ts";
 import type {
   PermissionActionType,
   ActionRiskLevel,
@@ -54,28 +55,53 @@ const historicalDecisions: PermissionApprovalRequest[] = [];
 const MAX_HISTORY = 500;
 
 /**
- * Initializes the approvals store from persistent disk storage if available.
+ * Validates schema of persisted approval request records.
+ *
+ * @param item - Unknown object loaded from disk.
+ * @returns Boolean indicating whether object conforms to PermissionApprovalRequest schema.
+ */
+function isValidApprovalRecord(item: unknown): item is PermissionApprovalRequest {
+  if (!item || typeof item !== "object") return false;
+  const req = item as Record<string, unknown>;
+  return (
+    typeof req.requestId === "string" &&
+    req.requestId.startsWith("req_") &&
+    typeof req.actionType === "string" &&
+    typeof req.target === "string" &&
+    typeof req.actionHash === "string" &&
+    typeof req.status === "string" &&
+    typeof req.approvalToken === "string" &&
+    typeof req.createdAt === "number" &&
+    typeof req.expiresAt === "number"
+  );
+}
+
+/**
+ * Initializes the approvals store from persistent disk storage using crash-safe locking.
  */
 function initializeApprovalsStore(): void {
   try {
-    if (!fs.existsSync(SECURITY_STORAGE_DIR)) {
-      fs.mkdirSync(SECURITY_STORAGE_DIR, { recursive: true });
-    }
-    if (fs.existsSync(APPROVALS_STORE_FILE)) {
-      const raw = fs.readFileSync(APPROVALS_STORE_FILE, "utf-8");
-      const data = JSON.parse(raw);
-      if (Array.isArray(data.active)) {
-        for (const req of data.active) {
-          if (req && req.requestId) {
-            activeRequests.set(req.requestId, req);
-          }
+    const data = readVaultJsonSync<{ active?: unknown[]; history?: unknown[] }>(
+      APPROVALS_STORE_FILE,
+      { active: [], history: [] }
+    );
+
+    if (Array.isArray(data.active)) {
+      for (const req of data.active) {
+        if (isValidApprovalRecord(req)) {
+          activeRequests.set(req.requestId, req);
+        } else {
+          console.warn("[PermissionEngine] Discarded malformed active approval record from storage.");
         }
       }
-      if (Array.isArray(data.history)) {
-        for (const req of data.history) {
-          if (req && req.requestId) {
-            historicalDecisions.push(req);
-          }
+    }
+
+    if (Array.isArray(data.history)) {
+      for (const req of data.history) {
+        if (isValidApprovalRecord(req)) {
+          historicalDecisions.push(req);
+        } else {
+          console.warn("[PermissionEngine] Discarded malformed historical approval record from storage.");
         }
       }
     }
@@ -88,26 +114,17 @@ function initializeApprovalsStore(): void {
 initializeApprovalsStore();
 
 /**
- * Persists active requests and historical decisions to disk.
+ * Persists active requests and historical decisions to disk using concurrency-safe lockfile.
  */
 function persistApprovals(): void {
   try {
-    if (!fs.existsSync(SECURITY_STORAGE_DIR)) {
-      fs.mkdirSync(SECURITY_STORAGE_DIR, { recursive: true });
-    }
-    const payload = JSON.stringify(
-      {
-        active: Array.from(activeRequests.values()),
-        history: historicalDecisions.slice(0, MAX_HISTORY),
-      },
-      null,
-      2
-    );
-    const tmpFile = `${APPROVALS_STORE_FILE}.tmp.${Date.now()}`;
-    fs.writeFileSync(tmpFile, payload, "utf-8");
-    fs.renameSync(tmpFile, APPROVALS_STORE_FILE);
+    const payload = {
+      active: Array.from(activeRequests.values()),
+      history: historicalDecisions.slice(0, MAX_HISTORY),
+    };
+    writeVaultJsonSync(APPROVALS_STORE_FILE, payload);
   } catch (err) {
-    console.warn("[PermissionEngine] Failed to persist approvals to disk:", err);
+    console.error("[PermissionEngine] Failed to persist approvals to vault storage:", err);
   }
 }
 
@@ -259,32 +276,84 @@ export function evaluateActionRisk(
 /**
  * Creates and queues a new permission approval request for explicit founder sign-off.
  *
- * @param actionType - Action category.
- * @param target - Target resource or executable.
- * @param params - Parameter map.
- * @param affectedResources - List of affected resources.
- * @param requestedByActor - Identity of actor or agent proposing the action.
- * @param sessionId - Active session ID.
- * @param projectId - Optional project tenant isolation ID.
- * @param rollbackPlan - Optional recovery / rollback instructions.
+ * Supports both options object and positional argument signatures for seamless integration.
+ *
+ * @param actionTypeOrOptions - Action category or options object.
+ * @param targetArg - Target resource or executable when using positional args.
+ * @param paramsArg - Parameter map.
+ * @param affectedResourcesArg - List of affected resources.
+ * @param requestedByActorArg - Identity of actor or agent proposing the action.
+ * @param sessionIdArg - Active session ID.
+ * @param projectIdArg - Optional project tenant isolation ID.
+ * @param rollbackPlanArg - Optional recovery / rollback instructions.
  * @returns Prepared PermissionApprovalRequest.
  */
 export function createApprovalRequest(
-  actionType: PermissionActionType,
-  target: string,
-  params: Record<string, unknown> = {},
-  affectedResources: string[] = [],
-  requestedByActor: string = "system_agent",
-  sessionId: string = "sess_unknown",
-  projectId?: string,
-  rollbackPlan?: string
+  actionTypeOrOptions: PermissionActionType | {
+    actionType: PermissionActionType;
+    target: string;
+    params?: Record<string, unknown>;
+    affectedResources?: string[];
+    requestedByActor?: string;
+    requesterActor?: string;
+    sessionId?: string;
+    projectId?: string;
+    rollbackPlan?: string;
+    justification?: string;
+  },
+  targetArg?: string,
+  paramsArg?: Record<string, unknown>,
+  affectedResourcesArg: string[] = [],
+  requestedByActorArg: string = "system_agent",
+  sessionIdArg: string = "sess_unknown",
+  projectIdArg?: string,
+  rollbackPlanArg?: string
 ): PermissionApprovalRequest {
+  let actionType: PermissionActionType;
+  let target: string;
+  let params: Record<string, unknown>;
+  let affectedResources: string[];
+  let requestedByActor: string;
+  let sessionId: string;
+  let projectId: string | undefined;
+  let rollbackPlan: string | undefined;
+
+  if (typeof actionTypeOrOptions === "object" && actionTypeOrOptions !== null) {
+    const opts = actionTypeOrOptions;
+    actionType = opts.actionType;
+    target = opts.target || "";
+    params = opts.params || {};
+    affectedResources = opts.affectedResources || [];
+    requestedByActor = opts.requestedByActor || opts.requesterActor || "system_agent";
+    sessionId = opts.sessionId || "sess_unknown";
+    projectId = opts.projectId;
+    rollbackPlan = opts.rollbackPlan || opts.justification;
+  } else {
+    actionType = actionTypeOrOptions;
+    target = targetArg || "";
+    params = paramsArg || {};
+    affectedResources = affectedResourcesArg || [];
+    requestedByActor = requestedByActorArg || "system_agent";
+    sessionId = sessionIdArg || "sess_unknown";
+    projectId = projectIdArg;
+    rollbackPlan = rollbackPlanArg;
+  }
+
   const requestId = "req_" + crypto.randomBytes(12).toString("hex");
   const actionId = "act_" + crypto.randomBytes(8).toString("hex");
   const actionHash = computeCanonicalActionHash(actionType, target, params);
   const approvalToken = "appr_" + crypto.randomBytes(24).toString("hex");
   const { riskLevel, riskExplanation, isDestructive } = evaluateActionRisk(actionType, target);
   const now = Date.now();
+
+  // Duplicate Prevention: Check if an identical action request is already pending
+  for (const existing of activeRequests.values()) {
+    if (existing.status === "pending" && existing.actionHash === actionHash) {
+      if (now <= existing.expiresAt) {
+        return existing;
+      }
+    }
+  }
 
   const scope: ActionScope = {
     exactTarget: target.trim(),
@@ -395,6 +464,16 @@ export function rejectRequest(
   const request = activeRequests.get(requestId);
   if (!request) return false;
 
+  // Strict state machine: pending requests can be rejected; approved requests can be revoked/rejected
+  if (request.status !== "pending" && request.status !== "approved") {
+    return false;
+  }
+
+  // Invalidate single-use execution grant token if request was already approved
+  if (request.executionGrantToken) {
+    request.executionGrantToken = null;
+  }
+
   request.status = "rejected";
   request.executionStatus = "FAILED";
   request.decidedByActor = decidedByActor;
@@ -456,6 +535,11 @@ export function revokeApproval(
 ): boolean {
   const request = activeRequests.get(requestId);
   if (!request) return false;
+
+  // Strict state machine: only approved requests can be revoked
+  if (request.status !== "approved") {
+    return false;
+  }
 
   // Invalidate execution grant immediately
   request.executionGrantToken = null;
@@ -553,14 +637,20 @@ export function verifyExecutionGrant(
  * @param requestId - Request ID.
  * @param success - Whether execution succeeded.
  * @param outcomeMessage - Outcome description.
+ * @returns True if finalized; false if not found or not in executing status.
  */
 export function finalizeExecution(
   requestId: string,
   success: boolean,
   outcomeMessage?: string
-): void {
+): boolean {
   const request = activeRequests.get(requestId);
-  if (!request) return;
+  if (!request) return false;
+
+  // Strict state machine: only currently executing grants can be finalized
+  if (request.status !== "executing") {
+    return false;
+  }
 
   request.status = success ? "executed" : "failed";
   request.executionStatus = success ? "COMPLETED" : "FAILED";
@@ -572,6 +662,7 @@ export function finalizeExecution(
   archiveDecision(request);
   activeRequests.delete(requestId);
   persistApprovals();
+  return true;
 }
 
 /**

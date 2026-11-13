@@ -33,7 +33,7 @@ import type {
 
 /** Regex patterns for detecting sensitive tokens and secrets. */
 const SENSITIVE_PATTERNS = [
-  { type: "api_key" as const, regex: /(?:sk-[a-zA-Z0-9_-]{24,}|ghp_[a-zA-Z0-9]{36}|AIza[0-9A-Za-z-_]{35}|xox[baprs]-[0-9a-zA-Z-]{24,})/g },
+  { type: "api_key" as const, regex: /(?:sk[-_][a-zA-Z0-9_-]{20,}|ghp_[a-zA-Z0-9]{36}|AIza[0-9A-Za-z-_]{35}|xox[baprs]-[0-9a-zA-Z-]{24,})/g },
   { type: "private_key" as const, regex: /-----BEGIN (?:RSA |EC )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC )?PRIVATE KEY-----/g },
   { type: "jwt_token" as const, regex: /eyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}/g },
   { type: "password" as const, regex: /(?:password|passwd|secret|api[_-]?key)\s*[:=]\s*["']?([^\s"';]{6,})["']?/gi },

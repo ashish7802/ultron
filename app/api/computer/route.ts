@@ -111,6 +111,14 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const { validation } = extractAuthSession(req);
+  if (!validation.isValid || !validation.session) {
+    return NextResponse.json(
+      { success: false, error: "Unauthorized: Valid session required to operate Computer Intelligence." },
+      { status: 401 }
+    );
+  }
+
   try {
     const body = await req.json();
     const { action, payload } = body;
@@ -127,6 +135,23 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === "reset_emergency_stop") {
+      // Require founder authorization and recovery key to reset emergency stop
+      if (validation.session.userRole !== "founder") {
+        return NextResponse.json(
+          { success: false, error: "Forbidden: Only Founder can reset Emergency Stop." },
+          { status: 403 }
+        );
+      }
+
+      const recoveryKey = payload?.recoveryKey;
+      const expectedRecoveryKey = process.env.ULTRON_RECOVERY_KEY || "TEST_RECOVERY_KEY_ULTRON_FOUNDER";
+      if (!recoveryKey || recoveryKey !== expectedRecoveryKey) {
+        return NextResponse.json(
+          { success: false, error: "Forbidden: Valid recovery key required to reset Emergency Stop." },
+          { status: 403 }
+        );
+      }
+
       const reason = payload?.reason || "Authorized reset via API";
       const result = await defaultSafetyControls.resetEmergencyStop(reason);
       return NextResponse.json({ success: true, ...result });
@@ -151,30 +176,106 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === "approve_task") {
-      const { taskId, approvalToken } = payload;
+      if (validation.session.userRole !== "founder" && validation.session.userRole !== "admin") {
+        return NextResponse.json(
+          { success: false, error: "Forbidden: Only Founder or Admin can approve computer tasks." },
+          { status: 403 }
+        );
+      }
+      const { taskId, approvalToken } = payload || {};
+      if (!taskId || !approvalToken) {
+        return NextResponse.json(
+          { success: false, error: "Missing taskId or approvalToken for task approval." },
+          { status: 400 }
+        );
+      }
       const workflow = defaultComputerWorkflowOrchestrator.approveTask(taskId, approvalToken);
       return NextResponse.json({ success: true, workflow });
     }
 
     if (action === "execute_task") {
-      const { taskId } = payload;
+      const { taskId } = payload || {};
+      if (!taskId) {
+        return NextResponse.json({ success: false, error: "Missing taskId for execution." }, { status: 400 });
+      }
       const workflow = await defaultComputerWorkflowOrchestrator.executeAndVerifyTask(taskId);
       return NextResponse.json({ success: workflow.success, workflow });
     }
 
-    // Read-only queries
+    // Read-only queries with path traversal protection
     if (action === "read_file") {
-      const result = await defaultFileSystemIntelligence.readFile(payload?.path);
+      const targetPath = payload?.path;
+      if (!targetPath || !isPathSafe(targetPath)) {
+        return NextResponse.json(
+          { success: false, error: "Access Denied: Unsafe or prohibited file path." },
+          { status: 403 }
+        );
+      }
+      const result = await defaultFileSystemIntelligence.readFile(targetPath);
       return NextResponse.json(result);
     }
 
     if (action === "search_files") {
-      const matches = await defaultFileSystemIntelligence.searchFiles(payload?.query, payload?.root);
+      const rootPath = payload?.root;
+      if (rootPath && !isPathSafe(rootPath)) {
+        return NextResponse.json(
+          { success: false, error: "Access Denied: Unsafe or prohibited search root." },
+          { status: 403 }
+        );
+      }
+      const matches = await defaultFileSystemIntelligence.searchFiles(payload?.query, rootPath);
       return NextResponse.json({ success: true, matches });
     }
 
     if (action === "exec_command") {
-      const result = await defaultTerminalIntelligence.executeCommand(payload?.command, payload?.shell);
+      const command = payload?.command;
+      if (!command || typeof command !== "string") {
+        return NextResponse.json({ success: false, error: "Missing or invalid command string." }, { status: 400 });
+      }
+
+      // Analyze command risk through central terminal intelligence
+      const risk = await defaultTerminalIntelligence.analyzeRisk(command);
+      if (risk.isBlocked) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Security Policy Violation: Command execution blocked. ${risk.reason}`,
+            risk,
+          },
+          { status: 403 }
+        );
+      }
+
+      // If high or critical risk or requiring approval, enforce valid execution grant token
+      if (risk.riskLevel === "critical" || risk.riskLevel === "high" || risk.requiresApproval) {
+        const grantToken = payload?.executionGrantToken || payload?.grantToken;
+        const approvalRequestId = payload?._approvalRequestId || payload?.approvalRequestId;
+        if (!grantToken || !approvalRequestId) {
+          return NextResponse.json(
+            {
+              success: false,
+              requiresApproval: true,
+              error: `Command '${command}' requires explicit Founder approval. Present valid execution grant token.`,
+              risk,
+            },
+            { status: 403 }
+          );
+        }
+
+        const grantCheck = verifyExecutionGrant(approvalRequestId, grantToken, { command }, "terminal");
+        if (!grantCheck.authorized) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: `Execution Grant Denied: ${grantCheck.reason}`,
+              risk,
+            },
+            { status: 403 }
+          );
+        }
+      }
+
+      const result = await defaultTerminalIntelligence.executeCommand(command, payload?.shell);
       return NextResponse.json(result);
     }
 

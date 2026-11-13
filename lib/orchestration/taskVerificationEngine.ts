@@ -165,7 +165,7 @@ export class TaskVerificationEngine {
       case "FILE_NON_EMPTY": {
         // Check if any deliverable exists and is non-empty on disk
         for (const deliverable of task.deliverables) {
-          const resolvedPath = path.resolve(process.cwd(), deliverable);
+          const resolvedPath = path.resolve(/*turbopackIgnore: true*/ process.cwd(), deliverable);
           if (fs.existsSync(resolvedPath)) {
             const stats = fs.statSync(resolvedPath);
             if (stats.size > 0) {
@@ -268,7 +268,7 @@ export class TaskVerificationEngine {
     const isFilePath = /\.[a-zA-Z0-9]{1,8}$/.test(deliverable) || deliverable.includes("/") || deliverable.includes("\\");
 
     try {
-      const resolved = path.resolve(process.cwd(), deliverable);
+      const resolved = path.resolve(/*turbopackIgnore: true*/ process.cwd(), deliverable);
       if (fs.existsSync(resolved)) {
         const stats = fs.statSync(resolved);
         if (stats.isFile()) {

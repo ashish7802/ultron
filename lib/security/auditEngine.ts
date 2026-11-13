@@ -34,6 +34,7 @@ import path from "path";
 import { getActiveMasterSecret } from "../crypto.ts";
 import { scanAndSanitizeText } from "./privacyEngine.ts";
 import { setGatewayAuditHook } from "./actionGateway.ts";
+import { readVaultJsonSync, writeVaultJsonSync } from "./vaultStorage.ts";
 import type {
   ChainedAuditEntry,
   AuditVerificationReport,
@@ -87,6 +88,7 @@ function computeEntryHash(
     executionStatus: entry.executionStatus,
     sessionRef: entry.sessionRef || null,
     approvalRef: entry.approvalRef || null,
+    correlationId: entry.correlationId || null,
     detailsSanitized: entry.detailsSanitized,
   });
 
@@ -99,17 +101,30 @@ function computeEntryHash(
 
 /**
  * Loads and restores the audit ledger from disk on startup.
+ * Enforces cryptographic key-epoch validation: if the active master secret does not
+ * match the HMAC signature on Genesis block 1, the previous epoch ledger is safely
+ * archived so that the active ledger maintains 100% cryptographic integrity.
  */
 function initializeLedger(): void {
   try {
-    const dir = path.dirname(AUDIT_LEDGER_FILE);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    if (fs.existsSync(AUDIT_LEDGER_FILE)) {
-      const raw = fs.readFileSync(AUDIT_LEDGER_FILE, "utf-8");
-      const list: ChainedAuditEntry[] = JSON.parse(raw);
-      auditChain.push(...list);
+    const list = readVaultJsonSync<ChainedAuditEntry[]>(AUDIT_LEDGER_FILE, []);
+    if (Array.isArray(list) && list.length > 0) {
+      const expectedGenesis = computeEntryHash(GENESIS_BLOCK_HASH, list[0]);
+      if (expectedGenesis === list[0].currentEntryHash) {
+        auditChain.push(...list);
+      } else {
+        console.warn(
+          "[AUDIT ENGINE] Master key epoch change detected on existing disk ledger. Archiving prior epoch."
+        );
+        try {
+          const archivePath = path.join(
+            path.dirname(AUDIT_LEDGER_FILE),
+            `audit_chain_epoch_${Date.now()}.json`
+          );
+          writeVaultJsonSync(archivePath, list);
+          writeVaultJsonSync(AUDIT_LEDGER_FILE, []);
+        } catch {}
+      }
     }
   } catch (err) {
     console.warn("[AUDIT ENGINE] Failed to load audit chain from disk:", err);
@@ -119,17 +134,11 @@ function initializeLedger(): void {
 initializeLedger();
 
 /**
- * Persists the chained audit ledger to disk atomically.
+ * Persists the chained audit ledger to disk atomically with concurrency locking.
  */
 function persistLedger(): void {
   try {
-    const dir = path.dirname(AUDIT_LEDGER_FILE);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    const tempFile = `${AUDIT_LEDGER_FILE}.tmp.${crypto.randomBytes(4).toString("hex")}`;
-    fs.writeFileSync(tempFile, JSON.stringify(auditChain, null, 2), "utf-8");
-    fs.renameSync(tempFile, AUDIT_LEDGER_FILE);
+    writeVaultJsonSync(AUDIT_LEDGER_FILE, auditChain);
   } catch (err) {
     console.error("[AUDIT ENGINE] Failed to persist audit ledger:", err);
   }

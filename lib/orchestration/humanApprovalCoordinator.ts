@@ -170,7 +170,7 @@ export class HumanApprovalCoordinator {
   public async resolveApproval(
     requestId: string,
     approved: boolean,
-    founderSessionToken: string,
+    founderSessionToken?: string,
     founderRole: string = "founder",
     rejectionReason?: string
   ): Promise<ApprovalRequestRecord> {
