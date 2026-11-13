@@ -26,7 +26,6 @@ import type {
   OrchestrationTask,
   DependencyGraphNode,
   DependencyValidationResult,
-  TaskStatus,
 } from "./types.ts";
 
 export class DependencyManagementEngine {
@@ -353,7 +352,7 @@ export class DependencyManagementEngine {
    * Computes topological depths.
    */
   private _computeDepths(graph: Map<string, DependencyGraphNode>): void {
-    for (const [id, node] of graph.entries()) {
+    for (const node of graph.values()) {
       node.depth = node.dependencies.length;
     }
   }
@@ -370,7 +369,7 @@ export class DependencyManagementEngine {
     }
 
     const sorted = Array.from(counts.entries())
-      .filter(([_, count]) => count >= 2)
+      .filter(([, count]) => count >= 2)
       .sort((a, b) => b[1] - a[1])
       .map(([id]) => id);
 

@@ -209,9 +209,28 @@ export async function handleSystemControlIntent(query: string): Promise<SystemAc
     }
   }
 
+  // Recognize a clear ChatGPT-open request before hardware keywords like "memory" can
+  // accidentally route the same sentence to system telemetry.
+  if (/\b(?:chatgpt|chat\s+gpt)\b.{0,32}\b(?:open|launch|kholo|khol)\b/i.test(lower)) {
+    const targetUrl = "https://chatgpt.com";
+    const plan = planAction("browser_open", targetUrl, { targetUrl }, ["Default Web Browser", "Windows Shell"]);
+    return {
+      handled: true,
+      message:
+        `I prepared an approval request to open ChatGPT in your default browser.\n\n` +
+        `ULTRON will not send your saved profile or memories to an external service.`,
+      permissionPlan: plan,
+    };
+  }
+
+  // General mentions of memory are common in user-profile requests, so require a hardware
+  // qualifier before treating "memory" as RAM telemetry.
+  const isMemoryTelemetryQuery =
+    /\b(?:memory|ram)\s+(?:usage|utilization|stats|status|available|free|capacity|kitni|kitna)\b/i.test(lower) ||
+    /\b(?:free|used|available)\s+memory\b/i.test(lower);
   // 2. RAM & CPU Specs: "ram kitni use ho rahi hai", "system stats", "pc specs", "laptop specs", "performance"
   if (
-    /\b(ram|memory|cpu|specs|performance|system specs|telemetry|hardware)\b/i.test(lower) &&
+    (/\b(ram|cpu|specs|performance|system specs|telemetry|hardware)\b/i.test(lower) || isMemoryTelemetryQuery) &&
     !lower.includes("research")
   ) {
     const telem = await getSystemTelemetry();
@@ -258,6 +277,7 @@ export async function handleSystemControlIntent(query: string): Promise<SystemAc
   const urlPatterns: Record<string, string> = {
     youtube: "https://www.youtube.com",
     google: "https://www.google.com",
+    chatgpt: "https://chatgpt.com",
     github: "https://www.github.com",
     twitter: "https://twitter.com",
     x: "https://x.com",

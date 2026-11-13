@@ -24,7 +24,6 @@
  * - Fails closed: expired or rejected approvals immediately halt downstream task execution.
  */
 
-import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import {
@@ -32,7 +31,6 @@ import {
   approveActionPlan,
   computeActionHash,
   type ActionPlan,
-  type ActionRiskLevel,
   type PermissionActionType,
 } from "../permissionGateway.ts";
 import { validateSessionToken } from "../security/identityEngine.ts";

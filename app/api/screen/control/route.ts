@@ -9,6 +9,7 @@
  * - GET: Retrieves the real-time operational status, permission state, and indicator text/color.
  * - POST: Dispatches control commands (START, STOP, PAUSE, RESUME, EMERGENCY_KILL).
  * - Synchronizes with `PrivacySecurityEngine` to grant or revoke time-bounded user consent.
+ * - Uses one session ID for vision control and frame streaming; LIVE is reported only after a real frame arrives.
  *
  * Safety & Security Guarantees:
  * - Fail-closed: EMERGENCY_KILL immediately terminates active sessions and purges memory buffers.
@@ -18,7 +19,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { defaultVisionControl } from "@/lib/screen/visionControl";
 import { defaultPrivacySecurityEngine } from "@/lib/screen/privacySecurityEngine";
-import { defaultScreenSessionManager } from "@/lib/screen/sessionManager";
 import { defaultScreenContextEngine } from "@/lib/screen/screenContextEngine";
 import { defaultVisualContextDeliveryEngine } from "@/lib/screen/contextDeliveryEngine";
 import { validateSessionToken } from "@/lib/security/identityEngine";
@@ -85,21 +85,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (body.action === "START") {
       const durationMs = Math.min(15 * 60 * 1000, body.durationMs || 5 * 60 * 1000);
       defaultPrivacySecurityEngine.grantConsent(durationMs);
-      defaultScreenSessionManager.createSession(body.displayId, durationMs);
-      defaultVisionControl.startSession(body.displayId);
+      defaultVisionControl.startSession(body.displayId, durationMs);
     } else if (body.action === "STOP") {
       defaultPrivacySecurityEngine.revokeConsent(body.reason || "User requested stop");
-      if (defaultVisionControl.getStatus().activeSessionId) {
-        defaultScreenSessionManager.terminateSession(defaultVisionControl.getStatus().activeSessionId!, body.reason);
-      }
       defaultVisionControl.stopSession(body.reason);
     } else if (body.action === "EMERGENCY_KILL") {
       defaultPrivacySecurityEngine.revokeConsent("EMERGENCY KILL TRIGGERED");
       defaultVisionControl.emergencyKill();
-      const currentActiveId = defaultVisionControl.getStatus().activeSessionId;
-      if (currentActiveId) {
-        defaultScreenSessionManager.terminateSession(currentActiveId, "EMERGENCY_KILL");
-      }
       defaultScreenContextEngine.clearContext();
       defaultVisualContextDeliveryEngine.clearContext();
     } else if (body.action === "PAUSE") {

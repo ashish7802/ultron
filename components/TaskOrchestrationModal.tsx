@@ -39,7 +39,6 @@ export default function TaskOrchestrationModal({
   onClose,
 }: TaskOrchestrationModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>("workflows");
-  const [loading, setLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const [workflows, setWorkflows] = useState<Array<{
@@ -65,7 +64,6 @@ export default function TaskOrchestrationModal({
 
   const fetchData = useCallback(async () => {
     try {
-      setLoading(true);
       setErrorMsg(null);
 
       // 1. Fetch workflows list
@@ -87,8 +85,6 @@ export default function TaskOrchestrationModal({
       }
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
     }
   }, [selectedWorkflow]);
 
@@ -114,7 +110,6 @@ export default function TaskOrchestrationModal({
 
   const handleResolveApproval = async (taskId: string, approved: boolean) => {
     try {
-      setLoading(true);
       const res = await fetch("/api/orchestration", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -135,8 +130,6 @@ export default function TaskOrchestrationModal({
       }
     } catch (err) {
       alert(`Error resolving approval: ${err}`);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -171,7 +164,6 @@ export default function TaskOrchestrationModal({
 
   const handleRecover = async () => {
     try {
-      setLoading(true);
       const res = await fetch("/api/orchestration", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -182,15 +174,12 @@ export default function TaskOrchestrationModal({
       await fetchData();
     } catch (err) {
       alert(`Recovery failed: ${err}`);
-    } finally {
-      setLoading(false);
     }
   };
 
   const handleCancelWorkflow = async (workflowId: string) => {
     if (!confirm("Are you sure you want to abort and cancel this workflow?")) return;
     try {
-      setLoading(true);
       const res = await fetch("/api/orchestration", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -205,8 +194,6 @@ export default function TaskOrchestrationModal({
       }
     } catch (err) {
       alert(`Error cancelling workflow: ${err}`);
-    } finally {
-      setLoading(false);
     }
   };
 

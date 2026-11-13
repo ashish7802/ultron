@@ -88,7 +88,7 @@ test("Module 04: Source Reliability Engine evaluates all 6 orthogonal dimensions
     },
   ];
 
-  const { assessments, dependencies } = sourceReliabilityEngine.evaluateSources(
+  const { assessments } = sourceReliabilityEngine.evaluateSources(
     projectId,
     inquiry,
     sources,

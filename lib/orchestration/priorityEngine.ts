@@ -99,14 +99,8 @@ export class IntelligentPriorityEngine {
     }
 
     // 2. Importance & Business Impact (0 - 25)
-    let businessImpactScore = 15;
-    if (task.complexity >= 8) {
-      businessImpactScore = 24;
-    } else if (task.complexity >= 5) {
-      businessImpactScore = 18;
-    } else {
-      businessImpactScore = 10;
-    }
+    const businessImpactScore =
+      task.complexity >= 8 ? 24 : task.complexity >= 5 ? 18 : 10;
 
     // 3. Critical Path & Downstream Boost (0 - 25)
     let criticalPathBoost = 0;
@@ -116,16 +110,14 @@ export class IntelligentPriorityEngine {
     criticalPathBoost += Math.min(10, downstreamCount * 3); // Up to +10 for bottleneck nodes
 
     // 4. Risk-based prioritization (0 - 15)
-    let riskScore = 8;
-    if (task.riskLevel === "critical") {
-      riskScore = 15;
-    } else if (task.riskLevel === "high") {
-      riskScore = 12;
-    } else if (task.riskLevel === "medium") {
-      riskScore = 9;
-    } else {
-      riskScore = 5;
-    }
+    const riskScore =
+      task.riskLevel === "critical"
+        ? 15
+        : task.riskLevel === "high"
+          ? 12
+          : task.riskLevel === "medium"
+            ? 9
+            : 5;
 
     // 5. Founder Priority Weight (0 - 10)
     let founderWeight = 5;
@@ -144,16 +136,14 @@ export class IntelligentPriorityEngine {
     }
 
     // Determine discrete Priority Level
-    let level: PriorityLevel = "MEDIUM";
-    if (totalScore >= 80) {
-      level = "CRITICAL";
-    } else if (totalScore >= 60) {
-      level = "HIGH";
-    } else if (totalScore >= 35) {
-      level = "MEDIUM";
-    } else {
-      level = "LOW";
-    }
+    const level: PriorityLevel =
+      totalScore >= 80
+        ? "CRITICAL"
+        : totalScore >= 60
+          ? "HIGH"
+          : totalScore >= 35
+            ? "MEDIUM"
+            : "LOW";
 
     return {
       taskId: task.id,

@@ -50,6 +50,11 @@ export interface MemoryRecord {
   };
 }
 
+type LegacyMemoryRecord = MemoryRecord & {
+  memoryType?: MemoryCategory;
+  workflowName?: string;
+};
+
 export interface MemoryVaultData {
   version: number;
   lastUpdated: number;
@@ -216,7 +221,7 @@ export function loadAllMemories(): MemoryRecord[] {
       const raw = fs.readFileSync(VAULT_FILE_PATH, "utf-8");
       const parsed = decryptVaultData(raw);
       if (parsed && Array.isArray(parsed.memories)) {
-        loadedMemories = parsed.memories.map((m: any) => ({
+        loadedMemories = parsed.memories.map((m: LegacyMemoryRecord) => ({
           ...m,
           category: m.category || m.memoryType || "fact",
           content: typeof m.content === "string" ? m.content : (m.workflowName || JSON.stringify(m)),
@@ -233,7 +238,7 @@ export function loadAllMemories(): MemoryRecord[] {
       const rawBak = fs.readFileSync(VAULT_BACKUP_PATH, "utf-8");
       const parsedBak = decryptVaultData(rawBak);
       if (parsedBak && Array.isArray(parsedBak.memories)) {
-        loadedMemories = parsedBak.memories.map((m: any) => ({
+        loadedMemories = parsedBak.memories.map((m: LegacyMemoryRecord) => ({
           ...m,
           category: m.category || m.memoryType || "fact",
           content: typeof m.content === "string" ? m.content : (m.workflowName || JSON.stringify(m)),
@@ -512,20 +517,26 @@ export function formatMemoriesForPrompt(memories: MemoryRecord[]): string {
 export function parseNameIntent(text: string): { wrong?: string; right: string; type: "correction" | "direct" } | null {
   const clean = text.replace(/[,;!]/g, " ").replace(/\s+/g, " ").toLowerCase().trim();
 
-  // 1. Correction Pattern A: "i am not <wrong>, i am / call me <right>" or "not <wrong> i am <right>"
-  const corrA = /(?:i am not|i'm not|not)\s+([a-zA-Z]{2,20})\s+(?:i am|i'm|my name is|my name's|call me|it's|it is|but)?\s*([a-zA-Z]{2,20})/i.exec(clean);
+  // Anchor corrections to a full identity statement so unrelated phrases like "mai ne to ye nahi bola"
+  // cannot be misread as a correction such as "Bola, not Ye".
+  const corrA = /^(?:(?:i am|i'm)\s+not|not)\s+([a-zA-Z]{2,20})\s+(?:i am|i'm|my name is|my name's|call me|it's|it is|but)\s+([a-zA-Z]{2,20})[.!?]?$/i.exec(clean);
   if (corrA) {
     return { wrong: corrA[1], right: corrA[2], type: "correction" };
   }
 
-  // 2. Correction Pattern B: "mera naam <wrong> nahi <right> hai" or "<wrong> nahi <right>"
-  const corrB = /(?:mera naam|mai|main)?\s*([a-zA-Z]{2,20})\s+(?:nahi|nahi hai|nahin)\s+(?:i am|my name is|call me|mujhe|naam|hai|hu|hoon)?\s*([a-zA-Z]{2,20})/i.exec(clean);
-  if (corrB && corrB[1] !== "mai" && corrB[1] !== "mera") {
+  // Hinglish corrections need an explicit name/identity frame and must consume the whole utterance.
+  const corrB = /^(?:mera naam)\s+([a-zA-Z]{2,20})\s+(?:nahi|nahin)\s+([a-zA-Z]{2,20})\s+hai[.!?]?$/i.exec(clean);
+  if (corrB) {
     return { wrong: corrB[1], right: corrB[2], type: "correction" };
   }
+  const corrC = /^(?:mai|main)\s+([a-zA-Z]{2,20})\s+(?:nahi|nahin)\s+([a-zA-Z]{2,20})(?:\s+(?:hai|hu|hoon|hun))?[.!?]?$/i.exec(clean);
+  if (corrC) {
+    return { wrong: corrC[1], right: corrC[2], type: "correction" };
+  }
 
-  // 3. Direct Pattern: "my name is <right>", "call me <right>", "i am <right>", "mera naam <right> hai", "mai <right> hu"
-  const direct = /(?:my name is|my name's|call me|mera naam|naam hai|mujhe|i am|i'm|mai|main)\s+([a-zA-Z]{2,20})(?:\s+(?:hai|hu|hoon|bolo|bolte))?/i.exec(clean);
+  // 3. Direct identity statements must also consume the whole utterance to avoid extracting
+  // arbitrary words from longer requests as a user's name.
+  const direct = /^(?:my name is|my name's|call me|mera naam|naam hai|mujhe|i am|i'm|mai|main)\s+([a-zA-Z]{2,20})(?:\s+(?:hai|hu|hoon|bolo|bolte))?[.!?]?$/i.exec(clean);
   if (direct) {
     const candidate = direct[1];
     const stopwords = new Set([

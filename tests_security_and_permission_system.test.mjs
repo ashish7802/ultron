@@ -64,24 +64,20 @@ import {
 
   // Module 7
   recordSecurityEvent,
-  listSecurityEvents,
   listSecurityIncidents,
 
   // Module 8
   appendAuditEntry,
   verifyAuditChainIntegrity,
-  queryAuditEntries,
 
   // Module 9
   isSystemLockedDown,
   triggerEmergencyStop,
   unlockFromEmergencyStop,
-  getLockdownStatus,
 
   // Module 10
   validatePolicyRule,
   updateSecurityPolicy,
-  listSecurityPolicies,
   IMMUTABLE_CORE_INVARIANTS,
 } from "./lib/security/index.ts";
 

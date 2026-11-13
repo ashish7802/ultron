@@ -28,7 +28,6 @@ import {
   approveRequest,
   rejectRequest,
   verifyExecutionGrant,
-  computeCanonicalActionHash,
   executeThroughGateway,
   storeCredential,
   retrieveCredential,

@@ -29,15 +29,20 @@ import React, { useState, useEffect, useCallback } from "react";
 import type {
   WindowsHelloStatus,
   PermissionApprovalRequest,
-  SecurityEvent,
-  SecurityIncident,
   ChainedAuditEntry,
   AuditVerificationReport,
   SecurityPolicyRule,
   EmergencyLockdownState,
-  ApprovalStatus,
   ResourceAccessPolicy,
+  DesktopSession,
 } from "@/lib/security/types";
+
+interface AuthStatusResponse {
+  founder?: { displayName?: string };
+  session?: { userRole?: string; sessionId?: string };
+  windowsHello?: WindowsHelloStatus;
+  activeSessions?: DesktopSession[];
+}
 
 interface SecurityDashboardModalProps {
   isOpen: boolean;
@@ -66,15 +71,14 @@ export default function SecurityDashboardModal({
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   // Status & Auth state
-  const [authStatus, setAuthStatus] = useState<any>(null);
+  const [authStatus, setAuthStatus] = useState<AuthStatusResponse | null>(null);
   const [windowsHello, setWindowsHello] = useState<WindowsHelloStatus | null>(null);
   const [lockdownState, setLockdownState] = useState<EmergencyLockdownState | null>(null);
-  const [activeSessions, setActiveSessions] = useState<any[]>([]);
+  const [activeSessions, setActiveSessions] = useState<DesktopSession[]>([]);
 
   // Approvals state
   const [pendingRequests, setPendingRequests] = useState<PermissionApprovalRequest[]>([]);
   const [approvalHistory, setApprovalHistory] = useState<PermissionApprovalRequest[]>([]);
-  const [allApprovals, setAllApprovals] = useState<PermissionApprovalRequest[]>([]);
   const [approvalFilter, setApprovalFilter] = useState<string>("all");
   const [selectedRequest, setSelectedRequest] = useState<PermissionApprovalRequest | null>(null);
 
@@ -83,8 +87,6 @@ export default function SecurityDashboardModal({
   const [confirmInput, setConfirmInput] = useState<string>("");
 
   // Monitoring & Audit state
-  const [events, setEvents] = useState<SecurityEvent[]>([]);
-  const [incidents, setIncidents] = useState<SecurityIncident[]>([]);
   const [auditEntries, setAuditEntries] = useState<ChainedAuditEntry[]>([]);
   const [auditVerification, setAuditVerification] = useState<AuditVerificationReport | null>(null);
   const [verifyingAudit, setVerifyingAudit] = useState<boolean>(false);
@@ -130,22 +132,7 @@ export default function SecurityDashboardModal({
         setApprovalHistory(data.history || []);
       }
 
-      // Combine for all approvals view
-      const allRes = await fetch("/api/security/permissions?status=all").catch(() => null);
-      if (allRes && allRes.ok) {
-        const data = await allRes.json();
-        setAllApprovals(data.approvals || []);
-      }
-
-      // 4. Monitoring Events & Incidents
-      const monRes = await fetch("/api/security/monitoring");
-      if (monRes.ok) {
-        const data = await monRes.json();
-        setEvents(data.events || []);
-        setIncidents(data.incidents || []);
-      }
-
-      // 5. Audit Entries
+      // 4. Audit Entries
       const audRes = await fetch("/api/security/audit?limit=30");
       if (audRes.ok) {
         const data = await audRes.json();

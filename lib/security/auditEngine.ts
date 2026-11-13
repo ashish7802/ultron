@@ -29,12 +29,15 @@
  */
 
 import crypto from "crypto";
-import fs from "fs";
 import path from "path";
 import { getActiveMasterSecret } from "../crypto.ts";
 import { scanAndSanitizeText } from "./privacyEngine.ts";
 import { setGatewayAuditHook } from "./actionGateway.ts";
-import { readVaultJsonSync, writeVaultJsonSync } from "./vaultStorage.ts";
+import {
+  acquireVaultLockSync,
+  readVaultJsonSync,
+  writeVaultJsonSync,
+} from "./vaultStorage.ts";
 import type {
   ChainedAuditEntry,
   AuditVerificationReport,
@@ -52,6 +55,9 @@ const AUDIT_LEDGER_FILE = path.join(
   ".security_vault",
   "audit_chain.json"
 );
+
+/** Serializes audit-ledger read/append/write operations across ULTRON processes. */
+const AUDIT_LEDGER_TRANSACTION_LOCK = `${AUDIT_LEDGER_FILE}.append.lock`;
 
 /** Active in-memory chained audit ledger. */
 const auditChain: ChainedAuditEntry[] = [];
@@ -100,34 +106,130 @@ function computeEntryHash(
 }
 
 /**
+ * Confirms that persisted JSON has the fields required to verify each ledger entry.
+ *
+ * @param value - Untrusted value loaded from the audit ledger.
+ * @returns True when the value is a structurally valid audit-entry array.
+ */
+function isAuditLedger(value: unknown): value is ChainedAuditEntry[] {
+  if (!Array.isArray(value)) return false;
+
+  return value.every((entry: unknown) => {
+    if (typeof entry !== "object" || entry === null) return false;
+    const record = entry as Record<string, unknown>;
+
+    return (
+      typeof record.auditId === "string" &&
+      typeof record.sequenceNumber === "number" &&
+      typeof record.timestamp === "number" &&
+      typeof record.actor === "string" &&
+      typeof record.role === "string" &&
+      typeof record.action === "string" &&
+      typeof record.resource === "string" &&
+      typeof record.riskLevel === "string" &&
+      typeof record.executionStatus === "string" &&
+      typeof record.detailsSanitized === "string" &&
+      typeof record.previousEntryHash === "string" &&
+      typeof record.currentEntryHash === "string"
+    );
+  });
+}
+
+/**
+ * Verifies an audit-entry snapshot without depending on the in-memory ledger.
+ *
+ * @param entries - Audit entries to verify from genesis to tip.
+ * @returns Integrity status and the first broken sequence, if any.
+ */
+function verifyAuditEntries(
+  entries: readonly ChainedAuditEntry[]
+): AuditVerificationReport {
+  const total = entries.length;
+  if (total === 0) {
+    return { isChainValid: true, totalEntriesVerified: 0, verifiedAt: Date.now() };
+  }
+
+  let expectedPreviousHash = GENESIS_BLOCK_HASH;
+
+  for (let i = 0; i < total; i++) {
+    const entry = entries[i];
+    if (entry.sequenceNumber !== i + 1 || entry.previousEntryHash !== expectedPreviousHash) {
+      return {
+        isChainValid: false,
+        totalEntriesVerified: i,
+        brokenSequenceAt: i + 1,
+        corruptedAuditId: entry.auditId,
+        verifiedAt: Date.now(),
+      };
+    }
+
+    const recomputedHash = computeEntryHash(expectedPreviousHash, entry);
+    if (recomputedHash !== entry.currentEntryHash) {
+      return {
+        isChainValid: false,
+        totalEntriesVerified: i,
+        brokenSequenceAt: i + 1,
+        corruptedAuditId: entry.auditId,
+        verifiedAt: Date.now(),
+      };
+    }
+
+    expectedPreviousHash = entry.currentEntryHash;
+  }
+
+  return {
+    isChainValid: true,
+    totalEntriesVerified: total,
+    verifiedAt: Date.now(),
+  };
+}
+
+/**
+ * Preserves an old ledger before replacing the active chain with an empty one.
+ *
+ * @param entries - Existing ledger data to retain in the archive.
+ * @param reason - Why the ledger was retired.
+ * @throws Error if either the archive or replacement cannot be written.
+ */
+function archiveLedger(
+  entries: ChainedAuditEntry[],
+  reason: "key_epoch" | "integrity"
+): void {
+  const archivePath = path.join(
+    path.dirname(AUDIT_LEDGER_FILE),
+    `audit_chain_${reason}_${Date.now()}_${crypto.randomBytes(4).toString("hex")}.json`
+  );
+  writeVaultJsonSync(archivePath, entries);
+  writeVaultJsonSync(AUDIT_LEDGER_FILE, []);
+  console.warn(`[AUDIT ENGINE] Archived ${reason} ledger at "${archivePath}".`);
+}
+
+/**
  * Loads and restores the audit ledger from disk on startup.
- * Enforces cryptographic key-epoch validation: if the active master secret does not
- * match the HMAC signature on Genesis block 1, the previous epoch ledger is safely
- * archived so that the active ledger maintains 100% cryptographic integrity.
+ * Validates the whole chain before use and preserves invalid or old-key ledgers before
+ * beginning a fresh chain, so later appends cannot make compromised history look valid.
  */
 function initializeLedger(): void {
+  const releaseLock = acquireVaultLockSync(AUDIT_LEDGER_TRANSACTION_LOCK);
   try {
-    const list = readVaultJsonSync<ChainedAuditEntry[]>(AUDIT_LEDGER_FILE, []);
-    if (Array.isArray(list) && list.length > 0) {
-      const expectedGenesis = computeEntryHash(GENESIS_BLOCK_HASH, list[0]);
-      if (expectedGenesis === list[0].currentEntryHash) {
-        auditChain.push(...list);
-      } else {
-        console.warn(
-          "[AUDIT ENGINE] Master key epoch change detected on existing disk ledger. Archiving prior epoch."
-        );
-        try {
-          const archivePath = path.join(
-            path.dirname(AUDIT_LEDGER_FILE),
-            `audit_chain_epoch_${Date.now()}.json`
-          );
-          writeVaultJsonSync(archivePath, list);
-          writeVaultJsonSync(AUDIT_LEDGER_FILE, []);
-        } catch {}
-      }
+    const loaded = readVaultJsonSync<unknown>(AUDIT_LEDGER_FILE, []);
+    if (!isAuditLedger(loaded) || loaded.length === 0) return;
+
+    const expectedGenesis = computeEntryHash(GENESIS_BLOCK_HASH, loaded[0]);
+    if (expectedGenesis !== loaded[0].currentEntryHash) {
+      archiveLedger(loaded, "key_epoch");
+      return;
     }
-  } catch (err) {
-    console.warn("[AUDIT ENGINE] Failed to load audit chain from disk:", err);
+
+    const report = verifyAuditEntries(loaded);
+    if (!report.isChainValid) {
+      archiveLedger(loaded, "integrity");
+      return;
+    }
+
+    auditChain.push(...loaded);
+  } finally {
+    releaseLock();
   }
 }
 
@@ -137,11 +239,7 @@ initializeLedger();
  * Persists the chained audit ledger to disk atomically with concurrency locking.
  */
 function persistLedger(): void {
-  try {
-    writeVaultJsonSync(AUDIT_LEDGER_FILE, auditChain);
-  } catch (err) {
-    console.error("[AUDIT ENGINE] Failed to persist audit ledger:", err);
-  }
+  writeVaultJsonSync(AUDIT_LEDGER_FILE, auditChain);
 }
 
 /**
@@ -164,44 +262,61 @@ export function appendAuditEntry(params: {
   approvalRef?: string;
   correlationId?: string;
 }): ChainedAuditEntry {
-  const sequenceNumber = auditChain.length + 1;
-  const previousEntryHash =
-    auditChain.length > 0
-      ? auditChain[auditChain.length - 1].currentEntryHash
-      : GENESIS_BLOCK_HASH;
+  const releaseLock = acquireVaultLockSync(AUDIT_LEDGER_TRANSACTION_LOCK);
+  try {
+    const loaded = readVaultJsonSync<unknown>(AUDIT_LEDGER_FILE, []);
+    if (!isAuditLedger(loaded)) {
+      throw new Error("Cannot append to an audit ledger with an invalid schema.");
+    }
 
-  const sanitizedDetails = scanAndSanitizeText(params.details).sanitizedText;
-  const auditId = "aud_" + crypto.randomBytes(8).toString("hex");
+    const report = verifyAuditEntries(loaded);
+    if (!report.isChainValid) {
+      throw new Error(
+        `Cannot append to a corrupted audit ledger (broken sequence ${report.brokenSequenceAt}).`
+      );
+    }
 
-  const entryData: Omit<ChainedAuditEntry, "previousEntryHash" | "currentEntryHash"> = {
-    auditId,
-    sequenceNumber,
-    timestamp: Date.now(),
-    actor: params.actor,
-    role: params.role || "founder",
-    action: params.action,
-    resource: params.resource,
-    riskLevel: params.riskLevel,
-    sessionRef: params.sessionRef,
-    approvalRef: params.approvalRef,
-    correlationId: params.correlationId || `corr_${crypto.randomBytes(6).toString("hex")}`,
-    executionStatus: params.executionStatus,
-    resultSummary: params.resultSummary,
-    failureReason: params.failureReason,
-    detailsSanitized: sanitizedDetails,
-  };
+    auditChain.splice(0, auditChain.length, ...loaded);
+    const sequenceNumber = auditChain.length + 1;
+    const previousEntryHash =
+      auditChain.length > 0
+        ? auditChain[auditChain.length - 1].currentEntryHash
+        : GENESIS_BLOCK_HASH;
 
-  const currentEntryHash = computeEntryHash(previousEntryHash, entryData);
+    const sanitizedDetails = scanAndSanitizeText(params.details).sanitizedText;
+    const auditId = "aud_" + crypto.randomBytes(8).toString("hex");
 
-  const fullEntry: ChainedAuditEntry = {
-    ...entryData,
-    previousEntryHash,
-    currentEntryHash,
-  };
+    const entryData: Omit<ChainedAuditEntry, "previousEntryHash" | "currentEntryHash"> = {
+      auditId,
+      sequenceNumber,
+      timestamp: Date.now(),
+      actor: params.actor,
+      role: params.role || "founder",
+      action: params.action,
+      resource: params.resource,
+      riskLevel: params.riskLevel,
+      sessionRef: params.sessionRef,
+      approvalRef: params.approvalRef,
+      correlationId: params.correlationId || `corr_${crypto.randomBytes(6).toString("hex")}`,
+      executionStatus: params.executionStatus,
+      resultSummary: params.resultSummary,
+      failureReason: params.failureReason,
+      detailsSanitized: sanitizedDetails,
+    };
 
-  auditChain.push(fullEntry);
-  persistLedger();
-  return fullEntry;
+    const currentEntryHash = computeEntryHash(previousEntryHash, entryData);
+    const fullEntry: ChainedAuditEntry = {
+      ...entryData,
+      previousEntryHash,
+      currentEntryHash,
+    };
+
+    auditChain.push(fullEntry);
+    persistLedger();
+    return fullEntry;
+  } finally {
+    releaseLock();
+  }
 }
 
 /**
@@ -232,58 +347,7 @@ setGatewayAuditHook((actor, action, target, riskLevel, status, details, sessionI
  * @returns AuditVerificationReport.
  */
 export function verifyAuditChainIntegrity(): AuditVerificationReport {
-  const total = auditChain.length;
-  if (total === 0) {
-    return { isChainValid: true, totalEntriesVerified: 0, verifiedAt: Date.now() };
-  }
-
-  let expectedPreviousHash = GENESIS_BLOCK_HASH;
-
-  for (let i = 0; i < total; i++) {
-    const entry = auditChain[i];
-
-    // Check sequence number
-    if (entry.sequenceNumber !== i + 1) {
-      return {
-        isChainValid: false,
-        totalEntriesVerified: i,
-        brokenSequenceAt: i + 1,
-        corruptedAuditId: entry.auditId,
-        verifiedAt: Date.now(),
-      };
-    }
-
-    // Check link to previous hash
-    if (entry.previousEntryHash !== expectedPreviousHash) {
-      return {
-        isChainValid: false,
-        totalEntriesVerified: i,
-        brokenSequenceAt: i + 1,
-        corruptedAuditId: entry.auditId,
-        verifiedAt: Date.now(),
-      };
-    }
-
-    // Recompute current HMAC hash
-    const recomputedHash = computeEntryHash(expectedPreviousHash, entry);
-    if (recomputedHash !== entry.currentEntryHash) {
-      return {
-        isChainValid: false,
-        totalEntriesVerified: i,
-        brokenSequenceAt: i + 1,
-        corruptedAuditId: entry.auditId,
-        verifiedAt: Date.now(),
-      };
-    }
-
-    expectedPreviousHash = entry.currentEntryHash;
-  }
-
-  return {
-    isChainValid: true,
-    totalEntriesVerified: total,
-    verifiedAt: Date.now(),
-  };
+  return verifyAuditEntries(auditChain);
 }
 
 /**

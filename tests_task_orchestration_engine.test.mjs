@@ -24,9 +24,6 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import fs from "fs";
-import path from "path";
-import crypto from "crypto";
 
 import {
   understandGoal,
@@ -645,8 +642,8 @@ Must be local only with zero cloud API costs.`;
     const wf = defaultWorkflowManagementEngine.createWorkflow(goal, decomp.tasks, decomp.milestones);
 
     let attempts = 0;
-    const executed = await defaultTaskOrchestrationEngine.executeWorkflow(wf.id, {
-      customTaskExecutor: async (task) => {
+    await defaultTaskOrchestrationEngine.executeWorkflow(wf.id, {
+      customTaskExecutor: async () => {
         attempts++;
         if (attempts === 1) {
           throw new Error("fetch failed: transient network drop");

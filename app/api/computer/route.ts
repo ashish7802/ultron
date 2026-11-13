@@ -24,7 +24,6 @@ import {
   defaultApplicationIntelligence,
   defaultFileSystemIntelligence,
   defaultTerminalIntelligence,
-  defaultBrowserIntelligence,
   defaultDevEnvironmentIntelligence,
   defaultSafetyControls,
   defaultComputerWorkflowOrchestrator,

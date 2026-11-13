@@ -26,7 +26,7 @@
  *   node --experimental-strip-types scripts/founder_recovery.mjs --recovery-key "YOUR_RECOVERY_KEY" --reason "Routine recovery"
  */
 
-import { isSystemLockedDown, getLockdownStatus, unlockFromEmergencyStop } from "../lib/security/emergencyEngine.ts";
+import { getLockdownStatus, unlockFromEmergencyStop } from "../lib/security/emergencyEngine.ts";
 
 /**
  * Parses simple command line flags.

@@ -38,8 +38,6 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import fs from "fs";
-import path from "path";
 
 import {
   defaultExperienceEngine,

@@ -34,7 +34,6 @@
  * - Fail-Closed Isolation: Project boundaries are enforced strictly against data leakage.
  */
 
-import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 
@@ -310,7 +309,7 @@ export class LearningCoordinator {
    * @returns Array of vetted, sanitized transfer candidates.
    */
   public evaluateTransferLearning(sourceProjectId: string, targetProjectId: string): TransferLearningCandidate[] {
-    const rawLessons = this.experiences.extractTransferableLessons(sourceProjectId, targetProjectId);
+    const rawLessons = this.experiences.extractTransferableLessons();
     const results: TransferLearningCandidate[] = [];
 
     for (const lsn of rawLessons) {

@@ -11,6 +11,7 @@
  * - Supports real-time Server-Sent Events (SSE) streaming with live execution status updates.
  * - Auto-generates concise conversation titles based on user's opening prompt.
  * - Provides instantaneous chronological grouping (Today, Yesterday, Last 7 Days, Older) and search filter.
+ * - Initializes the loopback desktop session before mounting session-protected UI modules.
  * - Integrates with ULTRON backend route `/api/chat` supporting app launching and web research.
  * - Features rich code block rendering, 1-click clipboard copying, and Markdown/JSON export.
  * 
@@ -21,6 +22,7 @@
  * 
  * Safety / Security Guarantees:
  * - Encapsulates all conversation records on the local machine (no third-party cloud analytics).
+ * - Uses the session endpoint's HttpOnly cookie for same-origin protected API requests.
  * - Implements request abort signals allowing the user to instantly cancel in-flight model generation.
  */
 
@@ -30,7 +32,6 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import MarkdownRenderer from "./MarkdownRenderer";
 import ScreenAwarenessIndicator from "./ScreenAwarenessIndicator";
 import TaskOrchestrationModal from "./TaskOrchestrationModal";
-import SecurityDashboardModal from "./SecurityDashboardModal";
 import LearningEvolutionModal from "./LearningEvolutionModal";
 
 /** Metadata attached to assistant responses (citations, grounding source, execution time). */
@@ -140,6 +141,9 @@ export default function UltronChat() {
   const [activeId, setActiveId] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
+  const [isSessionReady, setIsSessionReady] = useState<boolean>(false);
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const [sessionAttempt, setSessionAttempt] = useState<number>(0);
 
   // ── Chat & Generation State ─────────────────────────────────────────────
   const [inputPrompt, setInputPrompt] = useState<string>("");
@@ -162,6 +166,38 @@ export default function UltronChat() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Initialize the HttpOnly desktop session before protected child components begin polling.
+  useEffect(() => {
+    let isMounted = true;
+
+    const initializeSession = async () => {
+      try {
+        const response = await fetch("/api/auth/session", {
+          method: "GET",
+          credentials: "same-origin",
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          throw new Error(`Desktop session initialization failed (HTTP ${response.status}).`);
+        }
+
+        if (isMounted) {
+          setSessionError(null);
+          setIsSessionReady(true);
+        }
+      } catch (error) {
+        if (isMounted) {
+          setSessionError(error instanceof Error ? error.message : String(error));
+        }
+      }
+    };
+
+    void initializeSession();
+    return () => {
+      isMounted = false;
+    };
+  }, [sessionAttempt]);
 
   // ── 1. Initial Load from LocalStorage ───────────────────────────────────
   useEffect(() => {
@@ -485,9 +521,9 @@ export default function UltronChat() {
   const handleExportChat = (format: "md" | "json") => {
     if (!activeConversation) return;
 
-    let content = "";
-    let mimeType = "text/plain";
-    let extension = "txt";
+    let content: string;
+    let mimeType: string;
+    let extension: string;
 
     if (format === "md") {
       mimeType = "text/markdown";
@@ -818,6 +854,40 @@ export default function UltronChat() {
     e.target.style.height = "auto";
     e.target.style.height = `${Math.min(e.target.scrollHeight, 200)}px`;
   };
+
+  if (!isSessionReady) {
+    return (
+      <div
+        role={sessionError ? "alert" : "status"}
+        style={{
+          display: "flex",
+          minHeight: "100vh",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "16px",
+          backgroundColor: "#080c14",
+          color: "#00f0ff",
+          fontFamily: "monospace",
+          textAlign: "center",
+          padding: "24px",
+        }}
+      >
+        <div>{sessionError || "Initializing secure local session..."}</div>
+        {sessionError && (
+          <button
+            type="button"
+            onClick={() => {
+              setSessionError(null);
+              setSessionAttempt((attempt) => attempt + 1);
+            }}
+          >
+            Retry
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="ultron-app-container">
@@ -1347,7 +1417,7 @@ export default function UltronChat() {
                 />
                 <select
                   value={newMemoryCat}
-                  onChange={(e) => setNewMemoryCat(e.target.value as any)}
+                  onChange={(e) => setNewMemoryCat(e.target.value as typeof newMemoryCat)}
                   className="ultron-memory-cat-select"
                 >
                   <option value="fact">Fact</option>

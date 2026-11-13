@@ -23,7 +23,42 @@ import {
 } from "@/lib/security/accessControlEngine";
 import { validateSessionToken } from "@/lib/security/identityEngine";
 import { isSystemLockedDown } from "@/lib/security/emergencyEngine";
-import type { ABACContext } from "@/lib/security/types";
+import type {
+  ABACContext,
+  AccessOperation,
+  ResourceDomain,
+} from "@/lib/security/types";
+
+const ACCESS_OPERATIONS: readonly AccessOperation[] = ["read", "write", "execute", "delete", "admin"];
+const RESOURCE_DOMAINS: readonly ResourceDomain[] = [
+  "file",
+  "folder",
+  "application",
+  "database",
+  "credential",
+  "system",
+  "network",
+];
+
+/**
+ * Confirms query values belong to the access-control contract before evaluation.
+ *
+ * @param value - Untrusted query parameter.
+ * @returns True when the value is a supported access operation.
+ */
+function isAccessOperation(value: string): value is AccessOperation {
+  return ACCESS_OPERATIONS.includes(value as AccessOperation);
+}
+
+/**
+ * Confirms query values belong to the resource-domain contract before evaluation.
+ *
+ * @param value - Untrusted query parameter.
+ * @returns True when the value is a supported resource domain.
+ */
+function isResourceDomain(value: string): value is ResourceDomain {
+  return RESOURCE_DOMAINS.includes(value as ResourceDomain);
+}
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -37,13 +72,22 @@ export async function GET(req: NextRequest) {
   const token = req.headers.get("x-ultron-session-token") || req.cookies.get("ultron_session")?.value;
   const auth = validateSessionToken(token);
   const actorRole = auth.session ? auth.session.userRole : "guest";
+  const requestedOperation = searchParams.get("operation") || "read";
+  const resourceDomain = searchParams.get("domain") || "file";
+
+  if (!isAccessOperation(requestedOperation) || !isResourceDomain(resourceDomain)) {
+    return NextResponse.json(
+      { ok: false, error: "Unsupported access operation or resource domain." },
+      { status: 400 }
+    );
+  }
 
   const context: ABACContext = {
     actorId: auth.session ? auth.session.userId : "guest_user",
     actorRole,
     sessionId: auth.session ? auth.session.sessionId : "none",
-    requestedOperation: (searchParams.get("operation") || "read") as any,
-    resourceDomain: (searchParams.get("domain") || "file") as any,
+    requestedOperation,
+    resourceDomain,
     resourceIdentifier: searchParams.get("resource") || "",
     projectId: searchParams.get("projectId") || undefined,
     isEmergencyLocked: isSystemLockedDown(),

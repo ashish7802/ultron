@@ -21,8 +21,6 @@
  * 16. Session switching cleanly invalidates old-session payloads and history.
  */
 
-import fs from "fs";
-import path from "path";
 import { defaultScreenCaptureEngine } from "../lib/screen/screenCaptureEngine.ts";
 import { defaultWindowDetectionEngine } from "../lib/screen/windowDetectionEngine.ts";
 import { defaultVisualProcessingEngine } from "../lib/screen/visualProcessingEngine.ts";
@@ -158,7 +156,7 @@ async function runCampaign() {
 
   // --- GATE 6: TEMPORAL STATE & TRANSITION TRACKING ---
   console.log("\n--- PHASE 6: TEMPORAL APPLICATION SWITCHING ---");
-  const tempState1 = defaultTemporalScreenIntelligence.recordFrameObservation(sessionId, activeWin, fusion);
+  defaultTemporalScreenIntelligence.recordFrameObservation(sessionId, activeWin, fusion);
 
   const mockSwitchedWin = {
     handle: "0x9999",
@@ -355,7 +353,7 @@ async function runCampaign() {
   console.log("\n--- PHASE 15: SESSION IDENTITY MISMATCH ISOLATION ---");
   // Restart vision with fresh session
   const newSessionId = defaultVisionControl.startSession("primary");
-  const newPayload = await defaultVisualContextDeliveryEngine.getFreshOrCachedContext({
+  await defaultVisualContextDeliveryEngine.getFreshOrCachedContext({
     forceFresh: true,
     sessionId: newSessionId,
   });

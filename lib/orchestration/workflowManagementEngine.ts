@@ -34,7 +34,6 @@ import type {
   WorkflowTemplate,
 } from "./types.ts";
 import { defaultPersistentStateEngine } from "./persistentStateEngine.ts";
-import { defaultDependencyManagementEngine } from "./dependencyManagementEngine.ts";
 
 /** Valid state transition graph */
 const VALID_TRANSITIONS: Record<WorkflowState, WorkflowState[]> = {

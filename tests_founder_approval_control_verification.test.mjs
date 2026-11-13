@@ -18,10 +18,6 @@ import path from "path";
 import {
   createAuthenticatedSession,
   validateSessionToken,
-  revokeSession,
-  revokeAllSessions,
-  createSensitiveActionChallenge,
-  verifySensitiveActionChallenge,
   FOUNDER_IDENTITY,
   createApprovalRequest,
   approveRequest,
@@ -29,29 +25,23 @@ import {
   cancelRequest,
   revokeApproval,
   getApprovalRequest,
-  listPendingRequests,
   listApprovalHistory,
-  listAllApprovals,
   computeCanonicalActionHash,
   evaluateActionRisk,
   executeThroughGateway,
   evaluateAccess,
   registerResourcePolicy,
-  revokeResourcePolicy,
   isSystemLockedDown,
   triggerEmergencyStop,
   unlockFromEmergencyStop,
-  getLockdownStatus,
   appendAuditEntry,
   verifyAuditChainIntegrity,
-  IMMUTABLE_CORE_INVARIANTS,
   updateSecurityPolicy,
 } from "./lib/security/index.ts";
 
 import { HumanApprovalCoordinator } from "./lib/orchestration/humanApprovalCoordinator.ts";
 import { launchAppByName } from "./lib/appLauncher.ts";
 import { controlAudioVolume, openUrlInBrowser } from "./lib/systemController.ts";
-import { planAction, verifyGatewayExecutionGrant } from "./lib/permissionGateway.ts";
 
 describe("FOUNDER APPROVAL & CONTROL — INDEPENDENT VERIFICATION SUITE", () => {
   let founderSession;
@@ -472,7 +462,7 @@ describe("FOUNDER APPROVAL & CONTROL — INDEPENDENT VERIFICATION SUITE", () => 
     });
 
     test("Scenario 9: Attempt approval through an unauthorized session (Guest Role) -> Blocked", () => {
-      const req = createApprovalRequest(
+      createApprovalRequest(
         "file_delete",
         "C:/system/logs.db",
         { file: "C:/system/logs.db" },

@@ -28,7 +28,6 @@ import crypto from "crypto";
 import type {
   WorkflowInstance,
   ExecutionCheckpoint,
-  WorkflowState,
   OrchestrationTask,
 } from "./types.ts";
 

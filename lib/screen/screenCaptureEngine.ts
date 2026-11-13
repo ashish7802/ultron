@@ -20,8 +20,8 @@
  *
  * Architectural Role & Safety Guarantees:
  * - Consumed by `VisionControlEngine` and `ScreenContextEngine`.
- * - Fail-closed: Captures reject if privacy policy or authorization is not active.
- * - Ephemeral: Captured raw image buffers are marked for immediate GC after downstream visual processing.
+ * - Production API and streaming callers must pass their privacy/session gates before calling this low-level capture driver.
+ * - Ephemeral: Raw frames stay in a bounded in-memory ring buffer and are cleared when streaming stops.
  */
 
 import { execFile } from "child_process";
@@ -195,8 +195,7 @@ export class ScreenCaptureEngine {
   }
 
   /**
-   * Captures a single desktop frame using the native Win32 GDI capture driver.
-   * Delivers genuine, complete 24bpp uncompressed BMP image bytes directly from desktop RAM.
+   * Captures one real desktop frame using the native Win32 GDI driver and returns its PNG image bytes.
    *
    * @param options - CaptureOptions specifying mode, bounds, and display.
    * @param sessionId - Active session token.

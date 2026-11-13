@@ -164,6 +164,47 @@ test("Memory Vault: Preserves user Ashish, encrypts with AES-256-GCM at rest, re
   assert.equal(postAttemptMemories.length, memories.length, "Memories must not be wiped by conversational text");
 });
 
+test("Chat intent parsing: Memory requests are not telemetry and ordinary Hinglish is not a name correction", async () => {
+  const memory = await import("./lib/memoryManager.ts");
+  const systemController = await import("./lib/systemController.ts");
+  const appLauncher = await import("./lib/appLauncher.ts");
+
+  assert.equal(
+    memory.parseNameIntent("mai ne to ye nahi bola"),
+    null,
+    "A denial must not be interpreted as a correction to the user's name"
+  );
+  assert.equal(
+    memory.processMemoryIntent("mai ne to ye nahi bola"),
+    null,
+    "A denial must not write a fabricated user name to persistent memory"
+  );
+  assert.deepEqual(memory.parseNameIntent("I am not Rahul, I am Ashish"), {
+    wrong: "rahul",
+    right: "ashish",
+    type: "correction",
+  });
+
+  const profileRequest =
+    "ultron tum chatgpt new tab pe open karo or us se mera bare me jitni details chahe us se pucho or apni memory strong karo";
+  const browserRequest = await systemController.handleSystemControlIntent(profileRequest);
+  assert.equal(browserRequest?.handled, true, "A ChatGPT-open request must be recognized");
+  assert.ok(browserRequest?.permissionPlan, "Opening ChatGPT must remain behind the permission gateway");
+  assert.match(browserRequest?.message || "", /will not send your saved profile or memories/i);
+  assert.equal(
+    appLauncher.detectAppLaunchIntent(profileRequest),
+    null,
+    "A multi-part personal-memory request must not be misread as an app name ending in 'karo'"
+  );
+  assert.equal(
+    await systemController.handleSystemControlIntent("apni memory strong karo"),
+    null,
+    "A personal-memory request must not return laptop telemetry"
+  );
+  const telemetry = await systemController.handleSystemControlIntent("memory usage kitni hai");
+  assert.equal(telemetry?.handled, true, "Explicit memory-usage questions must still return hardware telemetry");
+});
+
 // Test 5: Session Gate Origin Validation
 test("Session Gate: Loopback Origin allowed, foreign origins rejected with 403", async () => {
   const sessionGate = await import("./lib/sessionGate.ts");

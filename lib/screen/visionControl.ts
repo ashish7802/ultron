@@ -19,7 +19,6 @@
  * - Fail-closed: Any unhandled exception or expired session forces the indicator to OFF/ERROR immediately.
  */
 
-import crypto from "crypto";
 import type {
   CaptureOperationalState,
   PermissionSyncState,
@@ -27,6 +26,7 @@ import type {
   VisionControlCommand,
 } from "./types.ts";
 import { defaultFrameStreamingEngine } from "./frameStreamingEngine.ts";
+import { defaultScreenSessionManager } from "./sessionManager.ts";
 import { activateScreenCapture, purgeScreenBuffers } from "../screenPrivacyController.ts";
 
 export type StatusListener = (status: VisionControlStatus) => void;
@@ -201,9 +201,10 @@ export class VisionControlEngine {
    * with adaptive throttling and backpressure management.
    *
    * @param displayId - Optional monitor display target.
-   * @returns Generated or bound session ID.
+   * @param durationMs - Consent and session lifetime in milliseconds.
+   * @returns Session ID shared with the frame streaming engine.
    */
-  public startSession(displayId: string = "primary"): string {
+  public startSession(displayId: string = "primary", durationMs: number = 5 * 60 * 1000): string {
     if (this._permission === "DENIED") {
       this._state = "ERROR";
       this._broadcast();
@@ -211,22 +212,37 @@ export class VisionControlEngine {
     }
 
     this._state = "INITIALIZING";
+    this._lastFrameAt = null;
+    this._activeWindowSummary = "Waiting for the first authorized screen frame";
     this._broadcast();
 
-    const sessionId = `screen_sess_${crypto.randomUUID().slice(0, 12)}`;
+    const session = defaultScreenSessionManager.createSession(displayId, durationMs);
+    const sessionId = session.sessionId;
     this._activeSessionId = sessionId;
     this._targetDisplayId = displayId;
     this._startedAt = Date.now();
-    this._lastFrameAt = Date.now();
-    this._permission = "GRANTED";
-    this._state = "LIVE";
+    this._lastCaptureLatencyMs = undefined;
+    this._lastInferenceLatencyMs = undefined;
+    this._modelAvailability = undefined;
 
-    // Initiate continuous live streaming engine and screen privacy clearance
+    // The session manager owns the shared ID that the streaming pipeline validates.
     try {
-      activateScreenCapture(15 * 60 * 1000);
+      activateScreenCapture(durationMs);
       defaultFrameStreamingEngine.startStreaming(sessionId, { captureMode: "full_screen" });
-    } catch {
-      // Non-fatal if streaming encounters initial loopback setup delay
+      this._permission = "GRANTED";
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      defaultFrameStreamingEngine.stopStreaming(message);
+      defaultScreenSessionManager.terminateSession(sessionId, message);
+      purgeScreenBuffers();
+      this._state = "ERROR";
+      this._activeSessionId = null;
+      this._startedAt = null;
+      this._lastFrameAt = null;
+      this._permission = "REVOKED";
+      this._activeWindowSummary = `Screen capture could not start: ${message}`;
+      this._broadcast();
+      throw new Error(`Screen capture could not start: ${message}`, { cause: error });
     }
 
     this._broadcast();
@@ -249,7 +265,9 @@ export class VisionControlEngine {
    */
   public resumeSession(): void {
     if (this._state === "PAUSED" && this._activeSessionId) {
-      this._state = "LIVE";
+      this._state = "INITIALIZING";
+      this._lastFrameAt = null;
+      this._activeWindowSummary = "Waiting for the first resumed screen frame";
       defaultFrameStreamingEngine.resumeStreaming();
       this._broadcast();
     }
@@ -261,9 +279,16 @@ export class VisionControlEngine {
    * @param reason - Optional explanation string.
    */
   public stopSession(reason?: string): void {
+    const sessionId = this._activeSessionId;
+    if (sessionId) {
+      defaultScreenSessionManager.terminateSession(sessionId, reason || "Screen awareness stopped");
+    }
     this._state = "OFF";
     this._activeSessionId = null;
     this._startedAt = null;
+    this._lastFrameAt = null;
+    this._targetDisplayId = null;
+    this._permission = "PROMPT";
     this._activeWindowSummary = reason || "Vision disabled";
     try {
       purgeScreenBuffers();
@@ -279,10 +304,17 @@ export class VisionControlEngine {
    * Purges all buffers and forces state to TERMINATED -> OFF.
    */
   public emergencyKill(): void {
+    const sessionId = this._activeSessionId;
     this._state = "TERMINATED";
     this._activeSessionId = null;
     this._startedAt = null;
+    this._lastFrameAt = null;
+    this._targetDisplayId = null;
+    this._permission = "REVOKED";
     this._activeWindowSummary = "EMERGENCY KILL TRIGGERED - BUFFERS PURGED";
+    if (sessionId) {
+      defaultScreenSessionManager.terminateSession(sessionId, "EMERGENCY_KILL");
+    }
     defaultFrameStreamingEngine.stopStreaming("EMERGENCY KILL");
     try {
       purgeScreenBuffers();
@@ -299,10 +331,12 @@ export class VisionControlEngine {
     }
 
     this._broadcast();
-    // After 1000ms transition to OFF
+    // Do not let a delayed kill callback overwrite a newly started session.
     setTimeout(() => {
-      this._state = "OFF";
-      this._broadcast();
+      if (this._state === "TERMINATED" && this._activeSessionId === null) {
+        this._state = "OFF";
+        this._broadcast();
+      }
     }, 1000);
   }
 
@@ -318,10 +352,22 @@ export class VisionControlEngine {
     windowTitle?: string,
     captureMs?: number,
     inferenceMs?: number,
-    modelName?: string
+    modelName?: string,
+    sessionId?: string,
+    capturedAt: number = Date.now()
   ): void {
-    if (this._state === "LIVE" || this._state === "ANALYZING" || this._state === "DEGRADED") {
-      this._lastFrameAt = Date.now();
+    if (sessionId && sessionId !== this._activeSessionId) return;
+    if (
+      this._state === "INITIALIZING" ||
+      this._state === "LIVE" ||
+      this._state === "ANALYZING" ||
+      this._state === "DEGRADED"
+    ) {
+      if (this._state === "INITIALIZING") {
+        this._state = "LIVE";
+      }
+      this._lastFrameAt = capturedAt;
+      this._permission = "GRANTED";
       if (windowTitle) {
         this._activeWindowSummary = windowTitle;
       }
@@ -339,6 +385,28 @@ export class VisionControlEngine {
   }
 
   /**
+   * Stops and reports a session when privacy checks or physical capture fail.
+   *
+   * @param reason - Failure or policy-denial explanation.
+   * @param sessionId - Session that experienced the failure.
+   */
+  public handleCaptureFailure(reason: string, sessionId: string): void {
+    if (!this._activeSessionId || this._activeSessionId !== sessionId) return;
+
+    defaultFrameStreamingEngine.stopStreaming(reason);
+    defaultScreenSessionManager.terminateSession(sessionId, reason);
+    purgeScreenBuffers();
+    this._state = "ERROR";
+    this._activeSessionId = null;
+    this._startedAt = null;
+    this._lastFrameAt = null;
+    this._targetDisplayId = null;
+    this._permission = "REVOKED";
+    this._activeWindowSummary = reason;
+    this._broadcast();
+  }
+
+  /**
    * Dispatches a structured command to the vision control engine.
    *
    * @param command - VisionControlCommand to process.
@@ -347,7 +415,7 @@ export class VisionControlEngine {
   public executeCommand(command: VisionControlCommand): VisionControlStatus {
     switch (command.action) {
       case "START":
-        this.startSession(command.displayId);
+        this.startSession(command.displayId, command.durationMs);
         break;
       case "STOP":
         this.stopSession(command.reason);
@@ -368,3 +436,18 @@ export class VisionControlEngine {
 
 /** Global singleton instance of VisionControlEngine. */
 export const defaultVisionControl = new VisionControlEngine();
+
+defaultFrameStreamingEngine.subscribeCaptureObserver((frame, activeWindowTitle) => {
+  defaultVisionControl.recordFrameAcquired(
+    activeWindowTitle,
+    frame.captureLatencyMs,
+    undefined,
+    undefined,
+    frame.sessionId,
+    frame.timestamp
+  );
+});
+
+defaultFrameStreamingEngine.subscribeCaptureFailure((error, sessionId) => {
+  defaultVisionControl.handleCaptureFailure(error.message, sessionId);
+});

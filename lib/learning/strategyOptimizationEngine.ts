@@ -23,7 +23,6 @@
  * - Respects project constraints and rate-limit boundaries.
  */
 
-import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import type {
@@ -198,8 +197,8 @@ export class StrategyOptimizationEngine {
     const minSamples = Math.min(candMetric.sampleCount, baseMetric.sampleCount);
     const statisticalConfidence = Math.min(0.99, Number((minSamples / 10).toFixed(2)));
 
-    let recommended = baselineStrategy;
-    let reasoning = "";
+    let recommended: string;
+    let reasoning: string;
 
     // Priority 1: Success Rate Delta
     if (successRateDelta > 0.05) {

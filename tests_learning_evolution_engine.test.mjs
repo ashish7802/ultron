@@ -21,8 +21,6 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import fs from "fs";
-import path from "path";
 
 import {
   defaultExperienceEngine,
@@ -336,7 +334,6 @@ test.describe("ULTRON LEARNING & EVOLUTION ENGINE — UNIT & FUNCTIONAL SUITE", 
     assert.ok(report.meanLatencyMs > 0);
 
     // Test deterministic rejection when ground-truth keywords are missing
-    const tc = report.benchmarkResults[0];
     const failingResult = defaultPerformanceEngine.evaluateTestCase(
       {
         testId: "fail_test",

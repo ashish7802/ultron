@@ -25,7 +25,6 @@
  */
 
 import crypto from "crypto";
-import fs from "fs";
 import path from "path";
 import { revokeAllSessions } from "./identityEngine.ts";
 import { revokeScreenCaptureConsent } from "./privacyEngine.ts";

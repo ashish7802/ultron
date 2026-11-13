@@ -24,27 +24,21 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import fs from "fs";
-import path from "path";
-import crypto from "crypto";
 
 import {
   understandGoal,
   decomposeGoal,
   defaultDependencyManagementEngine,
-  defaultPriorityEngine,
-  defaultExecutionPlanningEngine,
   defaultWorkflowManagementEngine,
   defaultParallelCoordinationEngine,
-  defaultProgressTrackingEngine,
   defaultFailureRetryEngine,
   defaultTaskVerificationEngine,
   defaultPersistentStateEngine,
-  defaultResourceManagementEngine,
   defaultHumanApprovalCoordinator,
   defaultTaskReportingEngine,
   defaultTaskOrchestrationEngine,
 } from "./lib/orchestration/index.ts";
+import { createAuthenticatedSession } from "./lib/security/identityEngine.ts";
 
 test.describe("ULTRON TASK ORCHESTRATION — DEEP ENGINEERING AUDIT SUITE", () => {
 
@@ -334,12 +328,13 @@ test.describe("ULTRON TASK ORCHESTRATION — DEEP ENGINEERING AUDIT SUITE", () =
 
     const req = await defaultHumanApprovalCoordinator.requestApproval(task);
     assert.strictEqual(req.status, "PENDING");
+    const founderSession = createAuthenticatedSession("founder");
 
     // Approve
     const resolved = await defaultHumanApprovalCoordinator.resolveApproval(
       req.requestId,
       true,
-      "founder_session_default",
+      founderSession.sessionToken,
       "founder"
     );
     assert.strictEqual(resolved.status, "APPROVED");
@@ -351,7 +346,7 @@ test.describe("ULTRON TASK ORCHESTRATION — DEEP ENGINEERING AUDIT SUITE", () =
         await defaultHumanApprovalCoordinator.resolveApproval(
           req.requestId,
           true,
-          "founder_session_default",
+          founderSession.sessionToken,
           "founder"
         );
       },

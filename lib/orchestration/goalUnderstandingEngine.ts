@@ -67,7 +67,7 @@ export function understandGoal(
   const { inScope, outOfScope } = extractScope(prompt, category);
 
   // 4. Identify Constraints & Limitations
-  const constraints = identifyConstraints(prompt, category);
+  const constraints = identifyConstraints(prompt);
 
   // 5. Detect Missing Information
   const missingInformation = detectMissingInformation(prompt, category);
@@ -76,11 +76,7 @@ export function understandGoal(
   const successCriteria = formulateSuccessCriteria(prompt, category, expectedOutcomes);
 
   // 7. Evaluate Clarity Level & Clarification Prompts
-  const { clarity, clarificationQuestions } = evaluateClarity(
-    prompt,
-    missingInformation,
-    constraints
-  );
+  const { clarity, clarificationQuestions } = evaluateClarity(prompt, missingInformation);
 
   const assumptions = [
     ...(options?.founderAssumptions || []),
@@ -235,7 +231,7 @@ function extractScope(prompt: string, category: GoalCategory): { inScope: string
 /**
  * Identifies hard and soft constraints based on keywords and security policies.
  */
-function identifyConstraints(prompt: string, category: GoalCategory): GoalConstraint[] {
+function identifyConstraints(prompt: string): GoalConstraint[] {
   const constraints: GoalConstraint[] = [];
   let idx = 1;
 
@@ -262,7 +258,7 @@ function identifyConstraints(prompt: string, category: GoalCategory): GoalConstr
   // Resource / Cost constraint
   if (p.includes("local only") || p.includes("offline") || p.includes("zero cost") || p.includes("no api")) {
     constraints.push({
-      id: `c_${idx++}`,
+      id: `c_${idx}`,
       type: "RESOURCE",
       description: "Must execute strictly offline using local compute without external paid APIs.",
       isHardConstraint: true,
@@ -337,8 +333,7 @@ function formulateSuccessCriteria(
  */
 function evaluateClarity(
   prompt: string,
-  missing: string[],
-  constraints: GoalConstraint[]
+  missing: string[]
 ): { clarity: GoalClarityLevel; clarificationQuestions: string[] } {
   const questions: string[] = [];
   const words = prompt.trim().split(/\s+/);

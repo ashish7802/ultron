@@ -25,21 +25,6 @@ interface MarkdownRendererProps {
 }
 
 /**
- * Escapes common HTML special characters to prevent injection attacks.
- *
- * @param text - Raw unescaped string.
- * @returns Safe escaped string.
- */
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
-/**
  * Interactive CodeBlock component with language badge and 1-click clipboard copy.
  */
 function CodeBlock({ language, code }: { language: string; code: string }) {
@@ -184,7 +169,7 @@ function renderInlineFormatting(text: string): React.ReactNode[] {
     }
 
     // 6. Regular plain text chunk up to the next special character (` * _ [ h)
-    const nextSpecial = remaining.slice(1).search(/[`*_\[]|https?:\/\//);
+    const nextSpecial = remaining.slice(1).search(/[`*_]|\[|https?:\/\//);
     if (nextSpecial === -1) {
       tokens.push(remaining);
       break;

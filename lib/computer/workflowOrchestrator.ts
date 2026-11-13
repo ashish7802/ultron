@@ -38,7 +38,6 @@ import {
 } from "../permissionGateway.ts";
 import { defaultDesktopEngine } from "./desktopEngine.ts";
 import { defaultApplicationIntelligence } from "./applicationIntelligence.ts";
-import { defaultInputController } from "./inputController.ts";
 import { defaultVisualRecognizer } from "./visualElementRecognizer.ts";
 import { defaultFileSystemIntelligence } from "./fileSystemIntelligence.ts";
 import { defaultTerminalIntelligence } from "./terminalIntelligence.ts";
@@ -47,8 +46,6 @@ import { defaultSafetyControls } from "./safetyControls.ts";
 import type {
   ComputerTaskWorkflow,
   ComputerTaskStep,
-  TaskExecutionPhase,
-  UISnapshot,
 } from "./types.ts";
 
 export interface TaskInitiationInput {

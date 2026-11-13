@@ -19,6 +19,7 @@ import assert from "node:assert/strict";
 
 test("Module 01: Vision Control initializes OFF, transitions states, and enforces anti-hallucination", async () => {
   const { VisionControlEngine } = await import("./lib/screen/visionControl.ts");
+  const { defaultFrameStreamingEngine } = await import("./lib/screen/frameStreamingEngine.ts");
   const control = new VisionControlEngine();
 
   // 1. Initial State must be OFF
@@ -31,11 +32,22 @@ test("Module 01: Vision Control initializes OFF, transitions states, and enforce
   // 2. Start Session
   const sessionId = control.startSession("display_1");
   assert.ok(sessionId.startsWith("screen_sess_"));
+  const streamStats = defaultFrameStreamingEngine.getStats();
+  assert.equal(streamStats.sessionId, sessionId);
+  assert.equal(streamStats.isStreaming, true);
+  status = control.getStatus();
+  assert.equal(status.operationalState, "INITIALIZING");
+  assert.equal(status.isCapturing, false);
+  assert.equal(status.lastFrameAt, null);
+
+  const firstFrameAt = Date.now();
+  control.recordFrameAcquired("Test desktop", 1, undefined, undefined, sessionId, firstFrameAt);
   status = control.getStatus();
   assert.equal(status.operationalState, "LIVE");
   assert.equal(status.isCapturing, true);
   assert.equal(status.indicatorColor, "green");
   assert.equal(status.indicatorText, "VISION: LIVE");
+  assert.equal(status.lastFrameAt, firstFrameAt);
 
   // 3. Pause and Resume
   control.pauseSession();
@@ -44,6 +56,11 @@ test("Module 01: Vision Control initializes OFF, transitions states, and enforce
   assert.equal(status.indicatorColor, "amber");
 
   control.resumeSession();
+  status = control.getStatus();
+  assert.equal(status.operationalState, "INITIALIZING");
+  assert.equal(status.isCapturing, false);
+  assert.equal(status.lastFrameAt, null);
+  control.recordFrameAcquired("Resumed desktop", 1, undefined, undefined, sessionId, Date.now());
   status = control.getStatus();
   assert.equal(status.operationalState, "LIVE");
 
@@ -54,7 +71,11 @@ test("Module 01: Vision Control initializes OFF, transitions states, and enforce
   assert.notEqual(status.operationalState, "LIVE");
 
   // 5. Emergency Kill
-  control.startSession("display_1");
+  const nextSessionId = control.startSession("display_1");
+  control.recordFrameAcquired("Stale desktop", 1, undefined, undefined, sessionId, firstFrameAt + 1);
+  assert.equal(control.getStatus().operationalState, "INITIALIZING");
+  assert.equal(control.getStatus().lastFrameAt, null);
+  control.recordFrameAcquired("Test desktop", 1, undefined, undefined, nextSessionId, Date.now());
   let hookFired = false;
   control.registerEmergencyPurgeHook(() => {
     hookFired = true;
@@ -190,13 +211,51 @@ test("Module 05: Visual Understanding recognizes layout, UI elements, errors, an
 
 test("Module 06: OCR extracts lines, bounding boxes, code blocks, and error diagnostics", async () => {
   const { defaultOCREngine } = await import("./lib/screen/ocrEngine.ts");
-  const { defaultVisualProcessingEngine } = await import("./lib/screen/visualProcessingEngine.ts");
-  const { defaultScreenCaptureEngine } = await import("./lib/screen/screenCaptureEngine.ts");
 
-  const frame = await defaultScreenCaptureEngine.captureFrame({ mode: "full_screen" });
-  const processed = defaultVisualProcessingEngine.processFrame(frame);
+  const processed = {
+    originalDimensions: { width: 1920, height: 1080 },
+    segmentedRegions: [
+      {
+        id: "editor",
+        category: "editor",
+        bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+        confidence: 1,
+      },
+    ],
+  };
+  const fixtureText = [
+    "ULTRON VS Code",
+    "function startApp() {",
+    "return true;",
+    "SyntaxError: Unexpected token in test.ts",
+    "Tests: 28 passed, 1 failed, 29 total",
+  ];
+  const liveLines = fixtureText.map((text, lineIndex) => {
+    const bounds = { x: 40, y: 40 + lineIndex * 24, width: 800, height: 18 };
+    const tokens = text.split(/\s+/).map((token, wordIndex) => ({
+      text: token,
+      confidence: 0.99,
+      bounds: {
+        x: bounds.x + wordIndex * 24,
+        y: bounds.y,
+        width: 20,
+        height: bounds.height,
+      },
+      lineIndex,
+      wordIndex,
+    }));
 
-  const ocr = defaultOCREngine.extractText(processed, "VS Code");
+    return {
+      text,
+      tokens,
+      bounds,
+      isHeading: lineIndex === 0,
+      isCodeBlock: lineIndex === 1 || lineIndex === 2,
+      isErrorMessage: lineIndex === 3,
+    };
+  });
+
+  const ocr = defaultOCREngine.extractText(processed, "VS Code", liveLines);
 
   assert.ok(ocr.lines.length >= 5, "Must extract text lines");
   assert.ok(ocr.tokenCount >= 10, "Must tokenize words with bounding boxes");

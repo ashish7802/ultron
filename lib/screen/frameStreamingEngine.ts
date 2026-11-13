@@ -23,10 +23,11 @@ import { defaultScreenCaptureEngine, ScreenCaptureEngine } from "./screenCapture
 import { defaultPrivacySecurityEngine, PrivacySecurityEngine } from "./privacySecurityEngine.ts";
 import { defaultScreenSessionManager, ScreenSessionManager } from "./sessionManager.ts";
 import { defaultWindowDetectionEngine, WindowDetectionEngine } from "./windowDetectionEngine.ts";
-import { activateScreenCapture } from "../screenPrivacyController.ts";
 import type { CapturedFrame, CaptureOptions } from "./types.ts";
 
 export type FrameConsumer = (frame: CapturedFrame) => Promise<void> | void;
+export type FrameCaptureObserver = (frame: CapturedFrame, activeWindowTitle?: string) => void;
+export type FrameCaptureFailureObserver = (error: Error, sessionId: string) => void;
 
 export interface FrameStreamStats {
   isStreaming: boolean;
@@ -62,6 +63,8 @@ export class FrameStreamingEngine {
 
   // Queue & Backpressure
   private _consumers: Set<FrameConsumer> = new Set();
+  private _captureObservers: Set<FrameCaptureObserver> = new Set();
+  private _captureFailureObservers: Set<FrameCaptureFailureObserver> = new Set();
   private _isProcessingFrame: boolean = false;
   private _recentFrames: CapturedFrame[] = [];
   private _maxRecentFrames: number = 5;
@@ -121,13 +124,6 @@ export class FrameStreamingEngine {
     const session = this._sessionManager.getSession(sessionId);
     if (!session || session.operationalState !== "LIVE" || session.cleanupCompleted) {
       throw new Error(`Cannot start streaming: session ${sessionId} is not in LIVE state`);
-    }
-
-    // Ensure screen privacy controller consent is active for streaming
-    try {
-      activateScreenCapture(15 * 60 * 1000);
-    } catch {
-      // Non-fatal
     }
 
     this._sessionId = sessionId;
@@ -193,6 +189,37 @@ export class FrameStreamingEngine {
   }
 
   /**
+   * Registers a synchronous observer for each successfully acquired physical frame.
+   */
+  public subscribeCaptureObserver(observer: FrameCaptureObserver): () => void {
+    this._captureObservers.add(observer);
+    return () => {
+      this._captureObservers.delete(observer);
+    };
+  }
+
+  /**
+   * Registers a listener for capture blocks and physical frame failures.
+   */
+  public subscribeCaptureFailure(observer: FrameCaptureFailureObserver): () => void {
+    this._captureFailureObservers.add(observer);
+    return () => {
+      this._captureFailureObservers.delete(observer);
+    };
+  }
+
+  private _notifyCaptureFailure(error: Error, sessionId: string): void {
+    for (const observer of this._captureFailureObservers) {
+      try {
+        observer(error, sessionId);
+      } catch (observerError) {
+        console.error("[FRAME STREAMING] Capture failure observer error:", observerError);
+      }
+    }
+    this.stopStreaming(error.message);
+  }
+
+  /**
    * Returns current streaming health, adaptive intervals, and drop metrics.
    */
   public getStats(): FrameStreamStats {
@@ -243,11 +270,12 @@ export class FrameStreamingEngine {
     allowSyntheticFallback: boolean
   ): Promise<void> {
     if (!this._isStreaming || this._isPaused || !this._sessionId) return;
+    const sessionId = this._sessionId;
 
     // 1. Session verification gate
-    const session = this._sessionManager.getSession(this._sessionId);
+    const session = this._sessionManager.getSession(sessionId);
     if (!session || session.operationalState !== "LIVE") {
-      this.stopStreaming("Session invalidated or expired");
+      this._notifyCaptureFailure(new Error("Session invalidated or expired"), sessionId);
       return;
     }
 
@@ -265,11 +293,14 @@ export class FrameStreamingEngine {
       const privacy = this._privacyEngine.evaluateCapturePermission(
         winInfo.activeWindow?.title,
         winInfo.activeWindow?.processName,
-        this._sessionId
+        sessionId
       );
 
       if (!privacy.isPermissible) {
-        // Drop frame on sensitive windows
+        this._notifyCaptureFailure(
+          new Error(privacy.denialReason || "Screen capture was blocked by the privacy policy."),
+          sessionId
+        );
         this._totalDropped++;
         return;
       }
@@ -277,14 +308,22 @@ export class FrameStreamingEngine {
       // 4. Execute physical capture
       const frame = await this._captureEngine.captureFrame(
         { mode },
-        this._sessionId,
+        sessionId,
         allowSyntheticFallback
       );
 
       this._totalCaptured++;
       this._lastSequenceNumber = frame.sequenceNumber;
       this._lastCaptureLatencyMs = frame.captureLatencyMs;
-      this._sessionManager.recordFrameCapture(this._sessionId);
+      this._sessionManager.recordFrameCapture(sessionId);
+
+      for (const observer of this._captureObservers) {
+        try {
+          observer(frame, winInfo.activeWindow?.title);
+        } catch (observerError) {
+          console.error("[FRAME STREAMING] Capture observer error:", observerError);
+        }
+      }
 
       // 5. Adaptive capture frequency calculation
       if (!frame.changeDetected) {
@@ -318,7 +357,9 @@ export class FrameStreamingEngine {
       }
     } catch (err) {
       this._totalDropped++;
-      console.warn("[FRAME STREAMING] Frame cycle failed:", err);
+      const error = err instanceof Error ? err : new Error(String(err));
+      this._notifyCaptureFailure(error, sessionId);
+      console.error("[FRAME STREAMING] Frame cycle failed:", error);
     } finally {
       this._isProcessingFrame = false;
     }

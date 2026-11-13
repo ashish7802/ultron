@@ -40,7 +40,11 @@ test("Module 08: VQA answers all 6 required blueprint questions grounded in scre
     context
   );
   assert.equal(res1.groundedInVisualEvidence, true);
-  assert.match(res1.answer, /Visual Studio Code|Chrome|Terminal/i);
+  assert.ok(win.activeWindow?.title, "The active window must provide visible evidence");
+  assert.ok(
+    res1.answer.includes(win.activeWindow.title),
+    "The answer must name the active window actually detected on this machine"
+  );
   assert.ok(res1.evidenceElements.length >= 1);
 
   // Question 2: Explain the visible error.

@@ -14,7 +14,7 @@
  *   - ERROR / TERMINATED: Red warning badge.
  * - Anti-Hallucination Invariant:
  *   Under no circumstances can the indicator display LIVE unless verified by backend status (`isCapturing === true`).
- * - Provides 1-click ON/OFF toggle and Emergency Kill switch for instant visual buffer purge.
+ * - Provides capture controls that require founder verification and an emergency purge action.
  * - Displays active window context caption.
  *
  * Safety / Security Guarantees:
@@ -24,7 +24,7 @@
 
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import type { VisionControlStatus } from "@/lib/screen/types";
 
 export default function ScreenAwarenessIndicator() {
@@ -44,21 +44,70 @@ export default function ScreenAwarenessIndicator() {
 
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [showDetails, setShowDetails] = useState<boolean>(false);
+  const [requiresAuthentication, setRequiresAuthentication] = useState<boolean>(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const authRequiredRef = useRef<boolean>(false);
+  const authCheckedRef = useRef<boolean>(false);
+
+  const markAuthenticationRequired = useCallback(() => {
+    authRequiredRef.current = true;
+    authCheckedRef.current = false;
+    setRequiresAuthentication(true);
+    setStatus((current) => ({
+      ...current,
+      indicatorColor: "red",
+      indicatorText: "AUTH REQUIRED",
+      activeWindowSummary: "Founder authentication is required to use screen awareness.",
+    }));
+  }, []);
 
   // Poll status periodically (every 3 seconds) when mounted
   const fetchStatus = useCallback(async () => {
+    if (authRequiredRef.current) return;
+
     try {
-      const res = await fetch("/api/screen/control");
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && data.status) {
-          setStatus(data.status);
+      if (!authCheckedRef.current) {
+        const authResponse = await fetch("/api/security/auth", { cache: "no-store" });
+        if (!authResponse.ok) {
+          throw new Error(`Could not check founder authentication (HTTP ${authResponse.status}).`);
         }
+        const authData: unknown = await authResponse.json();
+        if (
+          typeof authData !== "object" ||
+          authData === null ||
+          !("authenticated" in authData)
+        ) {
+          throw new Error("Founder authentication endpoint returned an invalid response.");
+        }
+        if (authData.authenticated !== true) {
+          markAuthenticationRequired();
+          return;
+        }
+        authCheckedRef.current = true;
       }
-    } catch {
-      // Offline / network failure handling
+
+      const res = await fetch("/api/screen/control");
+      if (res.status === 401) {
+        authCheckedRef.current = false;
+        markAuthenticationRequired();
+        return;
+      }
+      if (!res.ok) {
+        throw new Error(`Could not read screen awareness status (HTTP ${res.status}).`);
+      }
+      const data = await res.json();
+      if (data.success && data.status) {
+        authRequiredRef.current = false;
+        setRequiresAuthentication(false);
+        setAuthError(null);
+        setStatus(data.status);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setAuthError(message);
+      console.error("Failed to refresh screen awareness status:", error);
     }
-  }, []);
+  }, [markAuthenticationRequired]);
 
   useEffect(() => {
     fetchStatus();
@@ -69,20 +118,58 @@ export default function ScreenAwarenessIndicator() {
   // Handle Toggle ON / OFF
   const handleToggle = async () => {
     setIsLoading(true);
+    setAuthError(null);
     try {
+      if (authRequiredRef.current) {
+        const authResponse = await fetch("/api/security/auth", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "login",
+            authMethod: "windows_hello",
+            promptReason: "Authorize ULTRON screen awareness for this session.",
+          }),
+        });
+        const authData: unknown = await authResponse.json();
+        const loginSucceeded =
+          typeof authData === "object" &&
+          authData !== null &&
+          "ok" in authData &&
+          authData.ok === true;
+        if (!authResponse.ok || !loginSucceeded) {
+          const errorMessage =
+            typeof authData === "object" &&
+            authData !== null &&
+            "error" in authData &&
+            typeof authData.error === "string"
+              ? authData.error
+              : `Founder authentication failed (HTTP ${authResponse.status}).`;
+          throw new Error(errorMessage);
+        }
+        authRequiredRef.current = false;
+        authCheckedRef.current = true;
+        setRequiresAuthentication(false);
+      }
+
       const action = status.isCapturing ? "STOP" : "START";
       const res = await fetch("/api/screen/control", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, durationMs: 10 * 60 * 1000 }), // 10 min session
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && data.status) {
-          setStatus(data.status);
-        }
+      const data = await res.json();
+      if (res.status === 401) {
+        markAuthenticationRequired();
+      }
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `Screen awareness request failed (HTTP ${res.status}).`);
+      }
+      if (data.status) {
+        setStatus(data.status);
       }
     } catch (err) {
+      setAuthError(err instanceof Error ? err.message : String(err));
+      setShowDetails(true);
       console.error("Failed to toggle screen awareness:", err);
     } finally {
       setIsLoading(false);
@@ -98,13 +185,19 @@ export default function ScreenAwarenessIndicator() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "EMERGENCY_KILL", reason: "User triggered emergency kill" }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && data.status) {
-          setStatus(data.status);
-        }
+      const data = await res.json();
+      if (res.status === 401) {
+        markAuthenticationRequired();
+      }
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `Emergency purge failed (HTTP ${res.status}).`);
+      }
+      if (data.status) {
+        setStatus(data.status);
       }
     } catch (err) {
+      setAuthError(err instanceof Error ? err.message : String(err));
+      setShowDetails(true);
       console.error("Emergency kill failed:", err);
     } finally {
       setIsLoading(false);
@@ -164,7 +257,11 @@ export default function ScreenAwarenessIndicator() {
           boxShadow: isLive ? "0 0 12px rgba(0, 255, 170, 0.3)" : isAmber ? "0 0 10px rgba(245, 158, 11, 0.2)" : "none",
         }}
         onClick={() => setShowDetails(!showDetails)}
-        title={status.activeWindowSummary || "Screen Awareness Status"}
+        title={
+          requiresAuthentication
+            ? "Founder verification is required to enable screen awareness."
+            : status.activeWindowSummary || "Screen Awareness Status"
+        }
       >
         {/* Pulsing Status Dot */}
         <span
@@ -192,7 +289,7 @@ export default function ScreenAwarenessIndicator() {
             e.stopPropagation();
             handleToggle();
           }}
-          disabled={isLoading}
+          disabled={isLoading || status.operationalState === "INITIALIZING"}
           style={{
             backgroundColor: status.isCapturing ? "#ef4444" : "#0ea5e9",
             color: "#ffffff",
@@ -205,7 +302,13 @@ export default function ScreenAwarenessIndicator() {
             marginLeft: "4px",
           }}
         >
-          {status.isCapturing ? "STOP" : "ENABLE"}
+          {requiresAuthentication
+            ? "LOGIN"
+            : status.operationalState === "INITIALIZING"
+            ? "STARTING"
+            : status.isCapturing
+            ? "STOP"
+            : "ENABLE"}
         </button>
       </div>
 
@@ -229,6 +332,16 @@ export default function ScreenAwarenessIndicator() {
             color: "#e2e8f0",
           }}
         >
+          {requiresAuthentication && (
+            <div style={{ marginBottom: "8px", color: "#fca5a5" }}>
+              Founder verification is required. Select LOGIN to continue with Windows Hello.
+            </div>
+          )}
+          {authError && (
+            <div role="alert" style={{ marginBottom: "8px", color: "#fca5a5" }}>
+              {authError}
+            </div>
+          )}
           <div style={{ fontWeight: 600, color: "#00f0ff", marginBottom: "8px", display: "flex", justifyContent: "space-between" }}>
             <span>Screen Intelligence HUD</span>
             <span style={{ fontSize: "10px", color: isLive ? "#00ffaa" : isAmber ? "#f59e0b" : "#94a3b8" }}>

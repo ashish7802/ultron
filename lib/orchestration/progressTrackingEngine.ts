@@ -24,7 +24,6 @@
 import type {
   WorkflowInstance,
   WorkflowProgressReport,
-  OrchestrationTask,
 } from "./types.ts";
 
 export class ProgressTrackingEngine {

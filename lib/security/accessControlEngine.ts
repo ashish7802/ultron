@@ -30,11 +30,8 @@
  * - Emergency lockdown override: when locked down, all non-read/non-recovery actions reject.
  */
 
-import path from "path";
 import type {
   UserRole,
-  AccessOperation,
-  ResourceDomain,
   ResourceAccessPolicy,
   ABACContext,
   AccessEvaluationResult,

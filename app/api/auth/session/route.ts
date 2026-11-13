@@ -6,7 +6,7 @@
  * Boundary Security & Authentication Lifecycle.
  *
  * Key Responsibilities:
- * - GET: Dispenses or renews the desktop session token for the local UI on loopback.
+ * - GET: Preserves a valid session or initializes the desktop session for the local UI on loopback.
  * - Sets an HttpOnly, SameSite=Strict cookie `ultron_session` to protect against script theft.
  * - Enforces loopback Origin verification (rejects any foreign origin trying to get tokens).
  * - Issues short-lived action tokens for high-risk operations upon valid session verification.
@@ -32,7 +32,7 @@ import {
  * Handles GET requests to initialize or retrieve the desktop session token.
  *
  * @param req - Incoming NextRequest.
- * @returns NextResponse with session token payload and secure cookie.
+ * @returns NextResponse with session status and secure cookie.
  */
 export async function GET(req: NextRequest) {
   // Validate that request originated from valid local origin (loopback)
@@ -41,11 +41,20 @@ export async function GET(req: NextRequest) {
     return createAuthErrorResponse(validation);
   }
 
-  const token = getOrCreatePrimarySessionToken();
+  const providedToken =
+    req.headers.get("x-ultron-session-token") ||
+    req.cookies.get("ultron_session")?.value ||
+    req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+  const existingSession = providedToken ? validateDesktopSession(req) : null;
+  const reuseExistingSession = Boolean(providedToken && existingSession?.valid);
+  const token =
+    providedToken && existingSession?.valid
+      ? providedToken
+      : getOrCreatePrimarySessionToken();
 
   const response = NextResponse.json({
     ok: true,
-    sessionToken: token,
+    ...(!reuseExistingSession ? { sessionToken: token } : {}),
     expiresInMs: 24 * 60 * 60 * 1000,
     domain: "localhost",
   });

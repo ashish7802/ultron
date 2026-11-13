@@ -23,7 +23,7 @@
  * - Enforces fail-closed typing: all mutating actions require risk levels and verification tokens.
  */
 
-import type { ActionRiskLevel, ActionPlan } from "../permissionGateway.ts";
+import type { ActionRiskLevel } from "../permissionGateway.ts";
 
 // ==============================================================================
 // 1. MODULE 02: DESKTOP UNDERSTANDING & TOPOLOGY

@@ -18,6 +18,7 @@ Architectural Role & Security Guarantees:
 ===============================================================================
 """
 
+import argparse
 import os
 import sys
 import json
@@ -172,6 +173,9 @@ def request_native_windows_hello_verification(prompt_message: str = "ULTRON Zero
     Invokes native Windows Hello modal dialog (UserConsentVerifier) on the Windows host.
     Blocks until user touches the physical sensor, cancels, or exhausts retries.
 
+    Args:
+        prompt_message: Explanation displayed in the native Windows Hello dialog.
+
     Returns:
         dict: Verification result (Verified, Canceled, RetriesExhausted, DeviceBusy, etc.)
     """
@@ -234,7 +238,13 @@ def request_native_windows_hello_verification(prompt_message: str = "ULTRON Zero
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--verify":
-        res = request_native_windows_hello_verification()
+        parser = argparse.ArgumentParser()
+        parser.add_argument(
+            "--reason",
+            default="ULTRON Zero-Trust Security Gate: Touch your fingerprint sensor to authenticate.",
+        )
+        args = parser.parse_args(sys.argv[2:])
+        res = request_native_windows_hello_verification(args.reason)
         print(json.dumps(res))
     else:
         status = get_windows_hello_availability()

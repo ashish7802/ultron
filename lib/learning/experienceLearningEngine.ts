@@ -352,8 +352,8 @@ export class ExperienceLearningEngine {
     const metA = computeMetrics(aList, strategyA);
     const metB = computeMetrics(bList, strategyB);
 
-    let recommended = strategyA;
-    let reasoning = "";
+    let recommended: string;
+    let reasoning: string;
 
     if (metA.sampleCount === 0 && metB.sampleCount > 0) {
       recommended = strategyB;
@@ -445,11 +445,9 @@ export class ExperienceLearningEngine {
   /**
    * Identifies cross-project transferable lessons while filtering out sensitive project tokens.
    *
-   * @param sourceProjectId - Origin project ID.
-   * @param targetProjectId - Recipient project ID.
    * @returns Sanitized transferable lessons safe to apply across project boundaries.
    */
-  public extractTransferableLessons(sourceProjectId: string, targetProjectId: string): ReusableLesson[] {
+  public extractTransferableLessons(): ReusableLesson[] {
     const candidates = Array.from(this._lessons.values()).filter(
       (l) => l.isProjectAgnostic && l.verificationStatus === "VERIFIED"
     );
@@ -467,7 +465,7 @@ export class ExperienceLearningEngine {
    */
   private _sanitizePrivateData(text: string): string {
     return text
-      .replace(/([a-zA-Z0-9_\-\.]{24,})/g, "[REDACTED_TOKEN]")
+      .replace(/([a-zA-Z0-9_.-]{24,})/g, "[REDACTED_TOKEN]")
       .replace(/[A-Z]:\\[^\s]+/gi, "[REDACTED_PATH]")
       .replace(/\/home\/[^\s]+/gi, "[REDACTED_PATH]");
   }

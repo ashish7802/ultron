@@ -27,7 +27,6 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import crypto from "node:crypto";
 
 // Security Engines
 import {
@@ -42,7 +41,6 @@ import {
   evaluateActionRisk,
   listPendingRequests,
   listApprovalHistory,
-  computeCanonicalActionHash,
 } from "./lib/security/permissionEngine.ts";
 
 import {
@@ -53,35 +51,29 @@ import {
   triggerEmergencyStop,
   unlockFromEmergencyStop,
   isSystemLockedDown,
-  getLockdownStatus,
 } from "./lib/security/emergencyEngine.ts";
 
 import {
   appendAuditEntry,
   verifyAuditChainIntegrity,
-  queryAuditEntries,
 } from "./lib/security/auditEngine.ts";
 
 import {
   FOUNDER_IDENTITY,
   createAuthenticatedSession,
   validateSessionToken,
-  revokeSession,
-  revokeAllSessions,
 } from "./lib/security/identityEngine.ts";
 
 import {
   acquireVaultLockSync,
   writeVaultJsonSync,
   readVaultJsonSync,
-  ensureVaultDirectory,
 } from "./lib/security/vaultStorage.ts";
 
 import {
   evaluateAccess,
   registerResourcePolicy,
   revokeResourcePolicy,
-  listResourcePolicies,
 } from "./lib/security/accessControlEngine.ts";
 
 import { getWindowsHelloStatus } from "./lib/security/windowsHelloBridge.ts";

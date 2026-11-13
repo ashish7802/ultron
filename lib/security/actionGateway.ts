@@ -39,7 +39,6 @@
  * - Single-use: Execution grant tokens are destroyed upon completion or rejection.
  */
 
-import crypto from "crypto";
 import { validateSessionToken } from "./identityEngine.ts";
 import { evaluateAccess } from "./accessControlEngine.ts";
 import { isSystemLockedDown } from "./emergencyEngine.ts";
@@ -48,7 +47,6 @@ import {
   evaluateActionRisk,
   verifyExecutionGrant,
   finalizeExecution,
-  computeCanonicalActionHash,
 } from "./permissionEngine.ts";
 import type {
   PermissionActionType,
@@ -161,7 +159,7 @@ export async function executeThroughGateway<TOutput>(
   grantToken?: string,
   executor?: () => Promise<TOutput>
 ): Promise<GatewayExecutionResult<TOutput>> {
-  const { actionType, target, params, actorId, sessionId, projectId, justification } = request;
+  const { actionType, target, params, actorId, sessionId, projectId } = request;
 
   // Step 1: Emergency Lockdown Check & Receive action request
   if (isSystemLockedDown()) {

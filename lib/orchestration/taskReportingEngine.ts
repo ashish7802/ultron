@@ -25,7 +25,6 @@
 import type {
   WorkflowInstance,
   TaskReportingSummary,
-  OrchestrationTask,
 } from "./types.ts";
 
 export class TaskReportingEngine {
@@ -79,16 +78,14 @@ export class TaskReportingEngine {
     }
 
     // Determine final status: Strictly requires COMPLETED state and 100% verified tasks
-    let finalStatus: TaskReportingSummary["finalStatus"] = "FAILED";
-    if (workflow.state === "COMPLETED" && verifiedTasks === totalTasks && totalTasks > 0) {
-      finalStatus = "VERIFIED_COMPLETE";
-    } else if (workflow.state === "CANCELLED") {
-      finalStatus = "CANCELLED";
-    } else if (verifiedTasks > 0) {
-      finalStatus = "PARTIALLY_COMPLETE";
-    } else {
-      finalStatus = "FAILED";
-    }
+    const finalStatus: TaskReportingSummary["finalStatus"] =
+      workflow.state === "COMPLETED" && verifiedTasks === totalTasks && totalTasks > 0
+        ? "VERIFIED_COMPLETE"
+        : workflow.state === "CANCELLED"
+          ? "CANCELLED"
+          : verifiedTasks > 0
+            ? "PARTIALLY_COMPLETE"
+            : "FAILED";
 
     // Format human-readable duration
     const seconds = Math.max(1, Math.round(totalDurationMs / 1000));

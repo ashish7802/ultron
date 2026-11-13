@@ -23,7 +23,6 @@
  * - Race condition protection: resource acquisition is atomic and serialized.
  */
 
-import crypto from "crypto";
 import type {
   OrchestrationTask,
   ParallelExecutionConfig,

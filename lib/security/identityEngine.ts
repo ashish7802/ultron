@@ -28,7 +28,6 @@ import crypto from "crypto";
 import os from "os";
 import fs from "fs";
 import path from "path";
-import { getWindowsHelloStatus, verifyWindowsHelloConsent } from "./windowsHelloBridge.ts";
 import type {
   UserIdentity,
   UserRole,

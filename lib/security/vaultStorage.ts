@@ -77,10 +77,7 @@ export function acquireVaultLockSync(
   timeoutMs: number = LOCK_TIMEOUT_MS
 ): () => void {
   const startTime = Date.now();
-  let attempt = 0;
-
   while (Date.now() - startTime < timeoutMs) {
-    attempt++;
     try {
       // Atomic exclusive creation
       const fd = fs.openSync(lockPath, "wx");

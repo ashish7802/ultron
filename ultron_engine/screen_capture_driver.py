@@ -11,7 +11,7 @@ Key Responsibilities:
      via ctypes with zero external dependencies.
    - Supports modes: fullscreen, active_window (via PrintWindow PW_RENDERFULLCONTENT or BitBlt),
      and selected_region cropping with coordinate validation.
-   - Outputs complete 24bpp uncompressed BMP image bytes (with base64 streaming option).
+   - Encodes genuine desktop pixels as PNG or BMP according to the requested output format.
    - Monotonically increasing frame sequence IDs and high-resolution timestamps.
 
 2. Native Windows Accessibility & UI Automation Inspection:

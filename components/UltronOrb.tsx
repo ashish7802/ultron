@@ -389,8 +389,8 @@ export default function UltronOrb() {
           setError(data.message || data.error || "Autonomous research failed");
           updateVisualState("idle");
         }
-      } catch (err: any) {
-        setError(err.message || "Failed to execute research");
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "Failed to execute research");
         updateVisualState("idle");
       } finally {
         setIsResearching(false);

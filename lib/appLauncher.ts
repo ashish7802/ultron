@@ -258,7 +258,7 @@ export function detectAppLaunchIntent(text: string): string | null {
   }
 
   // Suffix verb form: "chrome kholo", "notepad khol do", "camera chalao".
-  const suffix = /^(.+?)\s+(?:kholo|khol|khol\s+do|karo|kar\s+do|chalao|chalu\s+karo|open\s+karo)$/i.exec(trimmed);
+  const suffix = /^(.+?)\s+(?:kholo|khol(?:\s+do)?|chalao|chalu\s+karo|open\s+karo)$/i.exec(trimmed);
   if (suffix) {
     const candidate = suffix[1].trim();
     if (candidate && candidate.length >= 2) return candidate;

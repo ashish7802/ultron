@@ -39,4 +39,10 @@ export default tseslint.config(
       "prefer-const": "warn",
     },
   },
+  {
+    files: ["electron/**/*.js"],
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+    },
+  },
 );

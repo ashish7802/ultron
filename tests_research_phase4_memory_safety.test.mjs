@@ -25,7 +25,6 @@ import assert from "node:assert/strict";
 
 test("Module 10: Memory Ingestion creates provenance links and builds knowledge graph", async () => {
   const { advancedMemoryIngestionEngine } = await import("./lib/research/memoryIngestionEngine.ts");
-  const { researchRepository } = await import("./lib/research/repository.ts");
 
   const projectId = `proj_test_mem_${Date.now()}`;
 
@@ -166,7 +165,6 @@ test("Module 10: Memory Ingestion creates provenance links and builds knowledge 
 
 test("Module 10: Non-destructive memory versioning preserves historical snapshots", async () => {
   const { advancedMemoryIngestionEngine } = await import("./lib/research/memoryIngestionEngine.ts");
-  const { researchRepository } = await import("./lib/research/repository.ts");
 
   const projectId = `proj_version_test_${Date.now()}`;
 

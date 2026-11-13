@@ -14,10 +14,9 @@
  * - Provides memory buffer purging on lock, timeout, or session end.
  *
  * Architectural Role & Audit Note:
- * - As documented in `docs/audit/SECURITY_FINDINGS.md` (FINDING-SEC-06), physical screen capture
- *   and OCR drivers are currently NOT implemented in this codebase.
- * - This module establishes the non-negotiable security and privacy boundaries that any future
- *   vision or screen awareness integration MUST conform to before capturing desktop pixels.
+ * - Physical capture is implemented by `ScreenCaptureEngine` and the native Windows driver;
+ *   this module owns the explicit-consent and sensitive-window policy they must respect.
+ * - Production API and streaming paths evaluate this policy before acquiring desktop pixels.
  *
  * Safety / Security Guarantees:
  * - Fail-closed: `canCapture()` returns `false` unless explicitly activated by user.

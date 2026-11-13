@@ -32,11 +32,9 @@ import type {
   StructuredGoal,
   WorkflowInstance,
   ExecutionPlan,
-  TaskPriorityScore,
   WorkflowProgressReport,
   TaskReportingSummary,
   OrchestrationTask,
-  VerificationEvidence,
 } from "./types.ts";
 import { understandGoal } from "./goalUnderstandingEngine.ts";
 import { decomposeGoal } from "./taskDecompositionEngine.ts";
@@ -422,7 +420,7 @@ export class TaskOrchestrationEngine {
       reason
     );
 
-    let workflow = defaultPersistentStateEngine.getWorkflow(req.workflowId);
+    const workflow = defaultPersistentStateEngine.getWorkflow(req.workflowId);
     if (!workflow) {
       throw new Error(`Workflow "${req.workflowId}" not found.`);
     }
