@@ -54,6 +54,7 @@ import { remediateCandidateResponse } from "@/lib/cognitive/selfEvaluationEngine
 import { defaultVisualContextDeliveryEngine } from "@/lib/screen/contextDeliveryEngine";
 import { defaultVisionControl } from "@/lib/screen/visionControl";
 import { defaultTemporalScreenIntelligence } from "@/lib/screen/temporalScreenIntelligence";
+import type { VisualContextPayload } from "@/lib/screen/types";
 import type {
   ParsedContext,
   CognitiveTier,
@@ -491,13 +492,18 @@ async function queryOllama(
       );
 
     const visionStatus = defaultVisionControl.getStatus();
-    let screenContext = defaultVisualContextDeliveryEngine.getLastPayload();
+    let screenContext: VisualContextPayload | null = null;
 
     if (isVisualQuery && visionStatus.isCapturing) {
-      const now = Date.now();
-      const isStale = !screenContext || now - screenContext.timestamp > 10000;
-      if (isStale) {
-        screenContext = await defaultVisualContextDeliveryEngine.getFreshOrCachedContext({ forceFresh: true });
+      // Always enforce fresh physical capture and fail-closed TTL boundary (< 15s)
+      screenContext = await defaultVisualContextDeliveryEngine.getFreshOrCachedContext({
+        forceFresh: true,
+        sessionId: visionStatus.activeSessionId || undefined,
+      });
+
+      // Strict TTL check at delivery boundary: reject if frame is older than 15 seconds
+      if (screenContext && (Date.now() - screenContext.timestamp > 15000)) {
+        screenContext = null;
       }
     }
 
@@ -787,10 +793,14 @@ async function buildResponse(
           "Screen awareness is currently **OFF** or inactive. Please enable Screen Awareness using the indicator in the top header to allow me to inspect your desktop.";
       } else {
         try {
-          const payload = await defaultVisualContextDeliveryEngine.getFreshOrCachedContext({ forceFresh: true });
-          if (!payload) {
+          const payload = await defaultVisualContextDeliveryEngine.getFreshOrCachedContext({
+            forceFresh: true,
+            sessionId: visionStatus.activeSessionId || undefined,
+          });
+          // Reject if payload is null or exceeds 15-second TTL
+          if (!payload || (Date.now() - payload.timestamp > 15000)) {
             reply =
-              "Screen awareness is active, but visual context could not be captured. Operating system permission may be restricted.";
+              "Screen awareness is active, but a fresh desktop frame could not be acquired or context expired (>15s TTL). Please check OS capture permissions.";
           } else {
             // Check if actual neural multimodal vision inference was performed
             const isModelInferenceLive = payload.visualEvidence?.some(

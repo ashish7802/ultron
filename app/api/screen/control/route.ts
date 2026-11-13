@@ -19,11 +19,33 @@ import { NextRequest, NextResponse } from "next/server";
 import { defaultVisionControl } from "@/lib/screen/visionControl";
 import { defaultPrivacySecurityEngine } from "@/lib/screen/privacySecurityEngine";
 import { defaultScreenSessionManager } from "@/lib/screen/sessionManager";
+import { defaultScreenContextEngine } from "@/lib/screen/screenContextEngine";
+import { defaultVisualContextDeliveryEngine } from "@/lib/screen/contextDeliveryEngine";
+import { validateSessionToken } from "@/lib/security/identityEngine";
 import type { VisionControlCommand } from "@/lib/screen/types";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(): Promise<NextResponse> {
+/**
+ * Extracts and validates founder/user session token from request.
+ */
+function extractSession(req: NextRequest) {
+  const token =
+    req.headers.get("x-ultron-session-token") ||
+    req.cookies.get("ultron_session")?.value ||
+    req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+  return { token: token || "", validation: validateSessionToken(token) };
+}
+
+export async function GET(req: NextRequest): Promise<NextResponse> {
+  const { validation } = extractSession(req);
+  if (!validation.isValid || !validation.session) {
+    return NextResponse.json(
+      { success: false, error: "Unauthorized: Valid session required to inspect vision status." },
+      { status: 401 }
+    );
+  }
+
   try {
     const status = defaultVisionControl.getStatus();
     return NextResponse.json({
@@ -39,6 +61,14 @@ export async function GET(): Promise<NextResponse> {
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const { validation } = extractSession(req);
+  if (!validation.isValid || !validation.session) {
+    return NextResponse.json(
+      { success: false, error: "Unauthorized: Valid session required to control screen awareness." },
+      { status: 401 }
+    );
+  }
+
   try {
     let body: VisionControlCommand;
     try {
@@ -51,9 +81,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ success: false, error: "Missing required 'action' command field" }, { status: 400 });
     }
 
-    // Handle Start: activate privacy consent + create session
+    // Handle Start: activate privacy consent bound to authenticated session + create session
     if (body.action === "START") {
-      const durationMs = body.durationMs || 5 * 60 * 1000;
+      const durationMs = Math.min(15 * 60 * 1000, body.durationMs || 5 * 60 * 1000);
       defaultPrivacySecurityEngine.grantConsent(durationMs);
       defaultScreenSessionManager.createSession(body.displayId, durationMs);
       defaultVisionControl.startSession(body.displayId);
@@ -66,6 +96,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     } else if (body.action === "EMERGENCY_KILL") {
       defaultPrivacySecurityEngine.revokeConsent("EMERGENCY KILL TRIGGERED");
       defaultVisionControl.emergencyKill();
+      const currentActiveId = defaultVisionControl.getStatus().activeSessionId;
+      if (currentActiveId) {
+        defaultScreenSessionManager.terminateSession(currentActiveId, "EMERGENCY_KILL");
+      }
+      defaultScreenContextEngine.clearContext();
+      defaultVisualContextDeliveryEngine.clearContext();
     } else if (body.action === "PAUSE") {
       defaultVisionControl.pauseSession();
     } else if (body.action === "RESUME") {

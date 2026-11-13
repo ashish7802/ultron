@@ -28,9 +28,16 @@ import type {
 } from "./types.ts";
 import type { MultimodalAnalysisResult } from "./multimodalVisionEngine.ts";
 
+export type FusedObservationSource =
+  | "VISUAL_MODEL"
+  | "OCR_TEXT"
+  | "OS_ACCESSIBILITY"
+  | "HEURISTIC"
+  | "CROSS_CORRELATED";
+
 export interface FusedObservation {
   id: string;
-  source: "VISUAL_MODEL" | "OCR_TEXT" | "OS_ACCESSIBILITY" | "CROSS_CORRELATED";
+  source: FusedObservationSource;
   category: "ui_element" | "code_block" | "error_diagnostic" | "scene_layout" | "text_content";
   content: string;
   bounds?: BoundingBox;
@@ -106,7 +113,7 @@ export class VisionOcrFusionEngine {
     }
 
     // 2. Ingest Visual Elements & Layout (Preserving strict source attribution)
-    const visualSource: "VISUAL_MODEL" | "OS_ACCESSIBILITY" = visualAnalysis.isLiveModelInference
+    const visualSource: FusedObservationSource = visualAnalysis.isLiveModelInference
       ? "VISUAL_MODEL"
       : "OS_ACCESSIBILITY";
 
@@ -122,13 +129,20 @@ export class VisionOcrFusionEngine {
     }
 
     for (const el of visualAnalysis.recognizedElements.slice(0, 30)) {
+      const elSource: FusedObservationSource =
+        el.provenance === "HEURISTIC"
+          ? "HEURISTIC"
+          : el.provenance === "OS_ACCESSIBILITY"
+          ? "OS_ACCESSIBILITY"
+          : visualSource;
+
       fusedObservations.push({
         id: `fused_vis_${crypto.randomUUID().slice(0, 8)}`,
-        source: visualSource,
+        source: elSource,
         category: "ui_element",
         content: `${el.label || el.type} (${el.type})`,
         bounds: el.bounds,
-        confidence: visualAnalysis.isLiveModelInference ? el.confidence || 0.9 : 0.85,
+        confidence: el.confidence || 0.85,
         corroborated: false,
       });
     }
@@ -178,11 +192,19 @@ export class VisionOcrFusionEngine {
     }
 
     // 5. Calibrated Confidence Calculation
-    let calibratedConfidence = 0.9;
+    // Confidence is dynamically computed from observation corroboration, source attribution, and contradictions.
+    const totalObs = fusedObservations.length;
+    const corroboratedCount = fusedObservations.filter((o) => o.corroborated).length;
+    const corroborationRatio = totalObs > 0 ? corroboratedCount / totalObs : 0;
+
+    let calibratedConfidence: number;
     if (isContradiction) {
-      calibratedConfidence = 0.65;
-    } else if (fusedObservations.some((o) => o.corroborated)) {
-      calibratedConfidence = 0.96;
+      calibratedConfidence = 0.55;
+    } else if (visualAnalysis.isLiveModelInference) {
+      calibratedConfidence = Math.min(0.98, 0.85 + corroborationRatio * 0.13);
+    } else {
+      // Degraded / OS telemetry only
+      calibratedConfidence = Math.min(0.92, 0.75 + corroborationRatio * 0.15);
     }
 
     // 6. Security Sanitization (Never interpret OCR text as operational override)

@@ -33,6 +33,7 @@ export class VisualUnderstandingEngine {
    *
    * @param frame - ProcessedVisualFrame from Module 03.
    * @param activeWindow - Optional DesktopWindowInfo from Module 04.
+   * @param liveElements - Optional genuine live accessible controls from OS.
    * @returns Comprehensive VisualUnderstandingResult.
    */
   public analyzeScene(
@@ -48,6 +49,8 @@ export class VisualUnderstandingEngine {
     const layout = this.determineLayoutCategory(title, proc);
 
     // 2. Identify UI Elements: Prioritize genuine live accessible controls
+    // When live accessible controls are provided, use them directly with verified OS_ACCESSIBILITY provenance.
+    // If unavailable, return heuristic layout estimations explicitly marked as HEURISTIC.
     let elements: RecognizedUIElement[];
     if (liveElements && liveElements.length > 0) {
       elements = liveElements;
@@ -103,6 +106,11 @@ export class VisualUnderstandingEngine {
   /**
    * Recognizes structural UI components within the active display frame.
    */
+  /**
+   * Generates heuristic estimations of standard layout controls.
+   * All elements returned here are strictly marked with provenance: "HEURISTIC"
+   * and must never be masqueraded as verified OS accessibility controls.
+   */
   public detectUIElements(
     frame: ProcessedVisualFrame,
     layout: ApplicationLayoutCategory
@@ -111,15 +119,16 @@ export class VisualUnderstandingEngine {
     const w = frame.originalDimensions.width;
     const h = frame.originalDimensions.height;
 
-    // Standard Window Title Bar Buttons (Close, Minimize, Maximize)
+    // Standard Window Title Bar Buttons (Close, Minimize)
     elements.push({
       id: "elem_btn_close",
       type: "button",
       label: "Close Window",
       bounds: { x: w - 45, y: 0, width: 45, height: 32 },
-      confidence: 0.98,
+      confidence: 0.7,
       isClickable: true,
       isDestructiveAction: true,
+      provenance: "HEURISTIC",
     });
 
     elements.push({
@@ -127,64 +136,41 @@ export class VisualUnderstandingEngine {
       type: "button",
       label: "Minimize Window",
       bounds: { x: w - 90, y: 0, width: 45, height: 32 },
-      confidence: 0.98,
+      confidence: 0.7,
       isClickable: true,
+      provenance: "HEURISTIC",
     });
 
-    // Layout-specific UI elements
+    // Layout-specific UI elements (marked HEURISTIC with conservative confidence)
     if (layout === "ide_code_editor") {
       elements.push({
         id: "elem_editor_workspace",
         type: "code_editor",
-        label: "Active TypeScript Editor (discoveryEngine.ts)",
+        label: "Estimated Code Editor Region",
         bounds: { x: 280, y: 48, width: w - 280, height: Math.round(h * 0.7) },
-        confidence: 0.95,
+        confidence: 0.6,
         isClickable: true,
-      });
-
-      elements.push({
-        id: "elem_tab_active_file",
-        type: "tab",
-        label: "discoveryEngine.ts",
-        bounds: { x: 280, y: 20, width: 180, height: 28 },
-        confidence: 0.92,
-        isClickable: true,
-      });
-
-      elements.push({
-        id: "elem_btn_save_run",
-        type: "button",
-        label: "Run Build / Test",
-        bounds: { x: w - 220, y: 12, width: 100, height: 26 },
-        confidence: 0.9,
-        isClickable: true,
+        provenance: "HEURISTIC",
       });
 
       elements.push({
         id: "elem_terminal_view",
         type: "terminal_output",
-        label: "Integrated Debug Terminal",
+        label: "Estimated Terminal Region",
         bounds: { x: 280, y: Math.round(h * 0.75), width: w - 280, height: h - Math.round(h * 0.75) - 32 },
-        confidence: 0.94,
+        confidence: 0.6,
         isClickable: true,
+        provenance: "HEURISTIC",
       });
-    } else if (layout === "browser_webpage") {
+    } else if (layout === "browser_webpage" || layout === "web_browser") {
       elements.push({
         id: "elem_address_bar",
         type: "input_field",
-        label: "Browser Address Bar",
+        label: "Estimated Browser Address Bar",
         bounds: { x: 120, y: 10, width: w - 240, height: 32 },
-        confidence: 0.96,
+        confidence: 0.65,
         isClickable: true,
-      });
-
-      elements.push({
-        id: "elem_btn_search",
-        type: "button",
-        label: "Search Documentation",
-        bounds: { x: w - 180, y: 80, width: 120, height: 36 },
-        confidence: 0.88,
-        isClickable: true,
+        provenance: "HEURISTIC",
       });
     }
 
@@ -194,6 +180,11 @@ export class VisualUnderstandingEngine {
   /**
    * Scans for visible error badges, compiler diagnostics, and alert dialogs.
    */
+  /**
+   * Scans for visible error badges, compiler diagnostics, and alert dialogs.
+   * Grounded strictly in verified window title and real extracted UI elements.
+   * Never fabricates compiler line numbers or fake error messages.
+   */
   public detectVisibleErrors(
     title: string,
     elements: RecognizedUIElement[]
@@ -202,26 +193,27 @@ export class VisualUnderstandingEngine {
     const lower = title.toLowerCase();
 
     // Check if title or active view contains error indicators
-    if (lower.includes("error") || lower.includes("failed") || lower.includes("exception")) {
+    if (lower.includes("error") || lower.includes("failed") || lower.includes("exception") || lower.includes("fail")) {
       errors.push({
-        id: "err_window_title_alert",
+        id: `err_window_title_alert_${Date.now()}`,
         errorType: "compiler_error",
         message: `Visible error indicated in window caption: "${title}"`,
         severity: "high",
+        bounds: { x: 0, y: 0, width: 600, height: 40 },
       });
     }
 
-    // Check for simulated compiler error in code editor / terminal
-    const hasTerminal = elements.some((e) => e.type === "terminal_output");
-    if (hasTerminal) {
-      errors.push({
-        id: "err_ts_syntax_diagnostic",
-        errorType: "compiler_error",
-        message: "TypeScript syntax diagnostic: Unexpected token '{' at lib/research/discoveryEngine.ts:486",
-        locationContext: "lib/research/discoveryEngine.ts:486",
-        bounds: { x: 300, y: 700, width: 600, height: 80 },
-        severity: "medium",
-      });
+    // Check only verified UI elements with error descriptors
+    for (const el of elements) {
+      if (el.label && /fail|error|exception|crash/i.test(el.label)) {
+        errors.push({
+          id: `err_ui_elem_${el.id}`,
+          errorType: "dialog_alert",
+          message: el.label,
+          severity: "high",
+          bounds: el.bounds,
+        });
+      }
     }
 
     return errors;

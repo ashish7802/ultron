@@ -20,10 +20,30 @@ import { defaultVisualContextDeliveryEngine } from "@/lib/screen/contextDelivery
 import { defaultPrivacySecurityEngine } from "@/lib/screen/privacySecurityEngine";
 import { defaultScreenSessionManager } from "@/lib/screen/sessionManager";
 import { defaultVisionControl } from "@/lib/screen/visionControl";
+import { validateSessionToken } from "@/lib/security/identityEngine";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(): Promise<NextResponse> {
+/**
+ * Extracts and validates founder/user session token from request.
+ */
+function extractSession(req: NextRequest) {
+  const token =
+    req.headers.get("x-ultron-session-token") ||
+    req.cookies.get("ultron_session")?.value ||
+    req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+  return { token: token || "", validation: validateSessionToken(token) };
+}
+
+export async function GET(req: NextRequest): Promise<NextResponse> {
+  const { validation } = extractSession(req);
+  if (!validation.isValid || !validation.session) {
+    return NextResponse.json(
+      { success: false, error: "Unauthorized: Valid session required to read screen context." },
+      { status: 401 }
+    );
+  }
+
   try {
     const lastPayload = defaultVisualContextDeliveryEngine.getLastPayload();
     if (!lastPayload) {
@@ -48,6 +68,14 @@ export async function GET(): Promise<NextResponse> {
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const { validation } = extractSession(req);
+  if (!validation.isValid || !validation.session) {
+    return NextResponse.json(
+      { success: false, error: "Unauthorized: Valid session required to synthesize screen context." },
+      { status: 401 }
+    );
+  }
+
   try {
     const body = await req.json().catch(() => ({}));
     const session = defaultScreenSessionManager.getActiveSession();

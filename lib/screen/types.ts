@@ -200,6 +200,13 @@ export type UIElementType =
   | "error_badge"
   | "notification";
 
+export type FusedObservationSource =
+  | "VISUAL_MODEL"
+  | "OCR_TEXT"
+  | "OS_ACCESSIBILITY"
+  | "HEURISTIC"
+  | "CROSS_CORRELATED";
+
 export interface RecognizedUIElement {
   id: string;
   type: UIElementType;
@@ -209,6 +216,7 @@ export interface RecognizedUIElement {
   isClickable: boolean;
   isDestructiveAction?: boolean;
   associatedText?: string;
+  provenance?: "OS_ACCESSIBILITY" | "HEURISTIC" | "VISUAL_MODEL";
 }
 
 export type ApplicationLayoutCategory =

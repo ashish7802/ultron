@@ -21,11 +21,31 @@ import { defaultScreenContextEngine } from "@/lib/screen/screenContextEngine";
 import { defaultVisualQAEngine } from "@/lib/screen/visualQAEngine";
 import { defaultPrivacySecurityEngine } from "@/lib/screen/privacySecurityEngine";
 import { defaultScreenSessionManager } from "@/lib/screen/sessionManager";
+import { validateSessionToken } from "@/lib/security/identityEngine";
 import type { VQAQueryRequest } from "@/lib/screen/types";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Extracts and validates founder/user session token from request.
+ */
+function extractSession(req: NextRequest) {
+  const token =
+    req.headers.get("x-ultron-session-token") ||
+    req.cookies.get("ultron_session")?.value ||
+    req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+  return { token: token || "", validation: validateSessionToken(token) };
+}
+
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const { validation } = extractSession(req);
+  if (!validation.isValid || !validation.session) {
+    return NextResponse.json(
+      { success: false, error: "Unauthorized: Valid session required to execute VQA queries." },
+      { status: 401 }
+    );
+  }
+
   try {
     let body: VQAQueryRequest;
     try {

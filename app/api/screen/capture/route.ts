@@ -21,11 +21,31 @@ import { defaultWindowDetectionEngine } from "@/lib/screen/windowDetectionEngine
 import { defaultPrivacySecurityEngine } from "@/lib/screen/privacySecurityEngine";
 import { defaultVisionControl } from "@/lib/screen/visionControl";
 import { defaultScreenSessionManager } from "@/lib/screen/sessionManager";
+import { validateSessionToken } from "@/lib/security/identityEngine";
 import type { CaptureOptions } from "@/lib/screen/types";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(): Promise<NextResponse> {
+/**
+ * Extracts and validates founder/user session token from request.
+ */
+function extractSession(req: NextRequest) {
+  const token =
+    req.headers.get("x-ultron-session-token") ||
+    req.cookies.get("ultron_session")?.value ||
+    req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+  return { token: token || "", validation: validateSessionToken(token) };
+}
+
+export async function GET(req: NextRequest): Promise<NextResponse> {
+  const { validation } = extractSession(req);
+  if (!validation.isValid || !validation.session) {
+    return NextResponse.json(
+      { success: false, error: "Unauthorized: Valid session required to inspect displays." },
+      { status: 401 }
+    );
+  }
+
   try {
     const monitors = await defaultScreenCaptureEngine.getConnectedMonitors();
     const windowInfo = await defaultWindowDetectionEngine.detectActiveWindows();
@@ -45,6 +65,14 @@ export async function GET(): Promise<NextResponse> {
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const { validation } = extractSession(req);
+  if (!validation.isValid || !validation.session) {
+    return NextResponse.json(
+      { success: false, error: "Unauthorized: Valid session required to trigger screen capture." },
+      { status: 401 }
+    );
+  }
+
   try {
     let options: CaptureOptions = { mode: "full_screen" };
     try {

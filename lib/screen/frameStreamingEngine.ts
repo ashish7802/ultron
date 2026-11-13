@@ -23,6 +23,7 @@ import { defaultScreenCaptureEngine, ScreenCaptureEngine } from "./screenCapture
 import { defaultPrivacySecurityEngine, PrivacySecurityEngine } from "./privacySecurityEngine.ts";
 import { defaultScreenSessionManager, ScreenSessionManager } from "./sessionManager.ts";
 import { defaultWindowDetectionEngine, WindowDetectionEngine } from "./windowDetectionEngine.ts";
+import { activateScreenCapture } from "../screenPrivacyController.ts";
 import type { CapturedFrame, CaptureOptions } from "./types.ts";
 
 export type FrameConsumer = (frame: CapturedFrame) => Promise<void> | void;
@@ -38,6 +39,8 @@ export interface FrameStreamStats {
   lastSequenceNumber: number;
   lastCaptureLatencyMs: number;
   consecutiveStaticFrames: number;
+  consumerErrorsCount: number;
+  lastConsumerError?: string;
 }
 
 export class FrameStreamingEngine {
@@ -70,6 +73,8 @@ export class FrameStreamingEngine {
   private _lastSequenceNumber: number = 0;
   private _lastCaptureLatencyMs: number = 0;
   private _consecutiveStaticFrames: number = 0;
+  private _consumerErrorsCount: number = 0;
+  private _lastConsumerError?: string;
 
   constructor(
     captureEngine?: ScreenCaptureEngine,
@@ -116,6 +121,13 @@ export class FrameStreamingEngine {
     const session = this._sessionManager.getSession(sessionId);
     if (!session || session.operationalState !== "LIVE" || session.cleanupCompleted) {
       throw new Error(`Cannot start streaming: session ${sessionId} is not in LIVE state`);
+    }
+
+    // Ensure screen privacy controller consent is active for streaming
+    try {
+      activateScreenCapture(15 * 60 * 1000);
+    } catch {
+      // Non-fatal
     }
 
     this._sessionId = sessionId;
@@ -195,6 +207,8 @@ export class FrameStreamingEngine {
       lastSequenceNumber: this._lastSequenceNumber,
       lastCaptureLatencyMs: this._lastCaptureLatencyMs,
       consecutiveStaticFrames: this._consecutiveStaticFrames,
+      consumerErrorsCount: this._consumerErrorsCount,
+      lastConsumerError: this._lastConsumerError,
     };
   }
 
@@ -291,12 +305,14 @@ export class FrameStreamingEngine {
         this._recentFrames.shift();
       }
 
-      // 7. Dispatch to registered consumers
+      // 7. Dispatch to registered consumers and await each consumer
       for (const consumer of this._consumers) {
         try {
           await consumer(frame);
           this._totalDelivered++;
         } catch (err) {
+          this._consumerErrorsCount++;
+          this._lastConsumerError = err instanceof Error ? err.message : String(err);
           console.warn("[FRAME STREAMING] Consumer error:", err);
         }
       }

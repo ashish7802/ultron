@@ -174,6 +174,13 @@ export class ScreenContextEngine {
     const errClause = errCount > 0 ? ` with ${errCount} active diagnostic error in terminal` : " with clean build state";
     return `${primaryActivity}${errClause}. Recognized ${visualResult.elements.length} interactive UI elements and ${ocrResult.tokenCount} text tokens on display.`;
   }
+
+  /**
+   * Resets and purges cached screen activity context during emergency stops or privacy revocations.
+   */
+  public clearContext(): void {
+    this._previousContext = null;
+  }
 }
 
 /** Global singleton instance of ScreenContextEngine. */

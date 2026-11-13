@@ -27,9 +27,18 @@ import { SENSITIVE_WINDOW_EXCLUSIONS } from "../screenPrivacyController.ts";
 import type {
   DesktopWindowInfo,
   WindowDetectionResult,
+  RecognizedUIElement,
+  UIElementType,
+  BoundingBox,
 } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
+
+export interface LiveAccessibilityResult {
+  elements: RecognizedUIElement[];
+  browserUrl?: string;
+  isAvailable: boolean;
+}
 
 export class WindowDetectionEngine {
   private _previousActiveApp: string | null = null;
@@ -46,6 +55,68 @@ export class WindowDetectionEngine {
    */
   private _getDriverScriptPath(): string {
     return path.join(/*turbopackIgnore: true*/ process.cwd(), "ultron_engine", "screen_capture_driver.py");
+  }
+
+  /**
+   * Harvests genuine OS accessibility UI elements directly from Windows MSAA / IAccessible.
+   * Never fabricates controls or assumes application layouts.
+   *
+   * @param targetHwndHex - Optional target window handle in hex (e.g. "0x00120A").
+   * @returns Verified live accessibility elements with OS_ACCESSIBILITY provenance.
+   */
+  public async extractLiveAccessibilityElements(targetHwndHex?: string): Promise<LiveAccessibilityResult> {
+    try {
+      const python = this._resolvePython();
+      const script = this._getDriverScriptPath();
+      const args = ["ui_elements"];
+      if (targetHwndHex) args.push(targetHwndHex);
+
+      const { stdout } = await execFileAsync(python, [script, ...args], {
+        timeout: 4000,
+        windowsHide: true,
+      });
+
+      const parsed = JSON.parse(stdout);
+      if (parsed.success && Array.isArray(parsed.elements)) {
+        const mapped: RecognizedUIElement[] = parsed.elements.map(
+          (el: { name: string; type: string; bounds: BoundingBox }, idx: number) => {
+            let uitype: UIElementType;
+            const t = (el.type || "").toLowerCase();
+            if (t.includes("button")) uitype = "button";
+            else if (t.includes("text") || t.includes("edit")) uitype = "input_field";
+            else if (t.includes("tab")) uitype = "tab";
+            else if (t.includes("menu")) uitype = "menu_item";
+            else if (t.includes("dialog") || t.includes("window")) uitype = "dialog";
+            else if (t.includes("check")) uitype = "button";
+            else uitype = "icon";
+
+            return {
+              id: `os_acc_${idx}_${Date.now()}`,
+              type: uitype,
+              label: el.name,
+              bounds: el.bounds || { x: 0, y: 0, width: 0, height: 0 },
+              confidence: 0.98,
+              isClickable: true,
+              provenance: "OS_ACCESSIBILITY" as const,
+            };
+          }
+        );
+
+        return {
+          elements: mapped,
+          browserUrl: typeof parsed.browserUrl === "string" ? parsed.browserUrl : undefined,
+          isAvailable: true,
+        };
+      }
+    } catch {
+      // Driver or MSAA unavailable
+    }
+
+    return {
+      elements: [],
+      browserUrl: undefined,
+      isAvailable: false,
+    };
   }
 
   /**

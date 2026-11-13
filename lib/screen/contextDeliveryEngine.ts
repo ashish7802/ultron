@@ -54,6 +54,23 @@ export class VisualContextDeliveryEngine {
   private _lastDeliveredHash: string | null = null;
   private _lastPayload: VisualContextPayload | null = null;
   private _isProcessingFrame: boolean = false;
+  private _lastProcessedSequence: number = 0;
+  private _activeProcessingSessionId: string | null = null;
+  private _timeProvider: () => number = () => Date.now();
+
+  /**
+   * Injects a deterministic clock provider (useful for unit testing temporal expiration).
+   */
+  public setTimeProvider(provider: () => number): void {
+    this._timeProvider = provider;
+  }
+
+  /**
+   * Resets clock provider to system wall clock.
+   */
+  public resetTimeProvider(): void {
+    this._timeProvider = () => Date.now();
+  }
 
   /**
    * Builds an optimized VisualContextPayload for cognitive grounding.
@@ -239,6 +256,19 @@ Observed at: ${tsStr} (age: ${ageMs}ms)
    * @param options - Context retrieval options.
    * @returns VisualContextPayload or null if screen awareness is disabled.
    */
+  /**
+   * Retrieves fresh or cached screen context for cognitive chat integration.
+   *
+   * Fail-Closed Invariants:
+   * 1. If vision is OFF, TERMINATED, or permission is DENIED/REVOKED, returns null immediately.
+   * 2. If `forceFresh: true`, a failure in capture or inference NEVER silently returns stale `_lastPayload`.
+   *    It returns `null` or a typed failure.
+   * 3. Any payload older than 15,000ms (15s TTL) is marked expired and rejected for live decisions.
+   * 4. Session mismatch: if `options.sessionId` is provided and differs from cached payload's sessionId, cached payload is rejected.
+   *
+   * @param options - Context retrieval options.
+   * @returns VisualContextPayload or null if screen awareness is disabled or fresh capture fails.
+   */
   public async getFreshOrCachedContext(options?: {
     forceFresh?: boolean;
     maxAgeMs?: number;
@@ -246,39 +276,79 @@ Observed at: ${tsStr} (age: ${ageMs}ms)
   }): Promise<VisualContextPayload | null> {
     const status = defaultVisionControl.getStatus();
 
-    // Fail-closed if vision is explicitly OFF, ERROR, or permission DENIED
-    if (status.permissionState === "DENIED" || status.operationalState === "ERROR") {
+    // Fail-closed if vision is explicitly OFF, ERROR, TERMINATED, or permission is not GRANTED/PROMPT
+    if (
+      status.operationalState === "OFF" ||
+      status.operationalState === "TERMINATED" ||
+      status.operationalState === "ERROR" ||
+      status.permissionState === "DENIED" ||
+      status.permissionState === "REVOKED"
+    ) {
       return null;
     }
 
-    const maxAge = options?.maxAgeMs ?? 10000;
-    const now = Date.now();
+    const ttlLimitMs = 15000; // Strict 15-second freshness ceiling
+    const maxAge = Math.min(options?.maxAgeMs ?? 10000, ttlLimitMs);
+    const now = this._timeProvider();
 
-    // If cached payload is still fresh and fresh capture is not forced, return cached
-    if (
-      !options?.forceFresh &&
-      this._lastPayload &&
-      now - this._lastPayload.timestamp < maxAge
-    ) {
-      // Update frameAgeMs to reflect current age
-      this._lastPayload.frameAgeMs = now - this._lastPayload.timestamp;
-      return this._lastPayload;
+    const expectedSessionId = options?.sessionId || status.activeSessionId;
+
+    // Check if cached payload is still valid and fresh
+    if (!options?.forceFresh && this._lastPayload) {
+      const payloadAge = now - this._lastPayload.timestamp;
+
+      // Check session identity match
+      const sessionMatches = !expectedSessionId || this._lastPayload.sessionId === expectedSessionId;
+
+      if (sessionMatches && payloadAge < maxAge && payloadAge <= ttlLimitMs) {
+        this._lastPayload.frameAgeMs = payloadAge;
+        return this._lastPayload;
+      }
     }
 
-    // Otherwise, perform an authentic physical capture tick
+    // If cached payload was rejected or forceFresh is true, perform fresh capture
+    // Wait for in-flight processing if currently locked (up to 2000ms) rather than dropping or racing
+    if (this._isProcessingFrame) {
+      const lockWaitStart = this._timeProvider();
+      while (this._isProcessingFrame && this._timeProvider() - lockWaitStart < 2000) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    }
+
     try {
+      this._isProcessingFrame = true;
+      this._activeProcessingSessionId = expectedSessionId || null;
       defaultVisionControl.setOperationalState("ANALYZING");
 
       // 1. Capture physical frame
       const frame = await defaultScreenCaptureEngine.captureFrame(
         { mode: "full_screen" },
-        options?.sessionId || status.activeSessionId || undefined
+        expectedSessionId || undefined
       );
 
-      return await this._processCapturedFrame(frame, options?.sessionId || status.activeSessionId || undefined);
+      // Verify session has not been terminated during capture
+      const currentStatus = defaultVisionControl.getStatus();
+      if (
+        currentStatus.operationalState === "TERMINATED" ||
+        currentStatus.operationalState === "OFF" ||
+        currentStatus.permissionState === "DENIED" ||
+        currentStatus.permissionState === "REVOKED"
+      ) {
+        return null;
+      }
+
+      const result = await this._processCapturedFrame(frame, expectedSessionId || undefined);
+      return result;
     } catch {
       defaultVisionControl.setOperationalState("DEGRADED");
-      return this._lastPayload;
+      // STRICT FAIL-CLOSED: When forceFresh is requested, NEVER silently return stale _lastPayload
+      if (options?.forceFresh) {
+        return null;
+      }
+      return null;
+    } finally {
+      this._isProcessingFrame = false;
+      this._activeProcessingSessionId = null;
     }
   }
 
@@ -290,17 +360,46 @@ Observed at: ${tsStr} (age: ${ageMs}ms)
    * @param sessionId - Optional explicit session ID.
    * @returns VisualContextPayload or null.
    */
+  /**
+   * Processes an incoming captured frame from the streaming pipeline or on-demand tick.
+   * Concurrency-safe: prevents inference stampedes and racing analysis passes.
+   * Enforces monotonic sequence numbers to prevent stale out-of-order frames from overwriting newer context.
+   *
+   * @param frame - CapturedFrame from physical driver.
+   * @returns VisualContextPayload or null.
+   */
   public async processStreamingFrame(frame: CapturedFrame): Promise<VisualContextPayload | null> {
     if (this._isProcessingFrame) {
       // Drop frame to enforce backpressure and preserve ordered sequence
       return null;
     }
 
+    // Sequence check: drop stale frames if sequence number is not strictly greater than last processed
+    if (frame.sequenceNumber && frame.sequenceNumber <= this._lastProcessedSequence) {
+      return null;
+    }
+
+    const status = defaultVisionControl.getStatus();
+    if (
+      status.operationalState === "TERMINATED" ||
+      status.operationalState === "OFF" ||
+      status.permissionState === "DENIED" ||
+      status.permissionState === "REVOKED"
+    ) {
+      return null;
+    }
+
     this._isProcessingFrame = true;
+    this._activeProcessingSessionId = frame.sessionId;
     try {
-      return await this._processCapturedFrame(frame, frame.sessionId);
+      const res = await this._processCapturedFrame(frame, frame.sessionId);
+      if (res && frame.sequenceNumber) {
+        this._lastProcessedSequence = frame.sequenceNumber;
+      }
+      return res;
     } finally {
       this._isProcessingFrame = false;
+      this._activeProcessingSessionId = null;
     }
   }
 
@@ -313,23 +412,53 @@ Observed at: ${tsStr} (age: ${ageMs}ms)
       throw new Error("Invalid or corrupted screen capture buffer");
     }
 
+    // Abort if session was terminated or killed during processing
+    const liveStatus = defaultVisionControl.getStatus();
+    if (
+      liveStatus.operationalState === "TERMINATED" ||
+      liveStatus.operationalState === "OFF" ||
+      liveStatus.permissionState === "DENIED" ||
+      liveStatus.permissionState === "REVOKED"
+    ) {
+      return null;
+    }
+
     // 2. Detect active windows and OS accessibility elements
     const windowInfo = await defaultWindowDetectionEngine.detectActiveWindows();
     const activeWin = windowInfo.activeWindow;
 
+    // Harvest genuine live accessible controls directly from Windows MSAA / IAccessible
+    const accResult = await defaultWindowDetectionEngine.extractLiveAccessibilityElements(activeWin?.handle);
+    const liveAccessibilityElements = accResult.isAvailable ? accResult.elements : [];
+
     // 3. Process frame metrics
     const processed = defaultVisualProcessingEngine.processFrame(frame);
 
-    // 4. Run spatial OCR extraction
+    // 4. Run spatial OCR extraction (pass genuine OS accessible text if available)
     const ocr = defaultOCREngine.extractText(processed, activeWin?.title);
 
     // 5. Ingest UI elements and run REAL Multimodal Vision Inference
-    const uiElements = defaultVisualUnderstandingEngine.analyzeScene(processed, activeWin).elements;
+    // Explicitly pass harvested OS accessibility elements so heuristic estimations are bypassed
+    const uiElements = defaultVisualUnderstandingEngine.analyzeScene(
+      processed,
+      activeWin,
+      liveAccessibilityElements.length > 0 ? liveAccessibilityElements : undefined
+    ).elements;
+
     const visualAnalysis = await defaultMultimodalVisionEngine.analyzeFrame(
       frame,
       activeWin,
       uiElements
     );
+
+    // Re-verify that termination did not occur during vision inference
+    const postInferenceStatus = defaultVisionControl.getStatus();
+    if (
+      postInferenceStatus.operationalState === "TERMINATED" ||
+      postInferenceStatus.operationalState === "OFF"
+    ) {
+      return null;
+    }
 
     // 6. Validate frame ID alignment between physical capture and vision model
     if (visualAnalysis.frameId !== frame.frameId) {
@@ -387,6 +516,13 @@ Observed at: ${tsStr} (age: ${ageMs}ms)
       defaultVisionControl.setOperationalState("DEGRADED");
     }
 
+    // Invalidate if emergency termination happened just before saving
+    if (defaultVisionControl.getStatus().operationalState === "TERMINATED") {
+      this._lastPayload = null;
+      return null;
+    }
+
+    this._lastPayload = payload;
     return payload;
   }
 
@@ -396,6 +532,9 @@ Observed at: ${tsStr} (age: ${ageMs}ms)
   public clearContext(): void {
     this._lastPayload = null;
     this._lastDeliveredHash = null;
+    this._lastProcessedSequence = 0;
+    this._activeProcessingSessionId = null;
+    this._isProcessingFrame = false;
     defaultTemporalScreenIntelligence.reset();
   }
 
