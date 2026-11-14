@@ -1,0 +1,66 @@
+name: ULTRON Security & Regression CI
+
+on:
+  push:
+    branches: [ main, "fix/*" ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  static-analysis:
+    name: Type Check & Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: TypeScript Type Checking
+        run: npx tsc --noEmit
+
+  security-regression:
+    name: Security Invariants & Milestone Regression
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          npm ci
+          python -m pip install --upgrade pip
+          pip install pypiwin32 pywin32 cryptography
+
+      - name: Run Milestone 5 Security Suite
+        run: node scripts/test_milestone5_battery.cjs
+
+      - name: Run Phase 1 Security Battery (F-02, F-03, F-04, F-15)
+        run: node scripts/test_phase1_battery.cjs
+
+      - name: Run Phase 1.1 Adversarial Battery
+        run: node scripts/test_phase1_1_adversarial.cjs
+
+      - name: Run Phase 2 Security Hardening Battery
+        run: node scripts/test_phase2_battery.cjs
+
+      - name: Run Phase 2 Browser & API Workflow Battery
+        run: node scripts/test_phase2_browser_workflows.cjs

@@ -21,6 +21,7 @@ import {
   unlockFromEmergencyStop,
 } from "@/lib/security/emergencyEngine";
 import { validateSessionToken } from "@/lib/security/identityEngine";
+import { verifyRecoveryKey } from "@/lib/security/recoveryKey";
 
 export async function GET() {
   const status = getLockdownStatus();
@@ -47,7 +48,23 @@ export async function POST(req: NextRequest) {
       case "lockdown": {
         const token = req.headers.get("x-ultron-session-token") || req.cookies.get("ultron_session")?.value;
         const auth = validateSessionToken(token);
-        const actor = auth.session ? auth.session.userId : "emergency_user";
+
+        // Security Invariant (F-10 / F-11): Manual Lockdown trigger strictly requires an authenticated
+        // Founder session with FOUNDER_AUTHORIZED level, or a validated founder recovery key.
+        const isAuthorizedSession = auth.isValid && auth.session && auth.session.userRole === "founder" && auth.session.authenticationLevel === "FOUNDER_AUTHORIZED";
+        const isAuthorizedRecovery = recoveryKey && typeof recoveryKey === "string" && verifyRecoveryKey(recoveryKey);
+
+        if (!isAuthorizedSession && !isAuthorizedRecovery) {
+          return NextResponse.json(
+            {
+              ok: false,
+              error: "Unauthorized: Emergency lockdown requires an authenticated founder session (FOUNDER_AUTHORIZED) or valid founder recovery key.",
+            },
+            { status: 403 }
+          );
+        }
+
+        const actor = auth.session ? auth.session.userId : "founder_emergency";
 
         const state = triggerEmergencyStop({
           actor,

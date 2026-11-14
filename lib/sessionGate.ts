@@ -26,6 +26,7 @@
 import type { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { validateSessionToken as validateIdentityToken } from "./security/identityEngine.ts";
+import type { AuthenticationLevel, UserRole } from "./security/types.ts";
 
 export interface SessionInfo {
   sessionId: string;
@@ -33,6 +34,8 @@ export interface SessionInfo {
   createdAt: number;
   expiresAt: number;
   lastActiveAt: number;
+  userRole?: UserRole;
+  authenticationLevel?: AuthenticationLevel;
 }
 
 export interface ActionToken {
@@ -99,11 +102,55 @@ export function getOrCreatePrimarySessionToken(): string {
     createdAt: now,
     expiresAt: now + SESSION_TTL_MS,
     lastActiveAt: now,
+    userRole: "operator", // Default bootstrap role is operator, NOT founder
+    authenticationLevel: "CHAT_AUTHENTICATED", // Scoped strictly to interactive chat
   };
 
   activeSessions.set(token, session);
   primaryDesktopSessionToken = token;
   return token;
+}
+
+/**
+ * Retrieves the session information for an active token.
+ *
+ * @param token - Session token string.
+ * @returns SessionInfo if valid and active, null otherwise.
+ */
+export function getDesktopSession(token: string): SessionInfo | null {
+  if (!token || revokedSessions.has(token)) return null;
+  const session = activeSessions.get(token);
+  if (!session || session.expiresAt < Date.now()) return null;
+  return session;
+}
+
+/**
+ * Registers an arbitrary desktop session into the active session store.
+ *
+ * @param session - Session configuration parameters.
+ * @returns Created SessionInfo.
+ */
+export function createDesktopSession(params: {
+  userId?: string;
+  userRole?: UserRole;
+  authenticationLevel?: AuthenticationLevel;
+}): SessionInfo {
+  const token = crypto.randomBytes(32).toString("hex");
+  const sessionId = "sess_" + crypto.randomBytes(8).toString("hex");
+  const now = Date.now();
+
+  const session: SessionInfo = {
+    sessionId,
+    token,
+    createdAt: now,
+    expiresAt: now + SESSION_TTL_MS,
+    lastActiveAt: now,
+    userRole: params.userRole || "operator",
+    authenticationLevel: params.authenticationLevel || "CHAT_AUTHENTICATED",
+  };
+
+  activeSessions.set(token, session);
+  return session;
 }
 
 /**
@@ -330,7 +377,18 @@ export function validateDesktopSession(
   const session = activeSessions.get(token);
   if (!session) {
     if (primaryDesktopSessionToken && token === primaryDesktopSessionToken) {
-      return { valid: true };
+      return {
+        valid: true,
+        session: {
+          sessionId: "sess_primary",
+          token,
+          createdAt: Date.now(),
+          expiresAt: Date.now() + SESSION_TTL_MS,
+          lastActiveAt: Date.now(),
+          userRole: "operator",
+          authenticationLevel: "CHAT_AUTHENTICATED",
+        },
+      };
     }
     // Check centralized identity engine sessions
     try {
@@ -344,6 +402,8 @@ export function validateDesktopSession(
             createdAt: secCheck.session.createdAt,
             expiresAt: secCheck.session.expiresAt,
             lastActiveAt: secCheck.session.lastActiveAt,
+            userRole: secCheck.session.userRole,
+            authenticationLevel: secCheck.session.authenticationLevel,
           },
         };
       }

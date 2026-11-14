@@ -27,20 +27,30 @@
 
 import fs from "fs";
 import path from "path";
+import { defaultAppPathService } from "./security/appPathService.ts";
+import { defaultDpapiBridge } from "./security/dpapiBridge.ts";
 
 // Dynamic CSPRNG master transport secret (never hardcoded in production)
 let dynamicMasterKey: string | null = null;
 
-/** Legacy fallback secret retained strictly for decrypting historical envelopes during migration. */
+/** 
+ * Legacy fallback secret retained STRICTLY for read-only backward compatibility 
+ * when decrypting historical V1 sealed envelopes during data migration.
+ * MUST NEVER be used to encrypt new payloads or envelopes.
+ */
 const LEGACY_MIGRATION_KEY = "STARK_ULTRON_MARK_LXXXV_OMEGA_SEC_256BIT_KEY";
 
 /**
  * Retrieves or lazily generates the active cryptographic master transport secret.
  *
- * WHY: Production cryptographic keys must NEVER be hardcoded static strings in source code.
- * This function derives the key from `process.env.ULTRON_MASTER_KEY` or loads/generates a 256-bit
- * cryptographically secure random value stored locally in `.vault_key` to guarantee persistent
- * vault decryption across application process restarts in the desktop environment.
+ * WHY & HOW:
+ * Production cryptographic keys must NEVER be hardcoded static strings in source code.
+ * This function resolves the key through the following priority order:
+ * 1. Environment variable `process.env.ULTRON_MASTER_KEY` (if >= 16 characters).
+ * 2. Deterministic persistent storage via `defaultAppPathService.getVaultKeyPath()`.
+ *    - Checks for DPAPI-protected key file (`.vault_key.dpapi`) and decrypts via `defaultDpapiBridge`.
+ *    - If plaintext `.vault_key` exists, reads it and opportunistically protects it via DPAPI into `.vault_key.dpapi`.
+ * 3. Fresh 256-bit CSPRNG key generation via `crypto.getRandomValues()`, saving protected copy to disk.
  *
  * @returns 256-bit hex secret string.
  */
@@ -52,11 +62,39 @@ export function getActiveMasterSecret(): string {
     // If in Node.js runtime, check for persistent local key to ensure cross-process consistency
     if (typeof process !== "undefined" && process.versions?.node) {
       try {
-        const keyPath = path.join(/*turbopackIgnore: true*/ process.cwd(), ".vault_key");
-        if (fs.existsSync(keyPath)) {
-          const stored = fs.readFileSync(keyPath, "utf-8").trim();
+        const basePath = defaultAppPathService.getVaultKeyPath();
+        const dpapiPath = `${basePath}.dpapi`;
+
+        // 1. Try reading DPAPI-protected key file
+        if (fs.existsSync(dpapiPath)) {
+          const encData = fs.readFileSync(dpapiPath, "utf-8").trim();
+          if (encData.length > 0) {
+            const unwrapped = defaultDpapiBridge.unprotectSecret(encData);
+            if (unwrapped && unwrapped.length >= 32) {
+              dynamicMasterKey = unwrapped;
+              return unwrapped;
+            }
+          }
+        }
+
+        // 2. Fall back to existing plaintext .vault_key
+        if (fs.existsSync(basePath)) {
+          const stored = fs.readFileSync(basePath, "utf-8").trim();
           if (stored.length >= 32) {
             dynamicMasterKey = stored;
+
+            // Opportunistically wrap with DPAPI if available
+            try {
+              if (defaultDpapiBridge.isAvailable() && !fs.existsSync(dpapiPath)) {
+                const protectedBlob = defaultDpapiBridge.protectSecret(stored, "Ultron Vault Master Key");
+                if (protectedBlob && !protectedBlob.startsWith("PLAINTEXT_FALLBACK:")) {
+                  fs.writeFileSync(dpapiPath, protectedBlob, { encoding: "utf-8", mode: 0o600 });
+                }
+              }
+            } catch {
+              // Ignore opportunistic protection errors
+            }
+
             return stored;
           }
         }
@@ -73,8 +111,19 @@ export function getActiveMasterSecret(): string {
 
     if (typeof process !== "undefined" && process.versions?.node) {
       try {
-        const keyPath = path.join(/*turbopackIgnore: true*/ process.cwd(), ".vault_key");
-        fs.writeFileSync(keyPath, dynamicMasterKey, { encoding: "utf-8" });
+        const basePath = defaultAppPathService.getVaultKeyPath();
+        const dpapiPath = `${basePath}.dpapi`;
+
+        // Save plaintext fallback
+        fs.writeFileSync(basePath, dynamicMasterKey, { encoding: "utf-8", mode: 0o600 });
+
+        // Save DPAPI protected version if supported
+        if (defaultDpapiBridge.isAvailable()) {
+          const protectedBlob = defaultDpapiBridge.protectSecret(dynamicMasterKey, "Ultron Vault Master Key");
+          if (protectedBlob && !protectedBlob.startsWith("PLAINTEXT_FALLBACK:")) {
+            fs.writeFileSync(dpapiPath, protectedBlob, { encoding: "utf-8", mode: 0o600 });
+          }
+        }
       } catch {
         // Non-fatal if filesystem is restricted
       }
@@ -100,12 +149,17 @@ export function rotateMasterKey(): string {
 
   if (typeof process !== "undefined" && process.versions?.node) {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const fsMod = require("fs");
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const pathMod = require("path");
-      const keyPath = pathMod.join(/*turbopackIgnore: true*/ process.cwd(), ".vault_key");
-      fsMod.writeFileSync(keyPath, dynamicMasterKey, { encoding: "utf-8" });
+      const basePath = defaultAppPathService.getVaultKeyPath();
+      const dpapiPath = `${basePath}.dpapi`;
+
+      fs.writeFileSync(basePath, dynamicMasterKey, { encoding: "utf-8", mode: 0o600 });
+
+      if (defaultDpapiBridge.isAvailable()) {
+        const protectedBlob = defaultDpapiBridge.protectSecret(dynamicMasterKey, "Ultron Vault Master Key");
+        if (protectedBlob && !protectedBlob.startsWith("PLAINTEXT_FALLBACK:")) {
+          fs.writeFileSync(dpapiPath, protectedBlob, { encoding: "utf-8", mode: 0o600 });
+        }
+      }
     } catch {
       // Non-fatal if filesystem is restricted
     }
