@@ -37,6 +37,18 @@ export type UserRole = "founder" | "admin" | "operator" | "guest";
 
 export type AuthMethod = "windows_hello" | "fingerprint" | "session_token" | "recovery_key";
 
+/**
+ * Explicit Authentication & Authorization Levels (F-01 Security Hardening).
+ * Enforces discrete capability boundaries across application initialization,
+ * normal chat access, tool execution, and founder administrative actions.
+ */
+export type AuthenticationLevel =
+  | "ANONYMOUS"              // Unauthenticated visitor
+  | "CHAT_AUTHENTICATED"    // Loopback desktop session initialized for interactive conversational chat
+  | "BIOMETRIC_VERIFIED"    // Verified via Windows Hello biometric authentication challenge
+  | "PRIVILEGED_AUTHORIZED" // Verified with active execution grant for sensitive/destructive operations
+  | "FOUNDER_AUTHORIZED";   // Full founder authority confirmed via biometrics or recovery key
+
 export interface UserIdentity {
   userId: string;
   username: string;
@@ -84,6 +96,7 @@ export interface DesktopSession {
   sessionToken: string;
   userId: string;
   userRole: UserRole;
+  authenticationLevel: AuthenticationLevel;
   deviceId: string;
   createdAt: number;
   expiresAt: number;

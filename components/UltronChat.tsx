@@ -573,33 +573,36 @@ export default function UltronChat() {
     }
   };
 
-  // ── Approval & Tool Execution Handlers (Milestone 2) ───────────────────
+  // ── Approval & Tool Execution Handlers (Milestone 2 & Phase 1 Remediation) ───
   const [approvingPlanId, setApprovingPlanId] = useState<string | null>(null);
 
   const handleApprovePlan = async (plan: PermissionPlanData, messageId: string) => {
     setApprovingPlanId(plan.planId);
     try {
-      // 1. Send approval to /api/permission
+      // 1. Send approval to /api/permission adhering to strict API contract (F-02)
       const res = await fetch("/api/permission", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           planId: plan.planId,
-          decision: "approve",
+          action: "approve",
+          approvalToken: plan.approvalToken,
         }),
       });
 
       const data = await res.json();
-      if (!res.ok || !data.success) {
+      const isSuccess = res.ok && (data.ok === true || data.success === true);
+      if (!isSuccess) {
         alert(`Approval failed: ${data.error || "Unknown error"}`);
         return;
       }
 
       // 2. Append execution notification into conversation
       const execResult = data.result;
-      const statusText = data.executionSuccess
-        ? `✅ **Action Approved & Physically Verified**\n\n- **Target:** \`${plan.target}\`\n- **Output:** ${execResult?.output || "Executed successfully"}\n- **Verification:** ${execResult?.verificationDetails || "State confirmed via OS inspect."}`
-        : `⚠️ **Action Approved but Execution Failed**\n\n- **Error:** ${data.executionError || "Physical execution error"}`;
+      const isExecutionSuccess = data.executionSuccess !== false && execResult?.success !== false;
+      const statusText = isExecutionSuccess
+        ? `✅ **Action Approved & Physically Verified**\n\n- **Target:** \`${plan.target}\`\n- **Output:** ${execResult?.output || execResult?.message || "Executed successfully"}\n- **Verification:** ${execResult?.verificationDetails || "State confirmed via OS inspect."}`
+        : `⚠️ **Action Approved but Execution Failed**\n\n- **Error:** ${data.error || data.executionError || execResult?.error || "Physical execution error"}`;
 
       const execMsgId = generateId();
       const execMessage: ChatMessage = {
@@ -643,7 +646,8 @@ export default function UltronChat() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           planId: plan.planId,
-          decision: "deny",
+          action: "reject",
+          reason: "User cancelled in chat UI",
         }),
       });
 

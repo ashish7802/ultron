@@ -23,10 +23,12 @@
  * - Strict adherence to ULTRON AGENTS.md documentation standards.
  */
 
+import fs from "fs";
 import {
   planAction,
   approveActionPlan,
   executeApprovedAction,
+  generateSubprocessExecutionGrant,
   type ActionPlan,
   type ActionRiskLevel,
   type PermissionActionType,
@@ -197,7 +199,29 @@ export class ComputerToolRegistry {
 
     // 2. High-Risk / Mutating Operations Require Approval Gate
     const target = String(params.target || params.appName || params.path || params.command || params.url || name);
-    const requiresPlan = tool.riskLevel === "high" || tool.riskLevel === "critical" || tool.actionType === "shell_exec" || tool.actionType === "file_delete";
+    
+    // Evaluate if this specific invocation requires an authorized plan
+    let requiresPlan =
+      tool.riskLevel === "high" ||
+      tool.riskLevel === "critical" ||
+      tool.actionType === "shell_exec" ||
+      tool.actionType === "file_delete" ||
+      tool.actionType === "app_launch";
+
+    // F-03 Enforcement: Overwriting an existing file is a destructive mutation and requires user approval
+    if (tool.actionType === "file_write") {
+      const filePath = String(params.path || "");
+      const overwrite = params.overwrite !== false;
+      // If file already exists and overwrite is requested, gate behind an approval plan
+      try {
+        if (fs.existsSync(filePath) && overwrite) {
+          requiresPlan = true;
+        }
+      } catch {
+        // Fail closed if path check errors
+        requiresPlan = true;
+      }
+    }
 
     if (requiresPlan && (!context?.planId || !context?.executionGrantToken)) {
       // Create and return an ActionPlan requiring approval
@@ -213,7 +237,9 @@ export class ComputerToolRegistry {
         toolName: name,
         actionType: tool.actionType,
         target,
-        error: `Action "${tool.name}" requires explicit user approval before execution.`,
+        error: `Action "${tool.name}" requires explicit user approval before execution${
+          tool.actionType === "file_write" ? " (existing file overwrite)" : ""
+        }.`,
         durationMs: Date.now() - startTime,
         verified: false,
         permissionPlan: plan,
@@ -223,11 +249,28 @@ export class ComputerToolRegistry {
     // 3. Authorized or Low-Risk Execution
     try {
       if (context?.planId && context?.executionGrantToken) {
-        // Execute inside approved action gate
+        // Generate cryptographic subprocess authorization grant if this is a file_write operation
+        let subprocessGrant: string | undefined;
+        if (tool.actionType === "file_write") {
+          const filePath = String(params.path || target);
+          subprocessGrant = generateSubprocessExecutionGrant(
+            context.planId,
+            "write_file",
+            filePath
+          ).token;
+        }
+
+        // Execute inside approved action gate passing runtimeParams to prevent parameter tampering (F-15)
+        const execContext = {
+          ...context,
+          approvalGranted: true,
+          subprocessExecutionGrant: subprocessGrant,
+        };
         const outcome = await executeApprovedAction(
           context.planId,
           context.executionGrantToken,
-          async () => await tool.execute(params, context)
+          async () => await tool.execute(params, execContext),
+          params
         );
 
         if (!outcome.success) {
@@ -270,7 +313,7 @@ export class ComputerToolRegistry {
       category: "app",
       actionType: "app_launch",
       description: "Launches a desktop application by name or executable path",
-      riskLevel: "medium",
+      riskLevel: "high", // F-15 Remediation: Launching external processes is high risk and requires explicit user authorization
       parameters: [
         { name: "appName", type: "string", description: "Name or executable path of the application (e.g., 'notepad', 'calc')", required: true },
         { name: "args", type: "array", description: "Optional command line arguments to pass to the process", required: false },
@@ -326,13 +369,21 @@ export class ComputerToolRegistry {
         { name: "content", type: "string", description: "Text content to write to the file", required: true },
         { name: "overwrite", type: "boolean", description: "Whether to overwrite if file already exists", required: false, default: true },
       ],
-      execute: async (params) => {
+      execute: async (params, context) => {
         const startTime = Date.now();
         const filePath = String(params.path || "");
         const content = String(params.content || "");
         const overwrite = params.overwrite !== false;
+        const approvalGranted = Boolean(context?.approvalGranted);
+        const subprocessExecutionGrant = (context as Record<string, unknown> | undefined)?.subprocessExecutionGrant as string | undefined;
 
-        const writeRes = await defaultFileSystemIntelligence.writeFile(filePath, content, overwrite);
+        const writeRes = await defaultFileSystemIntelligence.writeFile(
+          filePath,
+          content,
+          overwrite,
+          approvalGranted,
+          subprocessExecutionGrant
+        );
         if (!writeRes.success) {
           return {
             success: false,

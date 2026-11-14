@@ -32,6 +32,7 @@ import {
 } from "@/lib/permissionGateway";
 import { launchAppByName } from "@/lib/appLauncher";
 import { controlAudioVolume, openUrlInBrowser } from "@/lib/systemController";
+import { defaultComputerToolRegistry } from "@/lib/computer/toolRegistry";
 import { validateDesktopSession, createAuthErrorResponse } from "@/lib/sessionGate";
 
 /**
@@ -93,37 +94,56 @@ export async function POST(req: NextRequest) {
     return createAuthErrorResponse(auth);
   }
 
+  // F-11 Enforcement: Privileged Action Approval strictly requires Genuine Founder authority.
+  // Operator, guest, or anonymous sessions are rejected fail-closed with HTTP 403 Forbidden.
+  const effectiveRole = auth.session?.userRole || "guest";
+  const authLevel = auth.session?.authenticationLevel;
+
+  if (effectiveRole !== "founder" || authLevel !== "FOUNDER_AUTHORIZED") {
+    return NextResponse.json(
+      {
+        ok: false,
+        success: false,
+        error: `Authorization Denied: Privileged computer actions strictly require Founder authority with FOUNDER_AUTHORIZED level. Session role is "${effectiveRole}" (${authLevel || "UNAUTHENTICATED"}).`,
+      },
+      { status: 403 }
+    );
+  }
+
   try {
     const body = await req.json();
-    const { action, planId, approvalToken, reason } = body;
+    // Normalize action: accommodate either direct 'action' or legacy 'decision' field
+    const rawAction = body.action || (body.decision === "deny" ? "reject" : body.decision);
+    const action = typeof rawAction === "string" ? rawAction.toLowerCase().trim() : "";
+    const { planId, approvalToken, reason } = body;
 
     if (!planId || typeof planId !== "string") {
-      return NextResponse.json({ ok: false, error: "planId is required" }, { status: 400 });
+      return NextResponse.json({ ok: false, success: false, error: "planId is required" }, { status: 400 });
     }
 
     // Cancellation pathway
-    if (action === "reject" || action === "cancel") {
+    if (action === "reject" || action === "cancel" || action === "deny") {
       const cancelled = cancelActionPlan(planId, reason || "User cancelled in UI");
       if (!cancelled) {
-        return NextResponse.json({ ok: false, error: "Action plan not found or already processed" }, { status: 404 });
+        return NextResponse.json({ ok: false, success: false, error: "Action plan not found or already processed" }, { status: 404 });
       }
-      return NextResponse.json({ ok: true, message: "Action was cancelled successfully." });
+      return NextResponse.json({ ok: true, success: true, message: "Action was cancelled successfully." });
     }
 
     // Approval pathway
     if (action === "approve") {
       if (!approvalToken || typeof approvalToken !== "string") {
-        return NextResponse.json({ ok: false, error: "approvalToken is required to authorize action" }, { status: 400 });
+        return NextResponse.json({ ok: false, success: false, error: "approvalToken is required to authorize action" }, { status: 400 });
       }
 
       const plan = getActionPlan(planId);
       if (!plan) {
-        return NextResponse.json({ ok: false, error: "Action plan not found or expired" }, { status: 404 });
+        return NextResponse.json({ ok: false, success: false, error: "Action plan not found or expired" }, { status: 404 });
       }
 
       const approvalResult = approveActionPlan(planId, approvalToken);
       if (!approvalResult.success || !approvalResult.executionGrantToken) {
-        return NextResponse.json({ ok: false, error: approvalResult.error || "Approval rejected" }, { status: 403 });
+        return NextResponse.json({ ok: false, success: false, error: approvalResult.error || "Approval rejected" }, { status: 403 });
       }
 
       const grantToken = approvalResult.executionGrantToken;
@@ -131,9 +151,46 @@ export async function POST(req: NextRequest) {
       // Define concrete executor depending on the action type
       let executionOutcome;
       if (plan.actionType === "app_launch") {
-        const appName = String(plan.params.appName || plan.target);
+        // App launch dispatcher: route through tool registry or fallback launcher
         executionOutcome = await executeApprovedAction(planId, grantToken, async () => {
-          return await launchAppByName(appName, { planId, grantToken });
+          const appName = String(plan.params.appName || plan.target);
+          return await defaultComputerToolRegistry.executeTool("launch_application", { appName }, {
+            planId,
+            executionGrantToken: grantToken,
+            approvalGranted: true,
+          });
+        });
+      } else if (plan.actionType === "file_write") {
+        // File write / overwrite dispatcher
+        executionOutcome = await executeApprovedAction(planId, grantToken, async () => {
+          const filePath = String(plan.params.path || plan.target);
+          const content = String(plan.params.content || "");
+          const overwrite = plan.params.overwrite !== false;
+          return await defaultComputerToolRegistry.executeTool("write_file", { path: filePath, content, overwrite }, {
+            planId,
+            executionGrantToken: grantToken,
+            approvalGranted: true,
+          });
+        });
+      } else if (plan.actionType === "file_delete") {
+        // File deletion dispatcher
+        executionOutcome = await executeApprovedAction(planId, grantToken, async () => {
+          const filePath = String(plan.params.path || plan.target);
+          return await defaultComputerToolRegistry.executeTool("delete_file", { path: filePath }, {
+            planId,
+            executionGrantToken: grantToken,
+            approvalGranted: true,
+          });
+        });
+      } else if (plan.actionType === "shell_exec") {
+        // Terminal command execution dispatcher
+        executionOutcome = await executeApprovedAction(planId, grantToken, async () => {
+          const cmd = String(plan.params.command || plan.target);
+          return await defaultComputerToolRegistry.executeTool("execute_command", { command: cmd }, {
+            planId,
+            executionGrantToken: grantToken,
+            approvalGranted: true,
+          });
         });
       } else if (plan.actionType === "volume_change") {
         const volAction = plan.params.volumeAction as "up" | "down" | "mute";
@@ -147,28 +204,39 @@ export async function POST(req: NextRequest) {
         });
       } else {
         return NextResponse.json(
-          { ok: false, error: `Unsupported action type: ${plan.actionType}` },
+          { ok: false, success: false, error: `Unsupported action type: ${plan.actionType}` },
           { status: 400 }
         );
       }
 
       if (!executionOutcome.success) {
         return NextResponse.json(
-          { ok: false, error: executionOutcome.error || "Execution failed" },
+          {
+            ok: false,
+            success: false,
+            executionSuccess: false,
+            error: executionOutcome.error || "Execution failed",
+            result: executionOutcome.result,
+          },
           { status: 500 }
         );
       }
 
       return NextResponse.json({
         ok: true,
+        success: true,
+        executionSuccess: true,
         message: "Action approved and executed successfully.",
         result: executionOutcome.result,
       });
     }
 
-    return NextResponse.json({ ok: false, error: `Invalid action "${action}". Must be "approve" or "reject".` }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, success: false, error: `Invalid action "${action}". Must be "approve" or "reject".` },
+      { status: 400 }
+    );
   } catch (err) {
     console.error("[API PERMISSION] Execution error:", err);
-    return NextResponse.json({ ok: false, error: "Internal error processing permission" }, { status: 500 });
+    return NextResponse.json({ ok: false, success: false, error: "Internal error processing permission" }, { status: 500 });
   }
 }

@@ -124,21 +124,29 @@ export class FileSystemIntelligence {
 
   /**
    * Writes data to a file with automatic rolling backup creation and post-write verification.
+   * Enforces security invariant (F-03): If the file exists and overwrite is true,
+   * a cryptographically signed execution grant must be verified.
    *
    * @param targetPath - Destination path.
    * @param content - Text content.
    * @param overwrite - Explicit overwrite flag.
+   * @param approvalGranted - Legacy boolean indicator.
+   * @param executionGrant - Cryptographic HMAC-SHA256 grant token issued by PermissionGateway.
    * @returns FileWriteOutcome with backup path and verification flag.
    */
   public async writeFile(
     targetPath: string,
     content: string,
-    overwrite: boolean = false
+    overwrite: boolean = false,
+    approvalGranted: boolean = false,
+    executionGrant?: string
   ): Promise<FileWriteOutcome> {
     const res = await defaultPythonBridge.execute<FileWriteOutcome>("write_file", {
       path: targetPath,
       content,
       overwrite,
+      approvalGranted,
+      executionGrant,
     });
     return {
       success: Boolean(res.success),

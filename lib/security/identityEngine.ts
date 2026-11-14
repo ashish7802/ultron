@@ -36,6 +36,7 @@ import type {
   DeviceBinding,
   BiometricVerificationResult,
   AuthMethod,
+  AuthenticationLevel,
 } from "./types.ts";
 import { verifyRecoveryKey } from "./recoveryKey.ts";
 
@@ -172,11 +173,25 @@ export function createAuthenticatedSession(
   const device = getLocalDeviceBinding();
   const now = Date.now();
 
+  // Explicit AuthenticationLevel determination (F-01)
+  let authenticationLevel: AuthenticationLevel = "CHAT_AUTHENTICATED";
+  if (verifiedBiometrics) {
+    authenticationLevel = role === "founder" ? "FOUNDER_AUTHORIZED" : "BIOMETRIC_VERIFIED";
+  } else if (role === "founder") {
+    // Founder session created via recovery key authentication
+    authenticationLevel = "FOUNDER_AUTHORIZED";
+  } else if (role === "admin" || role === "operator") {
+    authenticationLevel = "CHAT_AUTHENTICATED";
+  } else {
+    authenticationLevel = "ANONYMOUS";
+  }
+
   const session: DesktopSession = {
     sessionId,
     sessionToken,
     userId,
     userRole: role,
+    authenticationLevel,
     deviceId: device.deviceId,
     createdAt: now,
     expiresAt: now + SESSION_TTL_MS,
@@ -393,6 +408,7 @@ export function listActiveSessions(): Omit<DesktopSession, "sessionToken">[] {
       sessionId: s.sessionId,
       userId: s.userId,
       userRole: s.userRole,
+      authenticationLevel: s.authenticationLevel || "ANONYMOUS",
       deviceId: s.deviceId,
       createdAt: s.createdAt,
       expiresAt: s.expiresAt,

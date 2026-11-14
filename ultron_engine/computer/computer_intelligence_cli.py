@@ -196,7 +196,15 @@ def dispatch(command: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         p = payload.get("path", "")
         content = payload.get("content", "")
         overwrite = payload.get("overwrite", False)
-        return filesystem_driver.write_file(p, content, overwrite=overwrite)
+        approval_granted = bool(payload.get("approvalGranted", False) or payload.get("approval_granted", False))
+        execution_grant = payload.get("executionGrant") or payload.get("execution_grant")
+        return filesystem_driver.write_file(
+            p,
+            content,
+            overwrite=overwrite,
+            approval_granted=approval_granted,
+            execution_grant=execution_grant,
+        )
     elif command == "delete_file":
         p = payload.get("path", "")
         return filesystem_driver.delete_file(p)

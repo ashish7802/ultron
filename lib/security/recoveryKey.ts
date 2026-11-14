@@ -25,6 +25,8 @@
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
+import { defaultAppPathService } from "./appPathService.ts";
+import { defaultDpapiBridge } from "./dpapiBridge.ts";
 
 /** List of known insecure static strings that must NEVER grant recovery access */
 const PROHIBITED_DEFAULTS = new Set([
@@ -38,13 +40,6 @@ const PROHIBITED_DEFAULTS = new Set([
   "12345678",
 ]);
 
-/** Path to securely persisted local recovery secret */
-const SECURITY_STORAGE_DIR = path.join(
-  /*turbopackIgnore: true*/ process.cwd(),
-  ".security_vault"
-);
-const RECOVERY_KEY_FILE = path.join(SECURITY_STORAGE_DIR, "recovery.key");
-
 /** Cached recovery key in memory */
 let cachedRecoveryKey: string | null = null;
 
@@ -54,9 +49,11 @@ let cachedRecoveryKey: string | null = null;
  * Why & How:
  * 1. Checks `process.env.ULTRON_RECOVERY_KEY`. If set, non-empty, and not a known prohibited default,
  *    it takes top precedence.
- * 2. If not set, checks for a persisted key in `.security_vault/recovery.key`.
+ * 2. If not set, checks for a persisted key via `defaultAppPathService.getRecoveryKeyPath()`.
+ *    - Priority 2a: Checks for DPAPI-protected recovery key (`recovery.key.dpapi`) and unprotects it.
+ *    - Priority 2b: Checks for plaintext `recovery.key`, unprotects/loads, and opportunistically creates `recovery.key.dpapi`.
  * 3. If no key file exists, generates a high-entropy 256-bit random hex secret via `crypto.randomBytes(32)`,
- *    persists it with restricted mode (0600), and returns it.
+ *    persists it securely (with DPAPI protection on Windows), and returns it.
  * 4. Rejects any prohibited fallback strings with an explicit error.
  *
  * @returns 256-bit hexadecimal recovery key string.
@@ -84,21 +81,57 @@ export function getEffectiveRecoveryKey(): string {
 
   // 2. Check local secure storage
   try {
-    if (!fs.existsSync(SECURITY_STORAGE_DIR)) {
-      fs.mkdirSync(SECURITY_STORAGE_DIR, { recursive: true, mode: 0o700 });
+    const recoveryKeyFile = defaultAppPathService.getRecoveryKeyPath();
+    const dpapiRecoveryFile = `${recoveryKeyFile}.dpapi`;
+    const vaultDir = path.dirname(recoveryKeyFile);
+
+    if (!fs.existsSync(vaultDir)) {
+      fs.mkdirSync(vaultDir, { recursive: true, mode: 0o700 });
     }
 
-    if (fs.existsSync(RECOVERY_KEY_FILE)) {
-      const stored = fs.readFileSync(RECOVERY_KEY_FILE, "utf-8").trim();
+    // 2a. Check DPAPI-protected recovery key
+    if (fs.existsSync(dpapiRecoveryFile)) {
+      const encBlob = fs.readFileSync(dpapiRecoveryFile, "utf-8").trim();
+      if (encBlob.length > 0) {
+        const unwrapped = defaultDpapiBridge.unprotectSecret(encBlob);
+        if (unwrapped && unwrapped.length >= 32 && !PROHIBITED_DEFAULTS.has(unwrapped.toUpperCase())) {
+          cachedRecoveryKey = unwrapped;
+          return unwrapped;
+        }
+      }
+    }
+
+    // 2b. Check plaintext recovery.key
+    if (fs.existsSync(recoveryKeyFile)) {
+      const stored = fs.readFileSync(recoveryKeyFile, "utf-8").trim();
       if (stored.length >= 32 && !PROHIBITED_DEFAULTS.has(stored.toUpperCase())) {
         cachedRecoveryKey = stored;
+
+        // Opportunistically save DPAPI protected copy
+        try {
+          if (defaultDpapiBridge.isAvailable() && !fs.existsSync(dpapiRecoveryFile)) {
+            const protectedBlob = defaultDpapiBridge.protectSecret(stored, "Ultron Founder Recovery Key");
+            if (protectedBlob && !protectedBlob.startsWith("PLAINTEXT_FALLBACK:")) {
+              fs.writeFileSync(dpapiRecoveryFile, protectedBlob, { encoding: "utf-8", mode: 0o600 });
+            }
+          }
+        } catch {}
+
         return stored;
       }
     }
 
     // 3. Generate fresh cryptographically secure random key
     const generated = crypto.randomBytes(32).toString("hex");
-    fs.writeFileSync(RECOVERY_KEY_FILE, generated, { encoding: "utf-8", mode: 0o600 });
+    fs.writeFileSync(recoveryKeyFile, generated, { encoding: "utf-8", mode: 0o600 });
+
+    if (defaultDpapiBridge.isAvailable()) {
+      const protectedBlob = defaultDpapiBridge.protectSecret(generated, "Ultron Founder Recovery Key");
+      if (protectedBlob && !protectedBlob.startsWith("PLAINTEXT_FALLBACK:")) {
+        fs.writeFileSync(dpapiRecoveryFile, protectedBlob, { encoding: "utf-8", mode: 0o600 });
+      }
+    }
+
     console.info(
       "[SECURITY] Initialized local single-user Founder Recovery Key in .security_vault/recovery.key"
     );

@@ -32,6 +32,7 @@ Safety / Security Guarantees:
 import os
 import shutil
 import hashlib
+import hmac
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -51,6 +52,145 @@ BACKUP_DIR = os.path.normpath(
         "filesystem",
     )
 )
+
+
+# In-memory consumed token cache to enforce single-use execution and prevent replay attacks
+_CONSUMED_GRANTS = set()
+_CONSUMED_NONCES_FILE = os.path.normpath(
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+        "backups",
+        "filesystem",
+        ".consumed_grants.log",
+    )
+)
+
+
+def _is_grant_consumed(grant_token: str, nonce: str) -> bool:
+    """Checks whether grant token or nonce has already been consumed."""
+    if nonce in _CONSUMED_GRANTS or grant_token in _CONSUMED_GRANTS:
+        return True
+    if os.path.exists(_CONSUMED_NONCES_FILE):
+        try:
+            with open(_CONSUMED_NONCES_FILE, "r", encoding="utf-8") as f:
+                consumed = set(line.strip() for line in f if line.strip())
+                if nonce in consumed or grant_token in consumed:
+                    return True
+        except Exception:
+            pass
+    return False
+
+
+def _record_grant_consumed(grant_token: str, nonce: str) -> None:
+    """Atomically records grant token and nonce as consumed."""
+    _CONSUMED_GRANTS.add(nonce)
+    _CONSUMED_GRANTS.add(grant_token)
+    try:
+        os.makedirs(os.path.dirname(_CONSUMED_NONCES_FILE), exist_ok=True)
+        with open(_CONSUMED_NONCES_FILE, "a", encoding="utf-8") as f:
+            f.write(f"{nonce}\n{grant_token}\n")
+    except Exception:
+        pass
+
+
+def _get_active_recovery_key() -> Optional[str]:
+    """
+    Retrieves the active authorized recovery key from environment or local vault.
+    Used for HMAC-SHA256 signature verification of execution grants.
+    """
+    env_key = os.environ.get("ULTRON_RECOVERY_KEY", "").strip()
+    if env_key and len(env_key) >= 32:
+        return env_key
+
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    vault_key_path = os.path.join(repo_root, ".security_vault", "recovery.key")
+    if os.path.exists(vault_key_path):
+        try:
+            with open(vault_key_path, "r", encoding="utf-8") as f:
+                key = f.read().strip()
+                if len(key) >= 32:
+                    return key
+        except Exception:
+            pass
+    return None
+
+
+def verify_subprocess_execution_grant(
+    grant_token: Optional[str],
+    operation: str,
+    target_path: str,
+) -> Tuple[bool, str]:
+    """
+    Cryptographically verifies an HMAC-SHA256 authorization grant token across the
+    Node.js -> Python boundary before executing high-risk mutations (e.g. file overwrite).
+
+    Token format:
+        {planId}|{operation}|{canonicalPath}|{expiresAt}|{nonce}|{signature}
+
+    Enforces:
+        1. Token structure and signature authenticity against founder key.
+        2. Operation matching (e.g., "write_file").
+        3. Canonical physical path matching (preventing path traversal and symlink swap).
+        4. Expiration check (fail-closed if expired).
+        5. Single-use replay protection.
+
+    Args:
+        grant_token (Optional[str]): Signed grant token string.
+        operation (str): Intended operation.
+        target_path (str): Intended target path.
+
+    Returns:
+        Tuple[bool, str]: (is_valid, error_message)
+    """
+    if not grant_token or not isinstance(grant_token, str):
+        return False, "Missing cryptographic execution grant token."
+
+    parts = grant_token.split("|")
+    if len(parts) != 6:
+        return False, "Malformed execution grant token format."
+
+    plan_id, token_op, token_path, expires_str, nonce, signature = parts
+
+    # 1. Verify single-use nonce/token
+    if _is_grant_consumed(grant_token, nonce):
+        return False, "Execution grant token has already been consumed (replay rejected)."
+
+    # 2. Verify operation binding
+    if token_op.lower() != operation.lower():
+        return False, f"Operation mismatch: grant is for '{token_op}', but requested '{operation}'."
+
+    # 3. Verify path binding against canonical target path
+    canonical_target = os.path.abspath(os.path.normpath(target_path)).lower()
+    if token_path.lower() != canonical_target:
+        return False, f"Target path mismatch: grant is bound to '{token_path}', but requested '{canonical_target}'."
+
+    # 4. Verify expiration
+    try:
+        expires_at = int(expires_str)
+        current_time_ms = int(time.time() * 1000)
+        if current_time_ms > expires_at:
+            return False, f"Execution grant token expired {current_time_ms - expires_at}ms ago."
+    except ValueError:
+        return False, "Invalid expiration timestamp in execution grant."
+
+    # 5. Verify cryptographic HMAC signature
+    secret_key = _get_active_recovery_key()
+    if not secret_key:
+        return False, "Unable to resolve active founder recovery key for signature verification."
+
+    expected_payload = f"{plan_id}|{token_op}|{token_path}|{expires_str}|{nonce}"
+    expected_sig = hmac.new(
+        secret_key.encode("utf-8"),
+        expected_payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+    if not hmac.compare_digest(signature, expected_sig):
+        return False, "Cryptographic signature verification failed: grant token is invalid or forged."
+
+    # 6. Consume grant atomically
+    _record_grant_consumed(grant_token, nonce)
+    return True, ""
 
 
 def _validate_path_safety(target_path: str, allow_protected: bool = False) -> str:
@@ -330,19 +470,25 @@ def write_file(
     content: str,
     overwrite: bool = False,
     is_binary_hex: bool = False,
+    approval_granted: bool = False,
+    execution_grant: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Writes content to a file with automatic backup creation if file exists.
     Verifies result by inspecting output file size and hash.
+    Enforces security invariant (F-03): If the file exists and overwrite is True,
+    a valid cryptographic HMAC-SHA256 execution grant must be verified.
 
     Args:
         target_path (str): Destination path.
         content (str): Text or hex string content.
         overwrite (bool): Explicit overwrite flag.
         is_binary_hex (bool): If True, parses content as hex bytes.
+        approval_granted (bool): Legacy boolean indicator.
+        execution_grant (Optional[str]): Cryptographic HMAC-SHA256 grant token issued by PermissionGateway.
 
     Returns:
-        Dict[str, Any]: {success, path, backupPath, sha256, sizeBytes, verified}.
+        Dict[str, Any]: {success, path, backupPath, sha256, sizeBytes, verified, requiresApproval}.
 
     Side Effects:
         Creates directories, backups existing file, writes data to disk.
@@ -359,6 +505,19 @@ def write_file(
             "error": f"File '{norm}' already exists. Overwrite authorization required.",
             "requiresApproval": True,
         }
+
+    # F-03 Cryptographic Authorization Boundary:
+    # Overwriting an existing file strictly requires a verified HMAC execution grant.
+    # A plain Boolean (approval_granted=True) without a valid cryptographic grant is rejected fail-closed.
+    if exists and overwrite:
+        valid_grant, grant_err = verify_subprocess_execution_grant(execution_grant, "write_file", norm)
+        if not valid_grant:
+            return {
+                "success": False,
+                "error": f"File overwrite authorization failure: {grant_err}",
+                "requiresApproval": True,
+                "blocked": True,
+            }
 
     backup_path = None
     if exists:
