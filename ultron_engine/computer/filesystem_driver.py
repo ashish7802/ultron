@@ -95,7 +95,7 @@ def _record_grant_consumed(grant_token: str, nonce: str) -> None:
 
 def _get_active_recovery_key() -> Optional[str]:
     """
-    Retrieves the active authorized recovery key from environment or local vault.
+    Retrieves the active authorized recovery key from environment, DPAPI blob, or local vault.
     Used for HMAC-SHA256 signature verification of execution grants.
     """
     env_key = os.environ.get("ULTRON_RECOVERY_KEY", "").strip()
@@ -103,6 +103,21 @@ def _get_active_recovery_key() -> Optional[str]:
         return env_key
 
     repo_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    dpapi_path = os.path.join(repo_root, ".security_vault", "recovery.key.dpapi")
+    if os.path.exists(dpapi_path):
+        try:
+            with open(dpapi_path, "r", encoding="utf-8") as f:
+                blob = f.read().strip()
+            if blob:
+                import base64
+                import win32crypt
+                raw = base64.b64decode(blob)
+                unprotected = win32crypt.CryptUnprotectData(raw, None, None, None, 0)[1].decode("utf-8")
+                if len(unprotected) >= 32:
+                    return unprotected
+        except Exception:
+            pass
+
     vault_key_path = os.path.join(repo_root, ".security_vault", "recovery.key")
     if os.path.exists(vault_key_path):
         try:

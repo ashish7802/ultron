@@ -23,6 +23,7 @@
 
 import { spawn } from "child_process";
 import { resolvePythonExecutable } from "../pythonRuntime.ts";
+import { getEffectiveRecoveryKey } from "../security/recoveryKey.ts";
 
 export class PythonComputerBridge {
   private static _instance: PythonComputerBridge | null = null;
@@ -68,6 +69,7 @@ export class PythonComputerBridge {
             windowsHide: true,
             env: {
               ...process.env,
+              ULTRON_RECOVERY_KEY: getEffectiveRecoveryKey(),
               PYTHONIOENCODING: "utf-8",
             },
           }
