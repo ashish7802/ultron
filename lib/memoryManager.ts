@@ -260,6 +260,19 @@ export function loadAllMemories(): MemoryRecord[] {
     }
   }
 
+  // Safety Gate: NEVER overwrite disk vault if decryption returned empty but a non-empty vault exists on disk
+  if (fs.existsSync(VAULT_FILE_PATH)) {
+    try {
+      const stats = fs.statSync(VAULT_FILE_PATH);
+      if (stats.size > 200 && loadedMemories.length <= DEFAULT_FOUNDER_MEMORIES.length) {
+        // Vault file exists and has substantial size, but only default seeds are loaded;
+        // Avoid overwriting existing encrypted user data with default seeds!
+        console.warn("[MEMORY MANAGER] Preserving existing encrypted vault on disk from accidental empty overwrite.");
+        return loadedMemories;
+      }
+    } catch {}
+  }
+
   try {
     persistMemories(loadedMemories);
   } catch (saveErr) {

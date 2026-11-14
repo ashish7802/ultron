@@ -55,14 +55,15 @@ BACKUP_DIR = os.path.normpath(
 
 def _validate_path_safety(target_path: str, allow_protected: bool = False) -> str:
     """
-    Resolves absolute canonical path and ensures target does not violate protected boundaries.
+    Resolves absolute canonical physical path following symlinks and NTFS junctions,
+    and ensures target does not violate protected system boundaries.
 
     Args:
         target_path (str): File or directory path.
         allow_protected (bool): If True, allows read-only access to system paths.
 
     Returns:
-        str: Normalized absolute path.
+        str: Fully canonicalized and resolved physical path.
 
     Raises:
         PermissionError: If path violates system protection boundaries.
@@ -71,15 +72,27 @@ def _validate_path_safety(target_path: str, allow_protected: bool = False) -> st
     if not target_path or not isinstance(target_path, str):
         raise ValueError("Invalid target path.")
 
-    # Resolve symlinks and normalize
+    # 1. Normalize apparent path
     norm = os.path.abspath(os.path.normpath(target_path))
+
+    # 2. Resolve underlying physical target following symlinks & junctions
+    try:
+        real = os.path.realpath(norm)
+    except Exception:
+        real = norm
 
     if not allow_protected:
         for prot in PROTECTED_PATHS:
-            if norm.lower() == prot.lower() or norm.lower().startswith(prot.lower() + os.sep):
-                raise PermissionError(f"Access Denied: Path '{norm}' is in a protected system directory.")
+            prot_norm = os.path.abspath(os.path.normpath(prot)).lower()
+            # Enforce boundary checks on BOTH the apparent normalized path AND the resolved physical path
+            for candidate in (norm, real):
+                cand_low = candidate.lower()
+                if cand_low == prot_norm or cand_low.startswith(prot_norm + os.sep) or cand_low.startswith(prot_norm + "/"):
+                    raise PermissionError(
+                        f"Access Denied: Path '{candidate}' violates protected system boundary ({prot})."
+                    )
 
-    return norm
+    return real
 
 
 def compute_file_hash(path: str) -> Optional[str]:

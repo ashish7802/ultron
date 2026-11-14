@@ -18,11 +18,17 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { researchRepository } from "@/lib/research/repository";
+import { validateDesktopSession, createAuthErrorResponse } from "@/lib/sessionGate";
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
+  const auth = validateDesktopSession(req);
+  if (!auth.valid) {
+    return createAuthErrorResponse(auth);
+  }
+
   try {
     const { id } = await params;
     if (!id || typeof id !== "string") {

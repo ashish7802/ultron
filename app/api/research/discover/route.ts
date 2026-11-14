@@ -24,9 +24,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { informationDiscoveryEngine, normalizeUrl } from "@/lib/research/discoveryEngine";
 import { researchRepository } from "@/lib/research/repository";
+import { validateDesktopSession, createAuthErrorResponse } from "@/lib/sessionGate";
 import type { ResearchPlan, SourceRecord } from "@/lib/research/types";
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const auth = validateDesktopSession(req);
+  if (!auth.valid) {
+    return createAuthErrorResponse(auth);
+  }
+
   try {
     let body: { plan: ResearchPlan };
     try {

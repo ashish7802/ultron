@@ -275,20 +275,30 @@ export class ComputerTaskWorkflowOrchestrator {
   ): Promise<{ verified: boolean; details: string; afterState: Record<string, unknown> }> {
     switch (actionType) {
       case "app_launch": {
+        const launchOutcome = _actionResult as { success?: boolean; pid?: number; error?: string } | undefined;
+        if (launchOutcome && launchOutcome.success === false) {
+          return {
+            verified: false,
+            details: `Application launch failed: ${launchOutcome.error || "Process creation failed."}`,
+            afterState: { target, error: launchOutcome.error },
+          };
+        }
+
         // Verify that a window with the application name appears or process is running
         const windows = await defaultDesktopEngine.getWindows();
         const matching = windows.find(
           (w) =>
             w.title.toLowerCase().includes(target.toLowerCase()) ||
-            w.processName.toLowerCase().includes(target.toLowerCase())
+            w.processName.toLowerCase().includes(target.toLowerCase()) ||
+            (launchOutcome?.pid && w.processId === launchOutcome.pid)
         );
-        const verified = Boolean(matching);
+        const verified = Boolean(matching || (launchOutcome?.pid && launchOutcome.pid > 0));
         return {
           verified,
           details: verified
-            ? `Verified running window '${matching?.title}' (PID: ${matching?.processId}).`
-            : `Application launched, but window '${target}' has not yet appeared on desktop.`,
-          afterState: { activeWindow: matching?.title, hwnd: matching?.handle, pid: matching?.processId },
+            ? `Verified running process or window '${matching?.title || target}' (PID: ${matching?.processId || launchOutcome?.pid}).`
+            : `Application launched, but window or process '${target}' has not appeared on desktop.`,
+          afterState: { activeWindow: matching?.title, hwnd: matching?.handle, pid: matching?.processId || launchOutcome?.pid },
         };
       }
 
@@ -347,19 +357,27 @@ export class ComputerTaskWorkflowOrchestrator {
       }
 
       case "browser_open": {
-        const browserWindows = await defaultBrowserIntelligence.getInstalledBrowsers();
+        const navRes = _actionResult as { success?: boolean; url?: string; error?: string } | undefined;
+        if (!navRes || navRes.success === false) {
+          return {
+            verified: false,
+            details: `Browser navigation failed: ${navRes?.error || "Unknown error"}`,
+            afterState: { targetUrl: target, error: navRes?.error },
+          };
+        }
+
         const active = await defaultDesktopEngine.getActiveWindow();
         return {
           verified: true,
-          details: `Navigated browser to '${target}'. Active window: '${active?.title}'.`,
-          afterState: { activeWindow: active?.title, browsersCount: browserWindows.length },
+          details: `Navigated browser to '${navRes.url || target}'. Active window: '${active?.title}'.`,
+          afterState: { activeWindow: active?.title, targetUrl: navRes.url || target },
         };
       }
 
       default:
         return {
-          verified: true,
-          details: "Action execution finished.",
+          verified: false,
+          details: `Unsupported action type '${actionType}' in verification engine.`,
           afterState: {},
         };
     }

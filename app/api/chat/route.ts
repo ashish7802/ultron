@@ -54,6 +54,9 @@ import { remediateCandidateResponse } from "@/lib/cognitive/selfEvaluationEngine
 import { defaultVisualContextDeliveryEngine } from "@/lib/screen/contextDeliveryEngine";
 import { defaultVisionControl } from "@/lib/screen/visionControl";
 import { defaultTemporalScreenIntelligence } from "@/lib/screen/temporalScreenIntelligence";
+import { defaultComputerToolRegistry, type ToolExecutionResult } from "@/lib/computer/toolRegistry";
+import { defaultComputerWorkflowOrchestrator } from "@/lib/computer/workflowOrchestrator";
+import { defaultTaskOrchestrationEngine } from "@/lib/orchestration/orchestrator";
 import type { VisualContextPayload } from "@/lib/screen/types";
 import type {
   ParsedContext,
@@ -675,6 +678,123 @@ async function buildResponse(
       usedTool: true,
       permissionPlan: plan,
     };
+  }
+
+  // 2.5. Operational Computer Actions & Filesystem Tools (Milestone 2)
+  try {
+    const lowerQuery = query.toLowerCase().trim();
+
+    // Pattern A: Create / Write File ("create a file named X with content Y", "write to test.txt")
+    const createMatch = query.match(/(?:create|write|make)(?:\s+a)?\s+(?:test\s+)?file\s+(?:at|named|in)?\s*([^\s,;]+)(?:\s+(?:with|containing)\s+(?:content|text)?\s*(.+))?/i);
+    if (createMatch) {
+      const filePath = createMatch[1].replace(/["']/g, "").trim();
+      const content = createMatch[2] ? createMatch[2].replace(/^["']|["']$/g, "") : "Created by ULTRON agent task execution.";
+
+      onStatus?.({ phase: "computer_engine", progress: 0.5, message: `Executing file write tool for ${filePath}...` });
+      const toolRes = await defaultComputerToolRegistry.executeTool("write_file", { path: filePath, content, overwrite: true });
+
+      if (toolRes.permissionPlan) {
+        return {
+          reply: `🛡️ **Computer Action Approval Required**\n\nI have prepared an execution plan to write to file **${filePath}**.\n\nPlease approve or cancel this action.`,
+          dossier: null,
+          degraded: false,
+          grounded: true,
+          usedLocalRule: false,
+          usedResearch: false,
+          usedTool: true,
+          permissionPlan: toolRes.permissionPlan,
+        };
+      }
+
+      return {
+        reply: toolRes.success
+          ? `✅ **File Created Successfully**\n\n- **Path**: \`${filePath}\`\n- **Details**: ${toolRes.verificationDetails || toolRes.output}`
+          : `❌ **File Operation Failed**\n\n${toolRes.error}`,
+        dossier: null,
+        degraded: !toolRes.success,
+        grounded: true,
+        usedLocalRule: false,
+        usedResearch: false,
+        usedTool: true,
+      };
+    }
+
+    // Pattern B: Read File ("read file X", "show file X", "cat X")
+    const readMatch = query.match(/(?:read|show|cat|view|inspect)\s+(?:that\s+file|the\s+file|file)\s*([^\s,;]+)?/i);
+    if (readMatch && (readMatch[1] || lowerQuery.includes("that file"))) {
+      const filePath = readMatch[1] ? readMatch[1].replace(/["']/g, "").trim() : "test.txt";
+      onStatus?.({ phase: "computer_engine", progress: 0.5, message: `Reading file ${filePath}...` });
+      const toolRes = await defaultComputerToolRegistry.executeTool("read_file", { path: filePath });
+
+      return {
+        reply: toolRes.success
+          ? `📄 **File Content: \`${filePath}\`**\n\n\`\`\`\n${toolRes.output}\n\`\`\`\n\n*${toolRes.verificationDetails}*`
+          : `❌ **Failed to Read File \`${filePath}\`**\n\n${toolRes.error}`,
+        dossier: null,
+        degraded: !toolRes.success,
+        grounded: true,
+        usedLocalRule: false,
+        usedResearch: false,
+        usedTool: true,
+      };
+    }
+
+    // Pattern C: Search Files ("search for file X", "find files matching X")
+    const searchMatch = query.match(/(?:search|find)(?:\s+for)?\s+(?:a\s+specific\s+file|file|files)?\s*(?:named|matching)?\s*([^\s,;]+)?(?:\s+in\s+([^\s,;]+))?/i);
+    if (searchMatch && (searchMatch[1] || searchMatch[2])) {
+      const pattern = searchMatch[1] ? searchMatch[1].replace(/["']/g, "").trim() : "*";
+      const directory = searchMatch[2] ? searchMatch[2].replace(/["']/g, "").trim() : ".";
+
+      onStatus?.({ phase: "computer_engine", progress: 0.5, message: `Searching files in ${directory}...` });
+      const toolRes = await defaultComputerToolRegistry.executeTool("search_files", { directory, pattern });
+
+      return {
+        reply: toolRes.success
+          ? `🔍 **Search Results for \`${pattern}\` in \`${directory}\`:**\n\n${toolRes.output ? `\`\`\`\n${toolRes.output}\n\`\`\`` : "No files found."}`
+          : `❌ **Search Failed**: ${toolRes.error}`,
+        dossier: null,
+        degraded: !toolRes.success,
+        grounded: true,
+        usedLocalRule: false,
+        usedResearch: false,
+        usedTool: true,
+      };
+    }
+
+    // Pattern D: Safe Terminal Shell Execution ("run command X", "execute shell X")
+    const cmdMatch = query.match(/(?:run\s+command|execute\s+command|shell|exec)\s+(.+)/i);
+    if (cmdMatch) {
+      const command = cmdMatch[1].trim();
+      onStatus?.({ phase: "computer_engine", progress: 0.5, message: `Preparing shell execution: ${command}...` });
+      const toolRes = await defaultComputerToolRegistry.executeTool("run_shell_command", { command });
+
+      if (toolRes.permissionPlan) {
+        return {
+          reply: `🛡️ **Computer Action Approval Required**\n\nExecution of shell command requires explicit founder approval:\n\n\`\`\`powershell\n${command}\n\`\`\`\n\nPlease approve or cancel this command.`,
+          dossier: null,
+          degraded: false,
+          grounded: true,
+          usedLocalRule: false,
+          usedResearch: false,
+          usedTool: true,
+          permissionPlan: toolRes.permissionPlan,
+        };
+      }
+
+      return {
+        reply: toolRes.success
+          ? `💻 **Command Output (Exit Code: ${toolRes.exitCode}):**\n\n\`\`\`\n${toolRes.output}\n\`\`\`\n\n*${toolRes.verificationDetails}*`
+          : `❌ **Command Failed (Exit Code: ${toolRes.exitCode}):**\n\n${toolRes.error || toolRes.output}`,
+        dossier: null,
+        degraded: !toolRes.success,
+        grounded: true,
+        usedLocalRule: false,
+        usedResearch: false,
+        usedTool: true,
+      };
+    }
+  } catch (compErr) {
+    console.warn("[COMPUTER TOOL DISPATCH ERROR]", compErr);
   }
 
   // 3. Local Deterministic Rules (Math calculations, date/time)

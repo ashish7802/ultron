@@ -37,6 +37,7 @@ import type {
   BiometricVerificationResult,
   AuthMethod,
 } from "./types.ts";
+import { verifyRecoveryKey } from "./recoveryKey.ts";
 
 /** Default Session Time-To-Live: 24 Hours. */
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -330,9 +331,8 @@ export async function verifySensitiveActionChallenge(
       return { success: false, error: "Biometric proof verification failed or was canceled." };
     }
   } else if (proof.method === "recovery_key") {
-    const validKey = process.env.ULTRON_RECOVERY_KEY || "FOUNDER_RECOVERY_OVERRIDE_KEY";
-    if (!proof.recoveryKey || proof.recoveryKey.trim() !== validKey) {
-      return { success: false, error: "Invalid recovery key." };
+    if (!proof.recoveryKey || !verifyRecoveryKey(proof.recoveryKey)) {
+      return { success: false, error: "Invalid founder recovery key." };
     }
   } else {
     return { success: false, error: `Unsupported verification method: ${proof.method}` };

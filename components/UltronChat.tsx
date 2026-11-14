@@ -34,6 +34,17 @@ import ScreenAwarenessIndicator from "./ScreenAwarenessIndicator";
 import TaskOrchestrationModal from "./TaskOrchestrationModal";
 import LearningEvolutionModal from "./LearningEvolutionModal";
 
+export interface PermissionPlanData {
+  planId: string;
+  actionType: string;
+  target: string;
+  riskLevel: string;
+  summary: string;
+  requiresApproval: boolean;
+  approvalToken?: string;
+  parameters?: Record<string, unknown>;
+}
+
 /** Metadata attached to assistant responses (citations, grounding source, execution time). */
 export interface MessageMeta {
   grounded?: boolean;
@@ -42,6 +53,7 @@ export interface MessageMeta {
   usedResearch?: boolean;
   usedTool?: boolean;
   intent?: string;
+  permissionPlan?: PermissionPlanData;
   sources?: Array<{
     title: string;
     url: string;
@@ -561,6 +573,108 @@ export default function UltronChat() {
     }
   };
 
+  // ── Approval & Tool Execution Handlers (Milestone 2) ───────────────────
+  const [approvingPlanId, setApprovingPlanId] = useState<string | null>(null);
+
+  const handleApprovePlan = async (plan: PermissionPlanData, messageId: string) => {
+    setApprovingPlanId(plan.planId);
+    try {
+      // 1. Send approval to /api/permission
+      const res = await fetch("/api/permission", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          planId: plan.planId,
+          decision: "approve",
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        alert(`Approval failed: ${data.error || "Unknown error"}`);
+        return;
+      }
+
+      // 2. Append execution notification into conversation
+      const execResult = data.result;
+      const statusText = data.executionSuccess
+        ? `✅ **Action Approved & Physically Verified**\n\n- **Target:** \`${plan.target}\`\n- **Output:** ${execResult?.output || "Executed successfully"}\n- **Verification:** ${execResult?.verificationDetails || "State confirmed via OS inspect."}`
+        : `⚠️ **Action Approved but Execution Failed**\n\n- **Error:** ${data.executionError || "Physical execution error"}`;
+
+      const execMsgId = generateId();
+      const execMessage: ChatMessage = {
+        id: execMsgId,
+        role: "assistant",
+        content: statusText,
+        timestamp: Date.now(),
+        meta: {
+          grounded: true,
+          usedTool: true,
+        },
+      };
+
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id === (activeId || prev[0]?.id)) {
+            return {
+              ...c,
+              messages: c.messages.map((m) =>
+                m.id === messageId
+                  ? { ...m, meta: { ...m.meta, permissionPlan: undefined } } // remove action card
+                  : m
+              ).concat([execMessage]),
+            };
+          }
+          return c;
+        })
+      );
+    } catch (err) {
+      console.error("Plan approval failed:", err);
+      alert("Failed to submit approval.");
+    } finally {
+      setApprovingPlanId(null);
+    }
+  };
+
+  const handleRejectPlan = async (plan: PermissionPlanData, messageId: string) => {
+    try {
+      await fetch("/api/permission", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          planId: plan.planId,
+          decision: "deny",
+        }),
+      });
+
+      const cancelMsgId = generateId();
+      const cancelMessage: ChatMessage = {
+        id: cancelMsgId,
+        role: "assistant",
+        content: `❌ **Action Cancelled**\n\nThe requested operation on \`${plan.target}\` was cancelled by the user.`,
+        timestamp: Date.now(),
+      };
+
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id === (activeId || prev[0]?.id)) {
+            return {
+              ...c,
+              messages: c.messages.map((m) =>
+                m.id === messageId
+                  ? { ...m, meta: { ...m.meta, permissionPlan: undefined } }
+                  : m
+              ).concat([cancelMessage]),
+            };
+          }
+          return c;
+        })
+      );
+    } catch (err) {
+      console.error("Plan rejection error:", err);
+    }
+  };
+
   // ── Stop Generation ─────────────────────────────────────────────────────
   const handleStopGeneration = () => {
     if (abortControllerRef.current) {
@@ -687,9 +801,10 @@ export default function UltronChat() {
                           meta: {
                             grounded: json.grounded,
                             degraded: json.degraded,
-                            usedTool: json.intent === "TOOL_CALL",
+                            usedTool: json.intent === "TOOL_CALL" || Boolean(json.permissionPlan),
                             usedResearch: json.intent === "QUANTUM_RESEARCH",
                             usedLocalRule: json.intent === "SYSTEM_LOCAL",
+                            permissionPlan: json.permissionPlan,
                             sources: json.sources || [],
                           },
                         }
@@ -772,9 +887,10 @@ export default function UltronChat() {
                 degraded: eventData.degraded,
                 intent: eventData.intent,
                 sources: eventData.sources || [],
-                usedTool: eventData.intent === "TOOL_CALL",
+                usedTool: eventData.intent === "TOOL_CALL" || Boolean(eventData.permissionPlan),
                 usedResearch: eventData.intent === "QUANTUM_RESEARCH",
                 usedLocalRule: eventData.intent === "SYSTEM_LOCAL",
+                permissionPlan: eventData.permissionPlan,
                 executionTimeMs,
               };
 
@@ -1248,6 +1364,77 @@ export default function UltronChat() {
                             </div>
                           )}
                         </div>
+
+                        {/* Interactive Approval Card (Milestone 2) */}
+                        {!isUser && message.meta?.permissionPlan && (
+                          <div
+                            style={{
+                              marginTop: "0.75rem",
+                              padding: "0.85rem",
+                              backgroundColor: "rgba(30, 41, 59, 0.7)",
+                              borderRadius: "8px",
+                              border: "1px solid rgba(234, 179, 8, 0.4)",
+                            }}
+                          >
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.4rem" }}>
+                              <span style={{ fontSize: "1rem" }}>🛡️</span>
+                              <strong style={{ color: "#facc15", fontSize: "0.85rem" }}>
+                                Approval Required: {message.meta.permissionPlan.actionType.toUpperCase()}
+                              </strong>
+                              <span
+                                style={{
+                                  fontSize: "0.7rem",
+                                  padding: "2px 6px",
+                                  borderRadius: "4px",
+                                  backgroundColor: message.meta.permissionPlan.riskLevel === "critical" ? "#ef4444" : "#eab308",
+                                  color: "#0f172a",
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {message.meta.permissionPlan.riskLevel.toUpperCase()}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginBottom: "0.6rem" }}>
+                              Target: <code style={{ color: "#38bdf8" }}>{message.meta.permissionPlan.target}</code>
+                            </div>
+                            <div style={{ display: "flex", gap: "0.5rem" }}>
+                              <button
+                                type="button"
+                                disabled={approvingPlanId === message.meta.permissionPlan.planId}
+                                onClick={() => handleApprovePlan(message.meta!.permissionPlan!, message.id)}
+                                style={{
+                                  padding: "4px 12px",
+                                  fontSize: "0.8rem",
+                                  fontWeight: 600,
+                                  borderRadius: "6px",
+                                  backgroundColor: "#22c55e",
+                                  color: "#0f172a",
+                                  border: "none",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                {approvingPlanId === message.meta.permissionPlan.planId ? "Executing..." : "Approve & Execute"}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={approvingPlanId === message.meta.permissionPlan.planId}
+                                onClick={() => handleRejectPlan(message.meta!.permissionPlan!, message.id)}
+                                style={{
+                                  padding: "4px 12px",
+                                  fontSize: "0.8rem",
+                                  fontWeight: 600,
+                                  borderRadius: "6px",
+                                  backgroundColor: "rgba(239, 68, 68, 0.2)",
+                                  color: "#f87171",
+                                  border: "1px solid rgba(239, 68, 68, 0.4)",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
 
                         {/* Research Sources Drawer (if available) */}
                         {!isUser && message.meta?.sources && message.meta.sources.length > 0 && (

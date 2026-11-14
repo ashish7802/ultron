@@ -23,9 +23,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { researchPlanningEngine } from "@/lib/research/planningEngine";
 import { researchRepository } from "@/lib/research/repository";
+import { validateDesktopSession, createAuthErrorResponse } from "@/lib/sessionGate";
 import type { ResearchPlanRequest, ResearchProjectRecord, ResearchQueryRecord } from "@/lib/research/types";
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const auth = validateDesktopSession(req);
+  if (!auth.valid) {
+    return createAuthErrorResponse(auth);
+  }
+
   try {
     let body: ResearchPlanRequest;
     try {
@@ -45,7 +51,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const projectRecord: ResearchProjectRecord = {
       id: plan.research_id,
       tenant_id: "00000000-0000-0000-0000-000000000000",
-      user_id: "00000000-0000-0000-0000-000000000000",
+      user_id: auth.session?.sessionId || "00000000-0000-0000-0000-000000000000",
       title: plan.title,
       objective: plan.objective,
       research_intent: plan.research_intent,

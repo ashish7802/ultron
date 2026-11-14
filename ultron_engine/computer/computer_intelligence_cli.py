@@ -212,12 +212,14 @@ def dispatch(command: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         sh = payload.get("shell", "powershell")
         cwd = payload.get("cwd")
         timeout = payload.get("timeoutSec", 30)
-        return terminal_driver.execute_command(cmd, shell_name=sh, cwd=cwd, timeout_sec=timeout)
+        appr = bool(payload.get("approvalGranted", False) or payload.get("approval_granted", False))
+        return terminal_driver.execute_command(cmd, shell_name=sh, cwd=cwd, timeout_sec=timeout, approval_granted=appr)
     elif command == "start_job":
         cmd = payload.get("command", "")
         sh = payload.get("shell", "powershell")
         cwd = payload.get("cwd")
-        return terminal_driver.start_background_job(cmd, shell_name=sh, cwd=cwd)
+        appr = bool(payload.get("approvalGranted", False) or payload.get("approval_granted", False))
+        return terminal_driver.start_background_job(cmd, shell_name=sh, cwd=cwd, approval_granted=appr)
     elif command == "poll_job":
         job_id = payload.get("jobId", "")
         return terminal_driver.poll_background_job(job_id)
@@ -299,13 +301,8 @@ def main():
     command = sys.argv[1]
     payload = {}
 
-    if len(sys.argv) > 2:
-        try:
-            payload = json.loads(sys.argv[2])
-        except Exception as e:
-            print(json.dumps({"success": False, "error": f"Invalid JSON payload: {e}"}))
-            sys.exit(1)
-    elif "--stdin" in sys.argv:
+    # Support explicit --stdin flag OR reading from stdin if argv[2] is omitted
+    if "--stdin" in sys.argv:
         try:
             raw = sys.stdin.read().strip()
             if raw:
@@ -313,6 +310,21 @@ def main():
         except Exception as e:
             print(json.dumps({"success": False, "error": f"Invalid stdin JSON: {e}"}))
             sys.exit(1)
+    elif len(sys.argv) > 2:
+        try:
+            payload = json.loads(sys.argv[2])
+        except Exception as e:
+            print(json.dumps({"success": False, "error": f"Invalid JSON payload: {e}"}))
+            sys.exit(1)
+    else:
+        # Fallback: if data is piped into stdin without explicit --stdin flag
+        try:
+            if not sys.stdin.isatty():
+                raw = sys.stdin.read().strip()
+                if raw:
+                    payload = json.loads(raw)
+        except Exception:
+            payload = {}
 
     try:
         result = dispatch(command, payload)

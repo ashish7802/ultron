@@ -63,7 +63,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Action plan not found or expired" }, { status: 404 });
   }
 
-  // Do not expose internal execution tokens to GET
+  // Do not expose internal execution or approval tokens to public GET queries
   const sanitizedPlan = {
     planId: plan.planId,
     actionType: plan.actionType,
@@ -74,7 +74,6 @@ export async function GET(req: NextRequest) {
     affectedResources: plan.affectedResources,
     riskLevel: plan.riskLevel,
     riskExplanation: plan.riskExplanation,
-    approvalToken: plan.approvalToken,
     expiresAt: plan.expiresAt,
     status: plan.status,
   };
