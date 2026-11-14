@@ -68,8 +68,11 @@
         "to": "standalone/public"
       },
       {
-        "from": "ultron_engine/voice_transcription.py",
-        "to": "standalone/ultron_engine/voice_transcription.py"
+        "from": "ultron_engine",
+        "to": "standalone/ultron_engine",
+        "filter": [
+          "**/*.py"
+        ]
       }
     ],
     "files": [

@@ -14,8 +14,8 @@
 | :--- | :--- | :--- | :--- |
 | **Milestone 1** | Security Foundation | **COMPLETED & COMMITTED** | `af1d5eb5ba1ca693b40cc3fbbbdc1332755e0a74` |
 | **Milestone 2** | Real Computer Execution | **COMPLETED & COMMITTED** | `f7d2f10b501d51a6d713c77d46c825a2df6937e0` |
-| **Milestone 3** | Verification Reliability | **COMPLETED & COMMITTED** | Pending commit |
-| **Milestone 4** | Identity, Python Bridge & Packaging | PENDING | TBD |
+| **Milestone 3** | Verification Reliability | **COMPLETED & COMMITTED** | `a8041bf679cb077e685f02bc0f71120aa228e93d` |
+| **Milestone 4** | Identity, Python Bridge & Packaging | **COMPLETED & COMMITTED** | Pending commit |
 | **Milestone 5** | Integration & Regression Testing | PENDING | TBD |
 
 ---
@@ -50,3 +50,12 @@
 - [x] **Custom Predicate Execution**: Genuinely evaluated boolean predicates against execution results.
 - [x] **Honest Browser & App Verification**: Validated destination outcomes and process IDs in `lib/computer/workflowOrchestrator.ts`.
 - [x] **Unsupported Operations**: Returned explicit failures for unsupported action types.
+
+---
+
+### Milestone 4 — Identity, Python Bridge & Packaging (COMPLETED)
+- [x] **Safe Restricted Predicate Evaluator**: Blocked arbitrary JavaScript and Node runtime access in `taskVerificationEngine.ts`.
+- [x] **Unified Identity & Session Architecture**: Synced `identityEngine.ts` and `sessionGate.ts` token validation and revocation.
+- [x] **Python Bridge Stdin Transport**: Handled large payloads (2MB+) via stdin pipe in `lib/computer/pythonBridge.ts` and `computer_intelligence_cli.py`.
+- [x] **Electron Packaging & Resources**: Packaged all `ultron_engine` modules and configured `userData` path persistence in `electron/main.js`.
+- [x] **Encryption & Vault Protection**: Prevented empty vault overwrites and verified active Windows DPAPI key storage.

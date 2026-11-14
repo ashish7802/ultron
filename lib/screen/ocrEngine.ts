@@ -42,10 +42,10 @@ export class OCREngine {
   }
 
   /**
-   * Resolves the native capture driver script path.
+   * Resolves the native capture driver script path with packaged environment support.
    */
   private _getDriverScriptPath(): string {
-    return path.join(/*turbopackIgnore: true*/ process.cwd(), "ultron_engine", "screen_capture_driver.py");
+    return process.env.ULTRON_SCREEN_CAPTURE_SCRIPT || path.join(/*turbopackIgnore: true*/ process.cwd(), "ultron_engine", "screen_capture_driver.py");
   }
 
   /**

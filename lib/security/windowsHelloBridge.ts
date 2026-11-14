@@ -29,8 +29,8 @@ import os from "os";
 import { resolvePythonExecutable } from "../pythonRuntime.ts";
 import type { WindowsHelloStatus, BiometricVerificationResult } from "./types.ts";
 
-/** Path to Python native Windows Hello engine script. */
-const WINDOWS_HELLO_SCRIPT = path.join(
+/** Path to Python native Windows Hello engine script with packaged runtime resolution fallback. */
+const WINDOWS_HELLO_SCRIPT = process.env.ULTRON_WINDOWS_HELLO_SCRIPT || path.join(
   /*turbopackIgnore: true*/ process.cwd(),
   "ultron_engine",
   "windows_hello.py"

@@ -25,6 +25,7 @@
 
 import type { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
+import { validateSessionToken as validateIdentityToken } from "./security/identityEngine.ts";
 
 export interface SessionInfo {
   sessionId: string;
@@ -333,9 +334,7 @@ export function validateDesktopSession(
     }
     // Check centralized identity engine sessions
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { validateSessionToken } = require("./security/identityEngine.ts");
-      const secCheck = validateSessionToken(token);
+      const secCheck = validateIdentityToken(token);
       if (secCheck.isValid && secCheck.session) {
         return {
           valid: true,

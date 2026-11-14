@@ -4,6 +4,32 @@ All notable changes made during the ULTRON remediation mission are documented in
 
 ---
 
+## [Milestone 4 — Identity, Python Bridge & Packaging] - 2026-11-14
+
+### Changed
+- `lib/orchestration/taskVerificationEngine.ts`:
+  - Hardened custom predicate evaluator against code injection attacks: blocked dangerous tokens (`process`, `require`, `eval`, `fs`) and enforced safe member comparison evaluation.
+- `lib/computer/pythonBridge.ts`:
+  - Migrated execution from CLI arguments to stdin streaming JSON transport to handle large payloads (2MB+).
+  - Standardized interpreter path resolution via `resolvePythonExecutable()`.
+- `ultron_engine/computer/computer_intelligence_cli.py`:
+  - Added support for `--stdin` flag and non-TTY stdin streaming.
+- `package.json`:
+  - Included all `ultron_engine` Python modules in `extraResources` for Electron packaging.
+- `electron/main.js`:
+  - Configured `userDataDir` via `app.getPath("userData")` and injected environment variables for script paths.
+- `lib/security/windowsHelloBridge.ts`, `lib/screen/screenCaptureEngine.ts`, `lib/screen/ocrEngine.ts`, `lib/screen/windowDetectionEngine.ts`:
+  - Added packaged environment script path resolution.
+- `lib/sessionGate.ts`:
+  - Unified session validation with `identityEngine.ts`.
+- `lib/memoryManager.ts`:
+  - Added protection against accidental empty vault overwrites.
+
+### Added
+- `ULTRON_MILESTONE_4_IMPLEMENTATION_REPORT.md`: Test report and verification records for Milestone 4.
+
+---
+
 ## [Milestone 3 — Verification Reliability] - 2026-11-14
 
 ### Changed

@@ -301,13 +301,8 @@ def main():
     command = sys.argv[1]
     payload = {}
 
-    if len(sys.argv) > 2:
-        try:
-            payload = json.loads(sys.argv[2])
-        except Exception as e:
-            print(json.dumps({"success": False, "error": f"Invalid JSON payload: {e}"}))
-            sys.exit(1)
-    elif "--stdin" in sys.argv:
+    # Support explicit --stdin flag OR reading from stdin if argv[2] is omitted
+    if "--stdin" in sys.argv:
         try:
             raw = sys.stdin.read().strip()
             if raw:
@@ -315,6 +310,21 @@ def main():
         except Exception as e:
             print(json.dumps({"success": False, "error": f"Invalid stdin JSON: {e}"}))
             sys.exit(1)
+    elif len(sys.argv) > 2:
+        try:
+            payload = json.loads(sys.argv[2])
+        except Exception as e:
+            print(json.dumps({"success": False, "error": f"Invalid JSON payload: {e}"}))
+            sys.exit(1)
+    else:
+        # Fallback: if data is piped into stdin without explicit --stdin flag
+        try:
+            if not sys.stdin.isatty():
+                raw = sys.stdin.read().strip()
+                if raw:
+                    payload = json.loads(raw)
+        except Exception:
+            payload = {}
 
     try:
         result = dispatch(command, payload)

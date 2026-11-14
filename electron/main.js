@@ -124,6 +124,11 @@ function startNextServer(port, startupSecret) {
     return false;
   }
 
+  const userDataDir = app.getPath("userData");
+  const ultronEnginePath = app.isPackaged
+    ? path.join(process.resourcesPath, "standalone", "ultron_engine")
+    : path.join(__dirname, "..", "ultron_engine");
+
   const serverProcess = spawn(process.execPath, [standaloneServer], {
     stdio: ["ignore", "pipe", "pipe"],
     cwd: path.dirname(standaloneServer),
@@ -136,10 +141,12 @@ function startNextServer(port, startupSecret) {
       // expose the desktop HUD's API routes to the local network.
       HOSTNAME: "127.0.0.1",
       NODE_ENV: "production",
+      ULTRON_USER_DATA_DIR: userDataDir,
+      ULTRON_ENGINE_DIR: ultronEnginePath,
       ULTRON_DESKTOP_STARTUP_SECRET: startupSecret,
-      ULTRON_TRANSCRIPTION_SCRIPT: app.isPackaged
-        ? path.join(process.resourcesPath, "standalone", "ultron_engine", "voice_transcription.py")
-        : path.join(__dirname, "..", "ultron_engine", "voice_transcription.py"),
+      ULTRON_TRANSCRIPTION_SCRIPT: path.join(ultronEnginePath, "voice_transcription.py"),
+      ULTRON_WINDOWS_HELLO_SCRIPT: path.join(ultronEnginePath, "windows_hello.py"),
+      ULTRON_SCREEN_CAPTURE_SCRIPT: path.join(ultronEnginePath, "screen_capture_driver.py"),
     },
   });
   nextProcess = serverProcess;

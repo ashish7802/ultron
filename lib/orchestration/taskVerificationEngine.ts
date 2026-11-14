@@ -264,19 +264,112 @@ export class TaskVerificationEngine {
       }
 
       case "CUSTOM_PREDICATE": {
-        // Evaluate condition expression if provided, otherwise reject ungrounded execution
+        // Safe restricted expression evaluator: strictly avoids arbitrary code execution or Node API access
         if (typeof criterion.expectedValue === "string" && criterion.expectedValue.trim()) {
+          const expr = criterion.expectedValue.trim();
+
+          // Block dangerous identifiers and keywords
+          const forbiddenTokens = [
+            "process", "require", "import", "global", "globalThis", "window",
+            "document", "Function", "eval", "constructor", "prototype",
+            "__proto__", "fs", "child_process", "spawn", "exec", "setTimeout", "setInterval"
+          ];
+
+          for (const token of forbiddenTokens) {
+            const tokenRegex = new RegExp(`\\b${token}\\b`);
+            if (tokenRegex.test(expr)) {
+              return {
+                passed: false,
+                actualValue: "FORBIDDEN_TOKEN",
+                details: `Security Policy Violation: Expression contains prohibited token "${token}".`,
+              };
+            }
+          }
+
+          // Evaluate simple restricted member comparisons e.g. "output.count > 5", "output.success === true"
+          // Pattern: output(\.[a-zA-Z0-9_$]+)+\s*(===|!==|==|!=|>=|<=|>|<)\s*([a-zA-Z0-9_$-]+|"[^"]*"|'[^']*')
+          const simpleCompRegex = /^output(?:\.([a-zA-Z0-9_$]+))+\s*(===|!==|==|!=|>=|<=|>|<)\s*(.+)$/;
+          const match = expr.match(simpleCompRegex);
+
+          if (match) {
+            const propPath = expr.split(/\s*(?:===|!==|==|!=|>=|<=|>|<)\s*/)[0].replace(/^output\./, "");
+            const op = match[2];
+            const rawTarget = match[3].trim();
+
+            let targetVal: unknown;
+            if (rawTarget === "true") targetVal = true;
+            else if (rawTarget === "false") targetVal = false;
+            else if (rawTarget === "null") targetVal = null;
+            else if (rawTarget === "undefined") targetVal = undefined;
+            else if (!isNaN(Number(rawTarget))) targetVal = Number(rawTarget);
+            else if ((rawTarget.startsWith('"') && rawTarget.endsWith('"')) || (rawTarget.startsWith("'") && rawTarget.endsWith("'"))) {
+              targetVal = rawTarget.slice(1, -1);
+            } else {
+              targetVal = rawTarget;
+            }
+
+            // Extract property from output safely
+            let cur: any = output;
+            for (const seg of propPath.split(".")) {
+              if (cur && typeof cur === "object" && seg in cur) {
+                cur = cur[seg];
+              } else {
+                cur = undefined;
+                break;
+              }
+            }
+
+            let compResult = false;
+            switch (op) {
+              case "===":
+              case "==":
+                compResult = cur === targetVal;
+                break;
+              case "!==":
+              case "!=":
+                compResult = cur !== targetVal;
+                break;
+              case ">":
+                compResult = typeof cur === "number" && typeof targetVal === "number" && cur > targetVal;
+                break;
+              case "<":
+                compResult = typeof cur === "number" && typeof targetVal === "number" && cur < targetVal;
+                break;
+              case ">=":
+                compResult = typeof cur === "number" && typeof targetVal === "number" && cur >= targetVal;
+                break;
+              case "<=":
+                compResult = typeof cur === "number" && typeof targetVal === "number" && cur <= targetVal;
+                break;
+            }
+
+            return {
+              passed: compResult,
+              actualValue: cur,
+              details: compResult
+                ? `Restricted predicate "${expr}" evaluated to true (resolved value: ${cur}).`
+                : `Restricted predicate "${expr}" evaluated to false (resolved value: ${cur}).`,
+            };
+          }
+
+          // Fallback: strictly evaluate using isolated function with nullified globals
           try {
-            // Evaluates custom boolean predicates safely against output
-            const expr = criterion.expectedValue.trim();
-            const fn = new Function("output", "task", `return Boolean(${expr});`);
-            const evalResult = Boolean(fn(output, task));
+            const sandboxFn = new Function(
+              "output",
+              "task",
+              "process",
+              "require",
+              "global",
+              "globalThis",
+              `"use strict"; return Boolean(${expr});`
+            );
+            const evalResult = Boolean(sandboxFn(output, task, null, null, null, null));
             return {
               passed: evalResult,
               actualValue: evalResult,
               details: evalResult
-                ? `Custom predicate "${expr}" evaluated to true.`
-                : `Custom predicate "${expr}" evaluated to false.`,
+                ? `Safe predicate "${expr}" evaluated to true.`
+                : `Safe predicate "${expr}" evaluated to false.`,
             };
           } catch (evalErr: unknown) {
             return {

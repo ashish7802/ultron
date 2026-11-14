@@ -7,8 +7,9 @@
  *
  * Key Responsibilities:
  * - Executes commands against `ultron_engine.computer.computer_intelligence_cli`.
- * - Serializes parameters into structured JSON command line arguments.
- * - Handles execution timeouts, process failures, and error deserialization.
+ * - Uses standard Python executable resolution via `resolvePythonExecutable()`.
+ * - Supports robust stdin-based JSON payload transport to handle large payloads.
+ * - Handles execution timeouts, process failures, malformed JSON, and missing Python runtimes.
  * - Enforces fail-closed error handling: returns structured error results rather than throwing.
  *
  * Architectural Role & Interactions:
@@ -16,13 +17,12 @@
  *
  * Safety / Security Guarantees:
  * - Windows hidden window flag enabled (`windowsHide: true`).
- * - No shell is invoked (`execFile` with direct argument array prevents shell injection).
+ * - No shell is invoked (`spawn` with direct argument array prevents shell injection).
+ * - Bridge failures never report success.
  */
 
-import { execFile } from "child_process";
-import { promisify } from "util";
-
-const execFileAsync = promisify(execFile);
+import { spawn } from "child_process";
+import { resolvePythonExecutable } from "../pythonRuntime.ts";
 
 export class PythonComputerBridge {
   private static _instance: PythonComputerBridge | null = null;
@@ -35,14 +35,14 @@ export class PythonComputerBridge {
   }
 
   /**
-   * Resolves the Python executable path.
+   * Resolves the Python executable path using the shared runtime resolver.
    */
   private _resolvePython(): string {
-    return process.env.PYTHON_PATH || "python";
+    return resolvePythonExecutable();
   }
 
   /**
-   * Dispatches a command and payload to the native Python Computer Intelligence CLI.
+   * Dispatches a command and payload to the native Python Computer Intelligence CLI via stdin.
    *
    * @param command - Command string matching CLI dispatcher.
    * @param payload - JSON-serializable parameters.
@@ -53,31 +53,110 @@ export class PythonComputerBridge {
     command: string,
     payload: Record<string, unknown> = {},
     timeoutMs: number = 30000
-  ): Promise<{ success: boolean; data?: T; error?: string; [key: string]: unknown }> {
+  ): Promise<{ success: boolean; data?: T; error?: string; exitCode?: number; [key: string]: unknown }> {
     const python = this._resolvePython();
     const payloadJson = JSON.stringify(payload);
 
-    try {
-      const { stdout } = await execFileAsync(
-        python,
-        ["-m", "ultron_engine.computer.computer_intelligence_cli", command, payloadJson],
-        {
-          cwd: process.cwd(),
-          timeout: timeoutMs,
-          windowsHide: true,
-          maxBuffer: 10 * 1024 * 1024, // 10MB
-        }
-      );
+    return new Promise((resolve) => {
+      let childProcess: ReturnType<typeof spawn>;
+      try {
+        childProcess = spawn(
+          python,
+          ["-m", "ultron_engine.computer.computer_intelligence_cli", command, "--stdin"],
+          {
+            cwd: process.cwd(),
+            windowsHide: true,
+            env: {
+              ...process.env,
+              PYTHONIOENCODING: "utf-8",
+            },
+          }
+        );
+      } catch (spawnErr: unknown) {
+        const msg = spawnErr instanceof Error ? spawnErr.message : String(spawnErr);
+        return resolve({
+          success: false,
+          exitCode: -1,
+          error: `Failed to spawn Python runtime (${python}): ${msg}`,
+        });
+      }
 
-      const parsed = JSON.parse(stdout.trim());
-      return parsed;
-    } catch (err: unknown) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      return {
-        success: false,
-        error: `Python Computer Bridge Error (${command}): ${errorMsg}`,
-      };
-    }
+      let stdoutData = "";
+      let stderrData = "";
+      let timedOut = false;
+
+      const timer = setTimeout(() => {
+        timedOut = true;
+        try {
+          childProcess.kill("SIGKILL");
+        } catch {}
+        resolve({
+          success: false,
+          exitCode: -1,
+          error: `Python Bridge Timeout: Command "${command}" exceeded ${timeoutMs}ms limit.`,
+        });
+      }, timeoutMs);
+
+      childProcess.stdout.on("data", (chunk) => {
+        stdoutData += chunk.toString("utf-8");
+      });
+
+      childProcess.stderr.on("data", (chunk) => {
+        stderrData += chunk.toString("utf-8");
+      });
+
+      childProcess.on("error", (err) => {
+        if (timedOut) return;
+        clearTimeout(timer);
+        resolve({
+          success: false,
+          exitCode: -1,
+          error: `Python Bridge Process Error (${command}): ${err.message}`,
+        });
+      });
+
+      childProcess.on("close", (exitCode) => {
+        if (timedOut) return;
+        clearTimeout(timer);
+
+        if (exitCode !== 0 && !stdoutData.trim()) {
+          return resolve({
+            success: false,
+            exitCode: exitCode ?? -1,
+            error: `Python process exited with code ${exitCode}. Stderr: ${stderrData.trim() || "(empty)"}`,
+          });
+        }
+
+        try {
+          const parsed = JSON.parse(stdoutData.trim());
+          if (exitCode !== 0 && parsed.success !== false) {
+            parsed.success = false;
+            parsed.exitCode = exitCode;
+          }
+          resolve(parsed);
+        } catch (jsonErr: unknown) {
+          resolve({
+            success: false,
+            exitCode: exitCode ?? -1,
+            error: `Failed to parse Python response JSON: ${stdoutData.slice(0, 200)}... Stderr: ${stderrData.trim()}`,
+          });
+        }
+      });
+
+      // Write payload to stdin and close pipe
+      try {
+        childProcess.stdin.write(payloadJson);
+        childProcess.stdin.end();
+      } catch (writeErr: unknown) {
+        clearTimeout(timer);
+        const msg = writeErr instanceof Error ? writeErr.message : String(writeErr);
+        resolve({
+          success: false,
+          exitCode: -1,
+          error: `Failed to write payload to Python stdin: ${msg}`,
+        });
+      }
+    });
   }
 }
 
