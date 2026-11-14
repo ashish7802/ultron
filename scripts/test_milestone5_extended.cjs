@@ -14,7 +14,12 @@ const fs = require("fs");
 const { spawnSync } = require("child_process");
 
 function runNodeModule(code) {
-  const res = spawnSync(process.execPath, ["--input-type=module", "-e", code], {
+  const args = ["--input-type=module", "-e", code];
+  try {
+    require.resolve("tsx");
+    args.unshift("--import", "tsx");
+  } catch {}
+  const res = spawnSync(process.execPath, args, {
     encoding: "utf-8",
     cwd: process.cwd(),
     timeout: 15000,
@@ -23,7 +28,12 @@ function runNodeModule(code) {
 }
 
 function runPythonCli(command, payload) {
-  const res = spawnSync("python", ["-m", "ultron_engine.computer.computer_intelligence_cli", command, "--stdin"], {
+  let pyExec = "python";
+  try {
+    const { resolvePythonExecutable } = require("../lib/pythonRuntime.ts");
+    pyExec = resolvePythonExecutable();
+  } catch {}
+  const res = spawnSync(pyExec, ["-m", "ultron_engine.computer.computer_intelligence_cli", command, "--stdin"], {
     input: JSON.stringify(payload),
     encoding: "utf-8",
     cwd: process.cwd(),

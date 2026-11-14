@@ -14,10 +14,10 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 20.x
+      - name: Setup Node.js 22.x
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: Install Dependencies
@@ -33,10 +33,10 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 20.x
+      - name: Setup Node.js 22.x
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: Setup Python 3.11
@@ -52,22 +52,22 @@ jobs:
           python -c "import win32crypt; print('pywin32 import verified in CI environment')"
 
       - name: Run Milestone 5 Security Suite
-        run: node scripts/test_milestone5_battery.cjs
+        run: npx tsx scripts/test_milestone5_battery.cjs
 
       - name: Run Milestone 5 Extended Suite
-        run: node scripts/test_milestone5_extended.cjs
+        run: npx tsx scripts/test_milestone5_extended.cjs
 
       - name: Run Phase 1 Security Battery (F-02, F-03, F-04, F-15)
-        run: node scripts/test_phase1_battery.cjs
+        run: npx tsx scripts/test_phase1_battery.cjs
 
       - name: Run Phase 1.1 Adversarial Battery
-        run: node scripts/test_phase1_1_adversarial.cjs
+        run: npx tsx scripts/test_phase1_1_adversarial.cjs
 
       - name: Run Predicate Security Suite
-        run: node scripts/test_predicate_security.cjs
+        run: npx tsx scripts/test_predicate_security.cjs
 
       - name: Run Phase 2 Security Hardening Battery
-        run: node scripts/test_phase2_battery.cjs
+        run: npx tsx scripts/test_phase2_battery.cjs
 
       - name: Run Phase 2 Browser & API Workflow Battery
-        run: node scripts/test_phase2_browser_workflows.cjs
+        run: npx tsx scripts/test_phase2_browser_workflows.cjs

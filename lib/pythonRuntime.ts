@@ -22,6 +22,15 @@ export function resolvePythonExecutable(): string {
   const configured = (process.env.ULTRON_PYTHON_PATH || process.env.ULTRON_PYTHON || "").trim();
   if (configured) return configured;
 
+  // GitHub Actions and CI environments (actions/setup-python sets pythonLocation)
+  if (process.env.pythonLocation) {
+    const hostedCandidate = path.join(
+      process.env.pythonLocation,
+      process.platform === "win32" ? "python.exe" : "bin/python3"
+    );
+    if (existsSync(hostedCandidate)) return hostedCandidate;
+  }
+
   const candidates: string[] = [];
   if (process.platform === "win32") {
     const localAppData = process.env.LOCALAPPDATA || "";

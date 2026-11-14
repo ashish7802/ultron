@@ -9,21 +9,18 @@
 
 ## 1. CI Pipeline Repair & Hardening (`.github/workflows/security-ci.yml`)
 
-The previous CI failure on run `43576351058` occurred because:
-1. `scripts/test_milestone5_battery.cjs` hardcoded `.security_vault/recovery.key` file reading, which does not exist in a fresh Git clone.
-2. The workflow did not execute every test battery independently.
-
-### Remediations Applied:
-- Refactored `test_milestone5_battery.cjs` to resolve the recovery key dynamically using `getEffectiveRecoveryKey()`.
-- Added explicit `pywin32` verification step in CI to confirm `win32crypt` availability.
-- Separated test steps so all test batteries execute independently:
-  1. Milestone 5 Security Suite (`test_milestone5_battery.cjs`)
-  2. Milestone 5 Extended Suite (`test_milestone5_extended.cjs`)
-  3. Phase 1 Security Battery (`test_phase1_battery.cjs`)
-  4. Phase 1.1 Adversarial Battery (`test_phase1_1_adversarial.cjs`)
-  5. Predicate Security Suite (`test_predicate_security.cjs`)
-  6. Phase 2 Security Hardening Battery (`test_phase2_battery.cjs`)
-  7. Phase 2 Browser & API Workflow Battery (`test_phase2_browser_workflows.cjs`)
+The previous CI failures were identified and remediated:
+1. `scripts/test_milestone5_battery.cjs` hardcoded `.security_vault/recovery.key` file reading, which does not exist in a fresh Git clone. Fixed by dynamically resolving via `getEffectiveRecoveryKey()`.
+2. Standard Node 20 runner lacks native CommonJS loader for TypeScript files (`require('../lib/*.ts')`). Added `tsx` to devDependencies and upgraded runner to Node 22.x with `npx tsx` execution for zero-dependency on-the-fly TypeScript module loading.
+3. Added CI runner Python detection in `lib/pythonRuntime.ts` using `process.env.pythonLocation` for deterministic Python 3.11 selection.
+4. Separated test steps so all 7 test batteries execute independently:
+   1. Milestone 5 Security Suite (`test_milestone5_battery.cjs` - 12 tests)
+   2. Milestone 5 Extended Suite (`test_milestone5_extended.cjs` - 4 tests)
+   3. Phase 1 Security Battery (`test_phase1_battery.cjs` - 15 tests)
+   4. Phase 1.1 Adversarial Battery (`test_phase1_1_adversarial.cjs` - 14 tests)
+   5. Predicate Security Suite (`test_predicate_security.cjs` - Pass)
+   6. Phase 2 Security Hardening Battery (`test_phase2_battery.cjs` - 13 tests)
+   7. Phase 2 Browser & API Workflow Battery (`test_phase2_browser_workflows.cjs` - 8 tests)
 
 ---
 
