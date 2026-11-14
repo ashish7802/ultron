@@ -39,6 +39,7 @@ import type {
   AuthenticationLevel,
 } from "./types.ts";
 import { verifyRecoveryKey } from "./recoveryKey.ts";
+import { defaultAppPathService } from "./appPathService.ts";
 
 /** Default Session Time-To-Live: 24 Hours. */
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -53,11 +54,10 @@ const MAX_CONSECUTIVE_AUTH_FAILURES = 5;
 const LOCKOUT_DURATION_MS = 5 * 60 * 1000;
 
 /** Local storage directory for persistent identity state. */
-const SECURITY_STORAGE_DIR = path.join(
-  /*turbopackIgnore: true*/ process.cwd(),
-  ".security_vault"
+const SESSIONS_STORE_FILE = path.join(
+  defaultAppPathService.getSecurityVaultDir(),
+  "sessions.json"
 );
-const SESSIONS_STORE_FILE = path.join(SECURITY_STORAGE_DIR, "sessions.json");
 
 /** Active in-memory session registry. */
 const activeSessions = new Map<string, DesktopSession>();
@@ -93,8 +93,9 @@ export const FOUNDER_IDENTITY: Readonly<UserIdentity> = Object.freeze({
  */
 function initializeStore(): void {
   try {
-    if (!fs.existsSync(SECURITY_STORAGE_DIR)) {
-      fs.mkdirSync(SECURITY_STORAGE_DIR, { recursive: true });
+    const vaultDir = defaultAppPathService.getSecurityVaultDir();
+    if (!fs.existsSync(vaultDir)) {
+      fs.mkdirSync(vaultDir, { recursive: true });
     }
     if (fs.existsSync(SESSIONS_STORE_FILE)) {
       const raw = fs.readFileSync(SESSIONS_STORE_FILE, "utf-8");

@@ -61,14 +61,16 @@ export interface MemoryVaultData {
   memories: MemoryRecord[];
 }
 
+import { defaultAppPathService } from "./security/appPathService.ts";
+
 export interface MemoryStats {
   total: number;
   byCategory: Record<MemoryCategory, number>;
   lastUpdated: number;
 }
 
-const VAULT_FILE_PATH = path.join(process.cwd(), "ultron_memory_vault.json");
-const VAULT_BACKUP_PATH = path.join(process.cwd(), "ultron_memory_vault.json.bak");
+const VAULT_FILE_PATH = defaultAppPathService.getMemoryVaultPath();
+const VAULT_BACKUP_PATH = `${VAULT_FILE_PATH}.bak`;
 
 /** Default founder seed memories loaded when no existing vault is decryptable. */
 const DEFAULT_FOUNDER_MEMORIES: MemoryRecord[] = [

@@ -29,6 +29,13 @@ yarn-error.log*
 .env*
 !.env.example
 .vault_key
+.vault_key.dpapi
+*.dpapi
+*.key
+*.key.dpapi
+.security_vault/
+recovery.key
+recovery.key.dpapi
 
 # OAuth / account secrets — never commit credentials
 credentials.json

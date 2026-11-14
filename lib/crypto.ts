@@ -65,7 +65,7 @@ export function getActiveMasterSecret(): string {
         const basePath = defaultAppPathService.getVaultKeyPath();
         const dpapiPath = `${basePath}.dpapi`;
 
-        // 1. Try reading DPAPI-protected key file
+        // 1. Primary on Windows: Read DPAPI-protected key file exclusively
         if (fs.existsSync(dpapiPath)) {
           const encData = fs.readFileSync(dpapiPath, "utf-8").trim();
           if (encData.length > 0) {
@@ -77,25 +77,30 @@ export function getActiveMasterSecret(): string {
           }
         }
 
-        // 2. Fall back to existing plaintext .vault_key
+        // 2. Migration: If plaintext .vault_key exists on Windows, migrate to DPAPI immediately
         if (fs.existsSync(basePath)) {
           const stored = fs.readFileSync(basePath, "utf-8").trim();
           if (stored.length >= 32) {
-            dynamicMasterKey = stored;
+            if (defaultDpapiBridge.isAvailable()) {
+              const protectedBlob = defaultDpapiBridge.protectSecret(stored, "Ultron Vault Master Key");
+              if (protectedBlob && !protectedBlob.startsWith("DEV_CI_NON_WINDOWS_FALLBACK:")) {
+                // Write DPAPI blob atomically
+                const tmpDpapi = `${dpapiPath}.tmp.${Date.now()}`;
+                fs.writeFileSync(tmpDpapi, protectedBlob, { encoding: "utf-8", mode: 0o600 });
+                fs.renameSync(tmpDpapi, dpapiPath);
 
-            // Opportunistically wrap with DPAPI if available
-            try {
-              if (defaultDpapiBridge.isAvailable() && !fs.existsSync(dpapiPath)) {
-                const protectedBlob = defaultDpapiBridge.protectSecret(stored, "Ultron Vault Master Key");
-                if (protectedBlob && !protectedBlob.startsWith("PLAINTEXT_FALLBACK:")) {
-                  fs.writeFileSync(dpapiPath, protectedBlob, { encoding: "utf-8", mode: 0o600 });
+                // Verify written DPAPI blob unprotects identically before accepting
+                const verifyCheck = defaultDpapiBridge.unprotectSecret(fs.readFileSync(dpapiPath, "utf-8").trim());
+                if (verifyCheck === stored) {
+                  dynamicMasterKey = stored;
+                  return stored;
                 }
               }
-            } catch {
-              // Ignore opportunistic protection errors
+            } else if (process.platform !== "win32") {
+              // Non-Windows dev/CI environment fallback
+              dynamicMasterKey = stored;
+              return stored;
             }
-
-            return stored;
           }
         }
       } catch {
@@ -114,15 +119,17 @@ export function getActiveMasterSecret(): string {
         const basePath = defaultAppPathService.getVaultKeyPath();
         const dpapiPath = `${basePath}.dpapi`;
 
-        // Save plaintext fallback
-        fs.writeFileSync(basePath, dynamicMasterKey, { encoding: "utf-8", mode: 0o600 });
-
-        // Save DPAPI protected version if supported
+        // On Windows with DPAPI available, store exclusively as .vault_key.dpapi
         if (defaultDpapiBridge.isAvailable()) {
           const protectedBlob = defaultDpapiBridge.protectSecret(dynamicMasterKey, "Ultron Vault Master Key");
-          if (protectedBlob && !protectedBlob.startsWith("PLAINTEXT_FALLBACK:")) {
-            fs.writeFileSync(dpapiPath, protectedBlob, { encoding: "utf-8", mode: 0o600 });
+          if (protectedBlob && !protectedBlob.startsWith("DEV_CI_NON_WINDOWS_FALLBACK:")) {
+            const tmpDpapi = `${dpapiPath}.tmp.${Date.now()}`;
+            fs.writeFileSync(tmpDpapi, protectedBlob, { encoding: "utf-8", mode: 0o600 });
+            fs.renameSync(tmpDpapi, dpapiPath);
           }
+        } else {
+          // Non-Windows dev/CI mode fallback
+          fs.writeFileSync(basePath, dynamicMasterKey, { encoding: "utf-8", mode: 0o600 });
         }
       } catch {
         // Non-fatal if filesystem is restricted

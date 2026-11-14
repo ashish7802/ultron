@@ -33,6 +33,7 @@ import path from "path";
 import { getActiveMasterSecret } from "../crypto.ts";
 import { scanAndSanitizeText } from "./privacyEngine.ts";
 import { setGatewayAuditHook } from "./actionGateway.ts";
+import { defaultAppPathService } from "./appPathService.ts";
 import {
   acquireVaultLockSync,
   readVaultJsonSync,
@@ -50,11 +51,7 @@ import type {
 const GENESIS_BLOCK_HASH = "0000000000000000000000000000000000000000000000000000000000000000";
 
 /** Audit ledger disk persistence file. */
-const AUDIT_LEDGER_FILE = path.join(
-  /*turbopackIgnore: true*/ process.cwd(),
-  ".security_vault",
-  "audit_chain.json"
-);
+const AUDIT_LEDGER_FILE = defaultAppPathService.getAuditChainPath();
 
 /** Serializes audit-ledger read/append/write operations across ULTRON processes. */
 const AUDIT_LEDGER_TRANSACTION_LOCK = `${AUDIT_LEDGER_FILE}.append.lock`;

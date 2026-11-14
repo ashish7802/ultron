@@ -138,6 +138,37 @@ export class AppPathService {
   }
 
   /**
+   * Resolves the path to the ultron_engine directory across dev and packaged Electron environments.
+   */
+  public getUltronEngineDir(): string {
+    const envEngine = process.env.ULTRON_ENGINE_DIR?.trim();
+    if (envEngine && fs.existsSync(envEngine)) {
+      return path.resolve(envEngine);
+    }
+    // Check local cwd
+    const localDir = path.join(process.cwd(), "ultron_engine");
+    if (fs.existsSync(localDir)) {
+      return localDir;
+    }
+    // Check relative to resources in packaged builds
+    const procAny = process as unknown as { resourcesPath?: string };
+    if (typeof procAny.resourcesPath === "string") {
+      const resDir = path.join(procAny.resourcesPath, "standalone", "ultron_engine");
+      if (fs.existsSync(resDir)) {
+        return resDir;
+      }
+    }
+    return localDir;
+  }
+
+  /**
+   * Resolves the path to the dpapi_helper.py script.
+   */
+  public getDpapiHelperPath(): string {
+    return path.join(this.getUltronEngineDir(), "dpapi_helper.py");
+  }
+
+  /**
    * Resolves the path to the filesystem backup snapshot directory (`backups/filesystem/`).
    */
   public getBackupDir(): string {

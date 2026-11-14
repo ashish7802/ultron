@@ -17,20 +17,18 @@
  */
 
 import { execFileSync } from "child_process";
-import path from "path";
 import fs from "fs";
 import { resolvePythonExecutable } from "../pythonRuntime.ts";
+import { defaultAppPathService } from "./appPathService.ts";
 
 export class DpapiBridge {
   private static _instance: DpapiBridge | null = null;
   private readonly _pythonExecutable: string;
-  private readonly _helperScript: string;
   private readonly _isWindows: boolean;
 
   private constructor() {
     this._isWindows = process.platform === "win32";
     this._pythonExecutable = resolvePythonExecutable();
-    this._helperScript = path.join(process.cwd(), "ultron_engine", "dpapi_helper.py");
   }
 
   public static getInstance(): DpapiBridge {
@@ -41,17 +39,24 @@ export class DpapiBridge {
   }
 
   /**
+   * Resolves the authoritative helper script path dynamically.
+   */
+  public getHelperScriptPath(): string {
+    return defaultAppPathService.getDpapiHelperPath();
+  }
+
+  /**
    * Checks whether Windows DPAPI protection is available on the current host.
    */
   public isAvailable(): boolean {
-    return this._isWindows && fs.existsSync(this._helperScript);
+    return this._isWindows && fs.existsSync(this.getHelperScriptPath());
   }
 
   /**
    * Encrypts plaintext secret using Windows DPAPI CryptProtectData.
    *
    * @param plaintext - Secret string to protect.
-   * @param description - Optional description for DPAPI metadata.
+   * @param _description - Optional description for DPAPI metadata.
    * @returns Base64-encoded DPAPI ciphertext blob.
    */
   public protectSecret(plaintext: string, _description?: string): string {
@@ -60,15 +65,23 @@ export class DpapiBridge {
     }
 
     if (!this.isAvailable()) {
-      // Non-Windows compatibility fallback: return prefixed raw value
-      return `PLAINTEXT_FALLBACK:${plaintext}`;
+      if (this._isWindows) {
+        throw new Error(
+          "Windows Security Violation: DPAPI helper is unavailable on Windows platform. Refusing insecure plaintext fallback in Windows environment."
+        );
+      }
+      // Non-Windows compatibility fallback: return clearly marked dev/CI fallback
+      return `DEV_CI_NON_WINDOWS_FALLBACK:${plaintext}`;
     }
 
     try {
+      const helperScript = this.getHelperScriptPath();
+      // Pass sensitive plaintext through stdin, NEVER as a command-line argument
       const output = execFileSync(
         this._pythonExecutable,
-        [this._helperScript, "protect", plaintext],
+        [helperScript, "protect"],
         {
+          input: plaintext,
           encoding: "utf-8",
           windowsHide: true,
           timeout: 10000,
@@ -97,19 +110,37 @@ export class DpapiBridge {
       throw new Error("Cannot unprotect empty ciphertext.");
     }
 
+    if (ciphertextB64.startsWith("DEV_CI_NON_WINDOWS_FALLBACK:")) {
+      if (this._isWindows && process.env.NODE_ENV === "production") {
+        throw new Error(
+          "Security Violation: Non-Windows fallback blob presented in Windows production mode. Operation rejected."
+        );
+      }
+      return ciphertextB64.substring("DEV_CI_NON_WINDOWS_FALLBACK:".length);
+    }
+
+    // Historical compatibility: PLAINTEXT_FALLBACK prefix from earlier test iteration
     if (ciphertextB64.startsWith("PLAINTEXT_FALLBACK:")) {
+      if (this._isWindows && process.env.NODE_ENV === "production") {
+        throw new Error(
+          "Security Violation: PLAINTEXT_FALLBACK presented in Windows production mode. Operation rejected."
+        );
+      }
       return ciphertextB64.substring("PLAINTEXT_FALLBACK:".length);
     }
 
     if (!this.isAvailable()) {
-      throw new Error("Cannot unprotect DPAPI ciphertext on non-Windows environment without plaintext fallback.");
+      throw new Error("Cannot unprotect DPAPI ciphertext: DPAPI helper is unavailable.");
     }
 
     try {
+      const helperScript = this.getHelperScriptPath();
+      // Pass sensitive ciphertext through stdin to prevent argument leaking
       const output = execFileSync(
         this._pythonExecutable,
-        [this._helperScript, "unprotect", ciphertextB64.trim()],
+        [helperScript, "unprotect"],
         {
+          input: ciphertextB64.trim(),
           encoding: "utf-8",
           windowsHide: true,
           timeout: 10000,

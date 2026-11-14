@@ -49,15 +49,22 @@ jobs:
           npm ci
           python -m pip install --upgrade pip
           pip install pypiwin32 pywin32 cryptography
+          python -c "import win32crypt; print('pywin32 import verified in CI environment')"
 
       - name: Run Milestone 5 Security Suite
         run: node scripts/test_milestone5_battery.cjs
+
+      - name: Run Milestone 5 Extended Suite
+        run: node scripts/test_milestone5_extended.cjs
 
       - name: Run Phase 1 Security Battery (F-02, F-03, F-04, F-15)
         run: node scripts/test_phase1_battery.cjs
 
       - name: Run Phase 1.1 Adversarial Battery
         run: node scripts/test_phase1_1_adversarial.cjs
+
+      - name: Run Predicate Security Suite
+        run: node scripts/test_predicate_security.cjs
 
       - name: Run Phase 2 Security Hardening Battery
         run: node scripts/test_phase2_battery.cjs

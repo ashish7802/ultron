@@ -36,12 +36,11 @@ async function runMilestone5Battery() {
   console.log('  [PASS] Prohibited static recovery passphrases fail closed.');
 
   // SEC-02: Recovery key constant-time verification
-  const recKeyFile = path.join(process.cwd(), '.security_vault', 'recovery.key');
-  if (fs.existsSync(recKeyFile)) {
-    const validKey = fs.readFileSync(recKeyFile, 'utf-8').trim();
-    assert.strictEqual(verifyRecoveryKey(validKey), true, 'Valid recovery key must verify');
-    console.log('  [PASS] Authorized recovery key constant-time verification succeeds.');
-  }
+  const { getEffectiveRecoveryKey } = require('../lib/security/recoveryKey.ts');
+  const validKey = getEffectiveRecoveryKey();
+  assert.ok(validKey && validKey.length >= 32, 'Effective recovery key must be resolved');
+  assert.strictEqual(verifyRecoveryKey(validKey), true, 'Valid recovery key must verify');
+  console.log('  [PASS] Authorized recovery key constant-time verification succeeds.');
 
   // SEC-03: Emergency Stop & Lockfile Synchronization
   const triggerRes = await defaultSafetyControls.triggerEmergencyStop('Milestone 5 battery test');

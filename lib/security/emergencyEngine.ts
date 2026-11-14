@@ -38,17 +38,14 @@ import type {
   RecoveryUnlockParams,
 } from "./types.ts";
 import { getEffectiveRecoveryKey, verifyRecoveryKey } from "./recoveryKey.ts";
+import { defaultAppPathService } from "./appPathService.ts";
 
 /** Path to persistent lockdown state file. */
-const LOCKDOWN_FILE = path.join(
-  /*turbopackIgnore: true*/ process.cwd(),
-  ".security_vault",
-  "lockdown.json"
-);
+const LOCKDOWN_FILE = defaultAppPathService.getLockdownStatePath();
 
 /** Path to synchronized Python emergency stop lockfile. */
 const EMERGENCY_STOP_LOCKFILE = path.join(
-  /*turbopackIgnore: true*/ process.cwd(),
+  defaultAppPathService.getUserDataDir(),
   "ULTRON_EMERGENCY_STOP.lock"
 );
 

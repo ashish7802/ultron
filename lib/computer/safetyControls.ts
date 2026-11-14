@@ -31,12 +31,17 @@ import {
   unlockFromEmergencyStop,
 } from "../security/emergencyEngine.ts";
 import { getEffectiveRecoveryKey } from "../security/recoveryKey.ts";
+import { defaultAppPathService } from "../security/appPathService.ts";
 import type {
   EmergencyStopState,
   SafetyValidationResult,
 } from "./types.ts";
 
 export class ComputerSafetyControls {
+  private getLockfilePath(): string {
+    return path.join(defaultAppPathService.getUserDataDir(), "ULTRON_EMERGENCY_STOP.lock");
+  }
+
   /**
    * Checks whether Emergency Stop is currently active.
    *
@@ -47,7 +52,7 @@ export class ComputerSafetyControls {
    * @returns Boolean indicating active Emergency Stop.
    */
   public async isEmergencyStopActive(): Promise<boolean> {
-    const lockfilePath = path.join(process.cwd(), "ULTRON_EMERGENCY_STOP.lock");
+    const lockfilePath = this.getLockfilePath();
     try {
       if (fs.existsSync(lockfilePath)) {
         return true;
@@ -82,7 +87,7 @@ export class ComputerSafetyControls {
   public async triggerEmergencyStop(reason: string = "User triggered Emergency Stop"): Promise<EmergencyStopState> {
     triggerEmergencyLockdown({ actor: "safety_controls", reason, revokeAllSessions: true });
 
-    const lockfilePath = path.join(process.cwd(), "ULTRON_EMERGENCY_STOP.lock");
+    const lockfilePath = this.getLockfilePath();
     try {
       fs.writeFileSync(lockfilePath, JSON.stringify({ triggeredAt: Date.now(), reason }), "utf-8");
     } catch (err) {
@@ -122,7 +127,7 @@ export class ComputerSafetyControls {
       });
     }
 
-    const lockfilePath = path.join(process.cwd(), "ULTRON_EMERGENCY_STOP.lock");
+    const lockfilePath = this.getLockfilePath();
     try {
       if (fs.existsSync(lockfilePath)) {
         fs.unlinkSync(lockfilePath);

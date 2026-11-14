@@ -89,7 +89,7 @@ export function getEffectiveRecoveryKey(): string {
       fs.mkdirSync(vaultDir, { recursive: true, mode: 0o700 });
     }
 
-    // 2a. Check DPAPI-protected recovery key
+    // 2a. Primary on Windows: Read DPAPI-protected recovery key exclusively
     if (fs.existsSync(dpapiRecoveryFile)) {
       const encBlob = fs.readFileSync(dpapiRecoveryFile, "utf-8").trim();
       if (encBlob.length > 0) {
@@ -101,35 +101,43 @@ export function getEffectiveRecoveryKey(): string {
       }
     }
 
-    // 2b. Check plaintext recovery.key
+    // 2b. Migration: If plaintext recovery.key exists on Windows, migrate to DPAPI immediately
     if (fs.existsSync(recoveryKeyFile)) {
       const stored = fs.readFileSync(recoveryKeyFile, "utf-8").trim();
       if (stored.length >= 32 && !PROHIBITED_DEFAULTS.has(stored.toUpperCase())) {
-        cachedRecoveryKey = stored;
+        if (defaultDpapiBridge.isAvailable()) {
+          const protectedBlob = defaultDpapiBridge.protectSecret(stored, "Ultron Founder Recovery Key");
+          if (protectedBlob && !protectedBlob.startsWith("DEV_CI_NON_WINDOWS_FALLBACK:")) {
+            const tmpDpapi = `${dpapiRecoveryFile}.tmp.${Date.now()}`;
+            fs.writeFileSync(tmpDpapi, protectedBlob, { encoding: "utf-8", mode: 0o600 });
+            fs.renameSync(tmpDpapi, dpapiRecoveryFile);
 
-        // Opportunistically save DPAPI protected copy
-        try {
-          if (defaultDpapiBridge.isAvailable() && !fs.existsSync(dpapiRecoveryFile)) {
-            const protectedBlob = defaultDpapiBridge.protectSecret(stored, "Ultron Founder Recovery Key");
-            if (protectedBlob && !protectedBlob.startsWith("PLAINTEXT_FALLBACK:")) {
-              fs.writeFileSync(dpapiRecoveryFile, protectedBlob, { encoding: "utf-8", mode: 0o600 });
+            const verifyCheck = defaultDpapiBridge.unprotectSecret(fs.readFileSync(dpapiRecoveryFile, "utf-8").trim());
+            if (verifyCheck === stored) {
+              cachedRecoveryKey = stored;
+              return stored;
             }
           }
-        } catch {}
-
-        return stored;
+        } else if (process.platform !== "win32") {
+          // Non-Windows dev/CI environment fallback
+          cachedRecoveryKey = stored;
+          return stored;
+        }
       }
     }
 
     // 3. Generate fresh cryptographically secure random key
     const generated = crypto.randomBytes(32).toString("hex");
-    fs.writeFileSync(recoveryKeyFile, generated, { encoding: "utf-8", mode: 0o600 });
 
     if (defaultDpapiBridge.isAvailable()) {
       const protectedBlob = defaultDpapiBridge.protectSecret(generated, "Ultron Founder Recovery Key");
-      if (protectedBlob && !protectedBlob.startsWith("PLAINTEXT_FALLBACK:")) {
-        fs.writeFileSync(dpapiRecoveryFile, protectedBlob, { encoding: "utf-8", mode: 0o600 });
+      if (protectedBlob && !protectedBlob.startsWith("DEV_CI_NON_WINDOWS_FALLBACK:")) {
+        const tmpDpapi = `${dpapiRecoveryFile}.tmp.${Date.now()}`;
+        fs.writeFileSync(tmpDpapi, protectedBlob, { encoding: "utf-8", mode: 0o600 });
+        fs.renameSync(tmpDpapi, dpapiRecoveryFile);
       }
+    } else {
+      fs.writeFileSync(recoveryKeyFile, generated, { encoding: "utf-8", mode: 0o600 });
     }
 
     console.info(

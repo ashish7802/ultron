@@ -31,6 +31,7 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { recordSecurityEvent } from "./monitoringEngine.ts";
+import { defaultAppPathService } from "./appPathService.ts";
 import type {
   SecurityPolicyRule,
   PolicyValidationResult,
@@ -39,8 +40,7 @@ import type {
 
 /** Path to persistent custom policies file. */
 const POLICIES_FILE = path.join(
-  /*turbopackIgnore: true*/ process.cwd(),
-  ".security_vault",
+  defaultAppPathService.getSecurityVaultDir(),
   "policies.json"
 );
 

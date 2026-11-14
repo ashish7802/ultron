@@ -28,6 +28,7 @@
 import crypto from "crypto";
 import path from "path";
 import { readVaultJsonSync, writeVaultJsonSync } from "./vaultStorage.ts";
+import { defaultAppPathService } from "./appPathService.ts";
 import type {
   PermissionActionType,
   ActionRiskLevel,
@@ -37,11 +38,10 @@ import type {
 } from "./types.ts";
 
 /** Local storage directory and file for persistent approval state across server restarts. */
-const SECURITY_STORAGE_DIR = path.join(
-  /*turbopackIgnore: true*/ process.cwd(),
-  ".security_vault"
+const APPROVALS_STORE_FILE = path.join(
+  defaultAppPathService.getSecurityVaultDir(),
+  "approvals.json"
 );
-const APPROVALS_STORE_FILE = path.join(SECURITY_STORAGE_DIR, "approvals.json");
 
 /** 5-minute Time-To-Live for pending approval requests. */
 const REQUEST_TTL_MS = 5 * 60 * 1000;

@@ -28,6 +28,7 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { getActiveMasterSecret } from "../crypto.ts";
+import { defaultAppPathService } from "./appPathService.ts";
 import type {
   CredentialMetadata,
   EncryptedSecretRecord,
@@ -36,8 +37,7 @@ import type {
 
 /** Storage path for encrypted credential vault. */
 const CREDENTIAL_VAULT_FILE = path.join(
-  /*turbopackIgnore: true*/ process.cwd(),
-  ".security_vault",
+  defaultAppPathService.getSecurityVaultDir(),
   "credentials_vault.enc.json"
 );
 
