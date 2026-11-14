@@ -21,6 +21,7 @@ import { NextResponse } from "next/server";
 import {
   defaultLearningCoordinator,
   type TaskStepRecord,
+  type TaskOutcomeStatus,
 } from "@/lib/learning";
 import { validateSessionToken } from "@/lib/security/identityEngine";
 import { validateDesktopSession } from "@/lib/sessionGate";
@@ -233,11 +234,14 @@ export async function POST(request: Request) {
 
     switch (action) {
       case "ingest_task": {
-        const rawOutcome = typeof body.outcome === "string" ? body.outcome.toUpperCase() : "";
-        const validOutcomes = ["SUCCESS", "FAILURE", "PARTIAL", "CANCELLED"];
-        if (!validOutcomes.includes(rawOutcome)) {
+        let rawOutcome = typeof body.outcome === "string" ? body.outcome.toUpperCase() : "";
+        if (rawOutcome === "CANCELLED") {
+          rawOutcome = "ABORTED";
+        }
+        const validOutcomes: TaskOutcomeStatus[] = ["SUCCESS", "FAILURE", "PARTIAL", "ABORTED"];
+        if (!validOutcomes.includes(rawOutcome as TaskOutcomeStatus)) {
           return NextResponse.json(
-            { success: false, error: `Invalid or missing 'outcome'. Must be one of: ${validOutcomes.join(", ")}` },
+            { success: false, error: `Invalid or missing 'outcome'. Must be one of: ${validOutcomes.join(", ")}, CANCELLED` },
             { status: 400 }
           );
         }
@@ -251,7 +255,7 @@ export async function POST(request: Request) {
           category: body.category || "GENERAL",
           strategyUsed: body.strategyUsed || "STANDARD",
           steps: (body.steps || []) as TaskStepRecord[],
-          outcome: rawOutcome as "SUCCESS" | "FAILURE" | "PARTIAL" | "CANCELLED",
+          outcome: rawOutcome as TaskOutcomeStatus,
           executionDurationMs: typeof body.executionDurationMs === "number" ? body.executionDurationMs : 1000,
           verifiedByTest,
           testEvidenceId: verifiedByTest ? body.testEvidenceId : undefined,

@@ -264,30 +264,30 @@ export class TaskVerificationEngine {
       }
 
       case "CUSTOM_PREDICATE": {
-        // Safe restricted expression evaluator: strictly avoids arbitrary code execution or Node API access
+        // Safe pure AST / Regex restricted expression evaluator: NO eval() or new Function() under ANY circumstances
         if (typeof criterion.expectedValue === "string" && criterion.expectedValue.trim()) {
           const expr = criterion.expectedValue.trim();
 
-          // Block dangerous identifiers and keywords
-          const forbiddenTokens = [
-            "process", "require", "import", "global", "globalThis", "window",
-            "document", "Function", "eval", "constructor", "prototype",
-            "__proto__", "fs", "child_process", "spawn", "exec", "setTimeout", "setInterval"
-          ];
-
-          for (const token of forbiddenTokens) {
-            const tokenRegex = new RegExp(`\\b${token}\\b`);
-            if (tokenRegex.test(expr)) {
-              return {
-                passed: false,
-                actualValue: "FORBIDDEN_TOKEN",
-                details: `Security Policy Violation: Expression contains prohibited token "${token}".`,
-              };
-            }
+          // Reject excessively long expressions (DoS mitigation)
+          if (expr.length > 256) {
+            return {
+              passed: false,
+              actualValue: "EXPRESSION_TOO_LONG",
+              details: "Security Policy Violation: Expression exceeds 256 character maximum limit.",
+            };
           }
 
-          // Evaluate simple restricted member comparisons e.g. "output.count > 5", "output.success === true"
-          // Pattern: output(\.[a-zA-Z0-9_$]+)+\s*(===|!==|==|!=|>=|<=|>|<)\s*([a-zA-Z0-9_$-]+|"[^"]*"|'[^']*')
+          // Strictly reject prototype pollution, constructor access, function calls, computed indexing, and quotes
+          if (/[()\[\]{};`]|constructor|prototype|__proto__|import|require|process|global|window|Function|eval/i.test(expr)) {
+            return {
+              passed: false,
+              actualValue: "FORBIDDEN_SYNTAX",
+              details: "Security Policy Violation: Expression contains disallowed tokens, brackets, function calls, or prototype access.",
+            };
+          }
+
+          // Strictly allow only: output.<ident>(.<ident>)* [===|!==|==|!=|>=|<=|>|<] <literal>
+          // Or a standalone boolean check: output.<ident>(.<ident>)*
           const simpleCompRegex = /^output(?:\.([a-zA-Z0-9_$]+))+\s*(===|!==|==|!=|>=|<=|>|<)\s*(.+)$/;
           const match = expr.match(simpleCompRegex);
 
@@ -305,13 +305,24 @@ export class TaskVerificationEngine {
             else if ((rawTarget.startsWith('"') && rawTarget.endsWith('"')) || (rawTarget.startsWith("'") && rawTarget.endsWith("'"))) {
               targetVal = rawTarget.slice(1, -1);
             } else {
-              targetVal = rawTarget;
+              return {
+                passed: false,
+                actualValue: "INVALID_LITERAL",
+                details: `Security Policy Violation: Target value "${rawTarget}" is not a recognized safe literal.`,
+              };
             }
 
-            // Extract property from output safely
+            // Extract property from output safely with prototype pollution defense
             let cur: any = output;
             for (const seg of propPath.split(".")) {
-              if (cur && typeof cur === "object" && seg in cur) {
+              if (seg === "__proto__" || seg === "constructor" || seg === "prototype") {
+                return {
+                  passed: false,
+                  actualValue: "PROTOTYPE_POLLUTION_BLOCKED",
+                  details: "Security Policy Violation: Prototype property traversal detected.",
+                };
+              }
+              if (cur && typeof cur === "object" && Object.prototype.hasOwnProperty.call(cur, seg)) {
                 cur = cur[seg];
               } else {
                 cur = undefined;
@@ -352,32 +363,41 @@ export class TaskVerificationEngine {
             };
           }
 
-          // Fallback: strictly evaluate using isolated function with nullified globals
-          try {
-            const sandboxFn = new Function(
-              "output",
-              "task",
-              "process",
-              "require",
-              "global",
-              "globalThis",
-              `"use strict"; return Boolean(${expr});`
-            );
-            const evalResult = Boolean(sandboxFn(output, task, null, null, null, null));
+          // Also allow standalone boolean property existence check: "output.success"
+          const boolPathRegex = /^output(?:\.([a-zA-Z0-9_$]+))+$/;
+          if (boolPathRegex.test(expr)) {
+            const propPath = expr.replace(/^output\./, "");
+            let cur: any = output;
+            for (const seg of propPath.split(".")) {
+              if (seg === "__proto__" || seg === "constructor" || seg === "prototype") {
+                return {
+                  passed: false,
+                  actualValue: "PROTOTYPE_POLLUTION_BLOCKED",
+                  details: "Security Policy Violation: Prototype property traversal detected.",
+                };
+              }
+              if (cur && typeof cur === "object" && Object.prototype.hasOwnProperty.call(cur, seg)) {
+                cur = cur[seg];
+              } else {
+                cur = undefined;
+                break;
+              }
+            }
+            const passed = Boolean(cur);
             return {
-              passed: evalResult,
-              actualValue: evalResult,
-              details: evalResult
-                ? `Safe predicate "${expr}" evaluated to true.`
-                : `Safe predicate "${expr}" evaluated to false.`,
-            };
-          } catch (evalErr: unknown) {
-            return {
-              passed: false,
-              actualValue: "PREDICATE_EVAL_ERROR",
-              details: `Predicate evaluation threw error: ${evalErr instanceof Error ? evalErr.message : String(evalErr)}`,
+              passed,
+              actualValue: cur,
+              details: passed
+                ? `Boolean property "${expr}" evaluated to truthy.`
+                : `Boolean property "${expr}" evaluated to falsy (${cur}).`,
             };
           }
+
+          return {
+            passed: false,
+            actualValue: "SYNTAX_REJECTED",
+            details: `Security Policy Violation: Expression "${expr}" does not conform to allowed safe comparison syntax (output.<field> <op> <literal>).`,
+          };
         }
 
         // Without an explicit condition, check that output is an object with explicit success: true

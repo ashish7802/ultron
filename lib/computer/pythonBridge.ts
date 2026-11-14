@@ -97,13 +97,17 @@ export class PythonComputerBridge {
         });
       }, timeoutMs);
 
-      childProcess.stdout.on("data", (chunk) => {
-        stdoutData += chunk.toString("utf-8");
-      });
+      if (childProcess.stdout) {
+        childProcess.stdout.on("data", (chunk) => {
+          stdoutData += chunk.toString("utf-8");
+        });
+      }
 
-      childProcess.stderr.on("data", (chunk) => {
-        stderrData += chunk.toString("utf-8");
-      });
+      if (childProcess.stderr) {
+        childProcess.stderr.on("data", (chunk) => {
+          stderrData += chunk.toString("utf-8");
+        });
+      }
 
       childProcess.on("error", (err) => {
         if (timedOut) return;
@@ -145,8 +149,10 @@ export class PythonComputerBridge {
 
       // Write payload to stdin and close pipe
       try {
-        childProcess.stdin.write(payloadJson);
-        childProcess.stdin.end();
+        if (childProcess.stdin) {
+          childProcess.stdin.write(payloadJson);
+          childProcess.stdin.end();
+        }
       } catch (writeErr: unknown) {
         clearTimeout(timer);
         const msg = writeErr instanceof Error ? writeErr.message : String(writeErr);

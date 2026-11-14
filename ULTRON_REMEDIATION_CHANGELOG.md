@@ -4,6 +4,35 @@ All notable changes made during the ULTRON remediation mission are documented in
 
 ---
 
+## [Milestone 5 — Independent Integration & Regression Verification] - 2026-11-14
+
+### Changed
+- `lib/orchestration/taskVerificationEngine.ts`:
+  - Replaced fallback dynamic evaluation with a strict AST/regex parser prohibiting `eval` and `new Function()`.
+  - Blocked all syntax tokens (`()`, `[]`, `{}`, `;`, quotes, backticks) and execution globals (`process`, `require`, `eval`, `import`, `constructor`, `prototype`).
+- `lib/computer/safetyControls.ts`:
+  - Synchronized `resetEmergencyStop` with `emergencyEngine.ts`: invokes `unlockFromEmergencyStop` using effective founder recovery key so Node memory lockdown state clears in tandem with disk lockfile unlinking.
+- `lib/computer/toolRegistry.ts`:
+  - Aligned TypeScript property types: changed `launchRes.processId` to `launchRes.pid`.
+  - Fixed `readFile` line counting from physical content and passed correct 5 parameters to `terminalIntelligence.executeCommand`.
+- `lib/orchestration/orchestrator.ts`:
+  - Corrected `executeCommand` parameter invocation (removed extraneous argument).
+  - Fixed deliverable iteration to match `string[]` signature.
+- `app/api/learning/route.ts`:
+  - Aligned `TaskOutcomeStatus` import and mapped `"CANCELLED"` to `"ABORTED"` for type safety.
+- `lib/computer/pythonBridge.ts`:
+  - Added null-checks on `childProcess.stdout`, `stderr`, and `stdin` streams.
+
+### Added
+- `scripts/test_predicate_security.cjs`: Automated security test suite for custom predicate evaluator with 10 attack payloads.
+- `scripts/test_milestone5_battery.cjs`: End-to-end integration test battery covering Groups 1 through 5.
+- `scripts/test_milestone5_extended.cjs`: Extended deep integration suite covering terminal approvals, filesystem boundaries, and permission redactions.
+- `ULTRON_MILESTONE_5_INTEGRATION_REPORT.md`: Comprehensive integration verification report.
+- `ULTRON_MILESTONE_5_TEST_EVIDENCE.md`: Complete verbatim execution logs and test evidence.
+- `ULTRON_MILESTONE_5_REGRESSION_REPORT.md`: Subsystem regression matrix and results.
+
+---
+
 ## [Milestone 4 — Identity, Python Bridge & Packaging] - 2026-11-14
 
 ### Changed

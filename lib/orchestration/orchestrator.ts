@@ -476,7 +476,6 @@ export class TaskOrchestrationEngine {
         "powershell",
         undefined,
         60,
-        undefined,
         Boolean(task.executionGrantToken)
       );
 
@@ -508,18 +507,16 @@ export class TaskOrchestrationEngine {
     if (task.deliverables && task.deliverables.length > 0) {
       // Physical deliverables must exist on disk; if content is specified, write it
       for (const deliv of task.deliverables) {
-        if (deliv.type === "FILE" || deliv.type === "CODE") {
-          // If deliverable file already exists on disk, record its real status
-          const checkTool = await defaultComputerToolRegistry.executeTool("read_file", { path: deliv.name });
-          if (checkTool.success) {
-            return {
-              success: true,
-              exitCode: 0,
-              output: `Verified existing physical deliverable: ${deliv.name}`,
-              deliverables: task.deliverables,
-              timestamp: Date.now(),
-            };
-          }
+        // If deliverable file already exists on disk, record its real status
+        const checkTool = await defaultComputerToolRegistry.executeTool("read_file", { path: deliv });
+        if (checkTool.success) {
+          return {
+            success: true,
+            exitCode: 0,
+            output: `Verified existing physical deliverable: ${deliv}`,
+            deliverables: task.deliverables,
+            timestamp: Date.now(),
+          };
         }
       }
     }

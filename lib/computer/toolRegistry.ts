@@ -305,10 +305,10 @@ export class ComputerToolRegistry {
           toolName: "launch_application",
           actionType: "app_launch",
           target: appName,
-          output: `Launched ${appName} successfully (PID: ${launchRes.processId || found?.processId || "active"}).`,
-          data: { processId: launchRes.processId, windowTitle: found?.title },
+          output: `Launched ${appName} successfully (PID: ${launchRes.pid || found?.processId || "active"}).`,
+          data: { processId: launchRes.pid, windowTitle: found?.title },
           durationMs: Date.now() - startTime,
-          verified: Boolean(found || launchRes.processId),
+          verified: Boolean(found || launchRes.pid),
           verificationDetails: found ? `Verified running window "${found.title}"` : "Process launched via OS handle.",
         };
       },
@@ -392,16 +392,19 @@ export class ComputerToolRegistry {
           };
         }
 
+        const contentLines = readRes.content ? readRes.content.split("\n") : [];
+        const lineCount = contentLines.length;
+
         return {
           success: true,
           toolName: "read_file",
           actionType: "file_read",
           target: filePath,
           output: readRes.content,
-          data: { lineCount: readRes.lineCount, truncated: readRes.truncated },
+          data: { lineCount, sizeBytes: readRes.sizeBytes },
           durationMs: Date.now() - startTime,
           verified: true,
-          verificationDetails: `Successfully read ${readRes.lineCount} lines from ${filePath}.`,
+          verificationDetails: `Successfully read ${lineCount} lines (${readRes.sizeBytes || 0} bytes) from ${filePath}.`,
         };
       },
     });
@@ -507,7 +510,6 @@ export class ComputerToolRegistry {
           shell,
           cwd,
           timeoutSec,
-          undefined,
           Boolean(context?.approvalGranted)
         );
 

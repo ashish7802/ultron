@@ -306,3 +306,11 @@
 {"auditId": "audit_b62b668b3055", "timestamp": 1794543383.3892548, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test setup", "status": "RESUMED"}
 {"auditId": "audit_8d1ad2cac081", "timestamp": 1794543383.3913028, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Test teardown", "status": "RESUMED"}
 {"auditId": "audit_60f345e00856", "timestamp": 1794543383.3913028, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Class teardown", "status": "RESUMED"}
+{"auditId": "audit_2a8d74106b2f", "timestamp": 1794628644.019716, "emergencyStop": true, "action": "EMERGENCY_STOP_TRIGGERED", "reason": "Milestone 5 battery test", "jobsKilled": 0, "status": "HALTED"}
+{"auditId": "audit_ffe4a066878b", "timestamp": 1794628645.0034492, "emergencyStop": true, "action": "EMERGENCY_STOP_CLEARED", "reason": "Authorized battery reset", "status": "RESUMED"}
+{"auditId": "audit_94ecc662418c", "timestamp": 1794628770.7928174, "emergencyStop": true, "action": "EMERGENCY_STOP_TRIGGERED", "reason": "Milestone 5 battery test", "jobsKilled": 0, "status": "HALTED"}
+{"auditId": "audit_ed5ec75d777f", "timestamp": 1794628771.2068372, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Authorized battery reset", "status": "RESUMED"}
+{"auditId": "audit_88155cebfe14", "timestamp": 1794629415.4869235, "emergencyStop": true, "action": "EMERGENCY_STOP_TRIGGERED", "reason": "Milestone 5 battery test", "jobsKilled": 0, "status": "HALTED"}
+{"auditId": "audit_28b2a4edb4c1", "timestamp": 1794629416.0190198, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Authorized battery reset", "status": "RESUMED"}
+{"auditId": "audit_4112a09fa0e0", "timestamp": 1794629664.7642329, "emergencyStop": true, "action": "EMERGENCY_STOP_TRIGGERED", "reason": "Milestone 5 battery test", "jobsKilled": 0, "status": "HALTED"}
+{"auditId": "audit_fc3b288ebd31", "timestamp": 1794629665.5821035, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Authorized battery reset", "status": "RESUMED"}

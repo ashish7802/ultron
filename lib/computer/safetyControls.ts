@@ -25,7 +25,12 @@
 import fs from "fs";
 import path from "path";
 import { defaultPythonBridge } from "./pythonBridge.ts";
-import { isSystemLockedDown, triggerEmergencyStop as triggerEmergencyLockdown } from "../security/emergencyEngine.ts";
+import {
+  isSystemLockedDown,
+  triggerEmergencyStop as triggerEmergencyLockdown,
+  unlockFromEmergencyStop,
+} from "../security/emergencyEngine.ts";
+import { getEffectiveRecoveryKey } from "../security/recoveryKey.ts";
 import type {
   EmergencyStopState,
   SafetyValidationResult,
@@ -95,10 +100,28 @@ export class ComputerSafetyControls {
   /**
    * Clears the Emergency Stop lockfile and re-enables automation.
    *
+   * Coordinates lockdown release across:
+   * 1. Emergency lockdown engine (unlocks Node.js memory state and audit vault).
+   * 2. Atomic disk lockfile (`ULTRON_EMERGENCY_STOP.lock`).
+   * 3. Python background process safety bridge.
+   *
    * @param reason - Reason for reset.
+   * @param recoveryKey - Optional founder recovery key. Defaults to current effective recovery key.
    * @returns EmergencyStopState.
    */
-  public async resetEmergencyStop(reason: string = "Authorized founder reset"): Promise<EmergencyStopState> {
+  public async resetEmergencyStop(
+    reason: string = "Authorized founder reset",
+    recoveryKey?: string
+  ): Promise<EmergencyStopState> {
+    const key = recoveryKey || getEffectiveRecoveryKey();
+    if (key && isSystemLockedDown()) {
+      unlockFromEmergencyStop({
+        actor: "safety_controls",
+        reason,
+        recoveryKey: key,
+      });
+    }
+
     const lockfilePath = path.join(process.cwd(), "ULTRON_EMERGENCY_STOP.lock");
     try {
       if (fs.existsSync(lockfilePath)) {

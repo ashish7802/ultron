@@ -15,8 +15,8 @@
 | **Milestone 1** | Security Foundation | **COMPLETED & COMMITTED** | `af1d5eb5ba1ca693b40cc3fbbbdc1332755e0a74` |
 | **Milestone 2** | Real Computer Execution | **COMPLETED & COMMITTED** | `f7d2f10b501d51a6d713c77d46c825a2df6937e0` |
 | **Milestone 3** | Verification Reliability | **COMPLETED & COMMITTED** | `a8041bf679cb077e685f02bc0f71120aa228e93d` |
-| **Milestone 4** | Identity, Python Bridge & Packaging | **COMPLETED & COMMITTED** | Pending commit |
-| **Milestone 5** | Integration & Regression Testing | PENDING | TBD |
+| **Milestone 4** | Identity, Python Bridge & Packaging | **COMPLETED & COMMITTED** | `892cf8c97deb354d3c4cc6265f4d656c3660468a` |
+| **Milestone 5** | Integration & Regression Testing | **COMPLETED & COMMITTED** | `9bb76cb196455f977aa0181242f566b78034492f` |
 
 ---
 
@@ -59,3 +59,15 @@
 - [x] **Python Bridge Stdin Transport**: Handled large payloads (2MB+) via stdin pipe in `lib/computer/pythonBridge.ts` and `computer_intelligence_cli.py`.
 - [x] **Electron Packaging & Resources**: Packaged all `ultron_engine` modules and configured `userData` path persistence in `electron/main.js`.
 - [x] **Encryption & Vault Protection**: Prevented empty vault overwrites and verified active Windows DPAPI key storage.
+
+---
+
+### Milestone 5 — Independent Integration & Regression Verification (COMPLETED & VERIFIED)
+- [x] **Safe Restricted Predicate Evaluator Verification**: Built strict regex-based AST evaluator in `lib/orchestration/taskVerificationEngine.ts` with zero `eval` or `new Function()`. Confirmed resilience against 10 attack payloads in `scripts/test_predicate_security.cjs`.
+- [x] **Emergency Stop Cross-Runtime Synchronization Fix**: Synchronized `lib/computer/safetyControls.ts` and `lib/security/emergencyEngine.ts` so that authorized resets clear both the atomic disk lockfile and in-memory lockdown state.
+- [x] **Real Computer Execution Regression**: Verified physical file write, read, search, and delete operations via `defaultComputerToolRegistry` with real OS side effects.
+- [x] **Python Bridge Subprocess Integration**: Streamed small and 2MB JSON payloads over `stdin` with `--stdin` flag; confirmed fail-closed timeouts and detailed error handling.
+- [x] **Unified Identity & Session Lifecycle**: Verified biometric founder sessions across `identityEngine` and `sessionGate` with instant, synchronized revocation.
+- [x] **Hardware Biometrics & Electron Packaging**: Validated Synaptics VFS7552 Touch Fingerprint Sensor active presence via `ultron_engine/windows_hello.py` and confirmed `extraResources` packaging manifest.
+- [x] **TypeScript Codebase Cleanliness**: Fixed all type signature mismatches; project compiles cleanly with 0 diagnostic errors (`tsc --noEmit`).
+- [x] **Vault Preservation Verified**: Confirmed `ultron_memory_vault.json` and `.security_vault/` remained untouched and intact throughout testing.
