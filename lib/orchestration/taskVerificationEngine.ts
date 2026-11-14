@@ -147,61 +147,104 @@ export class TaskVerificationEngine {
   ): { passed: boolean; actualValue: unknown; details: string } {
     switch (criterion.evaluator) {
       case "EXIT_CODE": {
-        const exitCode = typeof output === "object" && output !== null && "exitCode" in output
-          ? (output as { exitCode: number }).exitCode
-          : typeof output === "number"
-          ? output
-          : 0;
+        // Enforce strict type validation: missing exit code is NEVER treated as 0
+        let exitCode: number | undefined;
+
+        if (typeof output === "object" && output !== null && "exitCode" in output) {
+          const raw = (output as { exitCode: unknown }).exitCode;
+          if (typeof raw === "number") {
+            exitCode = raw;
+          }
+        } else if (typeof output === "number") {
+          exitCode = output;
+        }
+
+        if (exitCode === undefined) {
+          return {
+            passed: false,
+            actualValue: "MISSING_EXIT_CODE",
+            details: "Verification rejected: Process or tool output is missing an explicit exit code.",
+          };
+        }
 
         const expected = typeof criterion.expectedValue === "number" ? criterion.expectedValue : 0;
         const passed = exitCode === expected;
         return {
           passed,
           actualValue: exitCode,
-          details: passed ? `Exit code ${exitCode} matched expected ${expected}.` : `Exit code ${exitCode} does not match expected ${expected}.`,
+          details: passed
+            ? `Exit code ${exitCode} matched expected ${expected}.`
+            : `Exit code ${exitCode} does not match expected ${expected}.`,
         };
       }
 
       case "FILE_NON_EMPTY": {
-        // Check if any deliverable exists and is non-empty on disk
-        for (const deliverable of task.deliverables) {
-          const resolvedPath = path.resolve(/*turbopackIgnore: true*/ process.cwd(), deliverable);
-          if (fs.existsSync(resolvedPath)) {
-            const stats = fs.statSync(resolvedPath);
-            if (stats.size > 0) {
-              return {
-                passed: true,
-                actualValue: stats.size,
-                details: `File "${deliverable}" exists with size ${stats.size} bytes.`,
-              };
-            }
+        // Strictly inspect physical files on disk; never accept arbitrary object payloads
+        const targetPath =
+          typeof criterion.expectedValue === "string" && criterion.expectedValue.trim()
+            ? criterion.expectedValue.trim()
+            : task.deliverables && task.deliverables.length > 0
+            ? task.deliverables[0]
+            : null;
+
+        if (!targetPath) {
+          return {
+            passed: false,
+            actualValue: null,
+            details: "Verification rejected: No physical target file specified for FILE_NON_EMPTY evaluation.",
+          };
+        }
+
+        try {
+          const resolvedPath = path.resolve(/*turbopackIgnore: true*/ process.cwd(), targetPath);
+          if (!fs.existsSync(resolvedPath)) {
+            return {
+              passed: false,
+              actualValue: "NON_EXISTENT",
+              details: `Verification rejected: Target physical file "${targetPath}" does not exist on disk.`,
+            };
           }
-        }
-        // Also check string output as file contents
-        if (typeof output === "string" && output.trim().length > 0) {
+
+          const stats = fs.statSync(resolvedPath);
+          if (stats.size === 0) {
+            return {
+              passed: false,
+              actualValue: 0,
+              details: `Verification rejected: Target physical file "${targetPath}" exists but is empty (0 bytes).`,
+            };
+          }
+
           return {
             passed: true,
-            actualValue: output.length,
-            details: `Output content generated with length ${output.length} characters.`,
+            actualValue: stats.size,
+            details: `Verified physical file "${targetPath}" exists on disk with ${stats.size} bytes.`,
           };
-        }
-        if (typeof output === "object" && output !== null && !task.error) {
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
           return {
-            passed: true,
-            actualValue: "OBJECT_PAYLOAD",
-            details: "Output object payload produced successfully.",
+            passed: false,
+            actualValue: "FS_ERROR",
+            details: `File inspection failed with filesystem error: ${msg}`,
           };
         }
-        return {
-          passed: false,
-          actualValue: 0,
-          details: "No non-empty file or content deliverable detected.",
-        };
       }
 
       case "STDOUT_REGEX": {
         const pattern = String(criterion.expectedValue || ".*");
-        const outStr = typeof output === "string" ? output : JSON.stringify(output || "");
+        let outStr = "";
+
+        if (typeof output === "string") {
+          outStr = output;
+        } else if (typeof output === "object" && output !== null) {
+          if ("stdout" in output && typeof (output as any).stdout === "string") {
+            outStr = (output as any).stdout;
+          } else if ("output" in output && typeof (output as any).output === "string") {
+            outStr = (output as any).output;
+          } else {
+            outStr = JSON.stringify(output);
+          }
+        }
+
         const regex = new RegExp(pattern, "i");
         const passed = regex.test(outStr);
         return {
@@ -212,7 +255,7 @@ export class TaskVerificationEngine {
       }
 
       case "JSON_SCHEMA": {
-        const isObject = typeof output === "object" && output !== null;
+        const isObject = typeof output === "object" && output !== null && !Array.isArray(output);
         return {
           passed: isObject,
           actualValue: typeof output,
@@ -220,13 +263,51 @@ export class TaskVerificationEngine {
         };
       }
 
-      case "CUSTOM_PREDICATE":
-      default: {
-        const passed = output !== undefined && output !== null && !task.error;
+      case "CUSTOM_PREDICATE": {
+        // Evaluate condition expression if provided, otherwise reject ungrounded execution
+        if (typeof criterion.expectedValue === "string" && criterion.expectedValue.trim()) {
+          try {
+            // Evaluates custom boolean predicates safely against output
+            const expr = criterion.expectedValue.trim();
+            const fn = new Function("output", "task", `return Boolean(${expr});`);
+            const evalResult = Boolean(fn(output, task));
+            return {
+              passed: evalResult,
+              actualValue: evalResult,
+              details: evalResult
+                ? `Custom predicate "${expr}" evaluated to true.`
+                : `Custom predicate "${expr}" evaluated to false.`,
+            };
+          } catch (evalErr: unknown) {
+            return {
+              passed: false,
+              actualValue: "PREDICATE_EVAL_ERROR",
+              details: `Predicate evaluation threw error: ${evalErr instanceof Error ? evalErr.message : String(evalErr)}`,
+            };
+          }
+        }
+
+        // Without an explicit condition, check that output is an object with explicit success: true
+        const isExplicitSuccess =
+          typeof output === "object" &&
+          output !== null &&
+          (output as { success?: unknown }).success === true &&
+          !task.error;
+
         return {
-          passed,
+          passed: isExplicitSuccess,
           actualValue: output,
-          details: passed ? "Custom condition satisfied." : "Output is null, undefined, or contains errors.",
+          details: isExplicitSuccess
+            ? "Custom predicate verified explicit success outcome."
+            : "Output missing explicit success outcome or contains errors.",
+        };
+      }
+
+      default: {
+        return {
+          passed: false,
+          actualValue: null,
+          details: `Unsupported criterion evaluator: "${criterion.evaluator}".`,
         };
       }
     }
@@ -291,10 +372,11 @@ export class TaskVerificationEngine {
       return null;
     }
 
-    // Virtual in-memory deliverable
+    // Non-file deliverables must be accompanied by explicit verification notes
     return {
       name: deliverable,
-      sha256Hash: crypto.createHash("sha256").update(deliverable).digest("hex"),
+      sha256Hash: crypto.createHash("sha256").update(Buffer.from(deliverable, "utf-8")).digest("hex"),
+      sizeBytes: Buffer.byteLength(deliverable, "utf-8"),
     };
   }
 }

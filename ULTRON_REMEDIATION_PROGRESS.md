@@ -13,8 +13,8 @@
 | Milestone | Title | Status | Commit SHA |
 | :--- | :--- | :--- | :--- |
 | **Milestone 1** | Security Foundation | **COMPLETED & COMMITTED** | `af1d5eb5ba1ca693b40cc3fbbbdc1332755e0a74` |
-| **Milestone 2** | Real Computer Execution | **COMPLETED & COMMITTED** | Pending commit |
-| **Milestone 3** | Verification Reliability | PENDING | TBD |
+| **Milestone 2** | Real Computer Execution | **COMPLETED & COMMITTED** | `f7d2f10b501d51a6d713c77d46c825a2df6937e0` |
+| **Milestone 3** | Verification Reliability | **COMPLETED & COMMITTED** | Pending commit |
 | **Milestone 4** | Identity, Python Bridge & Packaging | PENDING | TBD |
 | **Milestone 5** | Integration & Regression Testing | PENDING | TBD |
 
@@ -41,3 +41,12 @@
 - [x] **Simulated Executor Replacement**: Replaced `_defaultTaskExecutor` in `lib/orchestration/orchestrator.ts` with real OS process and filesystem execution via `TerminalIntelligence` and `ComputerToolRegistry`.
 - [x] **Interactive Approval in UI**: Added interactive approval card rendering and `/api/permission` invocation in `components/UltronChat.tsx`.
 - [x] **Multi-Step Execution**: Validated dependent operations (file write -> file read -> pattern search -> permission-gated delete) with verified OS side effects.
+
+---
+
+### Milestone 3 — Verification Reliability (COMPLETED)
+- [x] **Exit Code Reliability**: Rejected missing or undefined exit codes in `lib/orchestration/taskVerificationEngine.ts`.
+- [x] **Physical File Verification**: Evaluated concrete disk presence and non-empty size; calculated deliverable hashes from actual file bytes.
+- [x] **Custom Predicate Execution**: Genuinely evaluated boolean predicates against execution results.
+- [x] **Honest Browser & App Verification**: Validated destination outcomes and process IDs in `lib/computer/workflowOrchestrator.ts`.
+- [x] **Unsupported Operations**: Returned explicit failures for unsupported action types.

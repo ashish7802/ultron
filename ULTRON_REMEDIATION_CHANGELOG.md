@@ -4,6 +4,23 @@ All notable changes made during the ULTRON remediation mission are documented in
 
 ---
 
+## [Milestone 3 — Verification Reliability] - 2026-11-14
+
+### Changed
+- `lib/orchestration/taskVerificationEngine.ts`:
+  - Enforced strict exit code validation: missing exit code is rejected with `MISSING_EXIT_CODE`.
+  - Replaced object payload assumption with direct inspection of physical file existence and non-zero size.
+  - Calculated deliverable SHA-256 hashes strictly from physical file bytes.
+  - Executed custom predicate conditions dynamically with unhandled error fail-safe.
+- `lib/computer/workflowOrchestrator.ts`:
+  - Rejected failed browser navigations and application launches.
+  - Returned explicit failures for unsupported action types.
+
+### Added
+- `ULTRON_MILESTONE_3_IMPLEMENTATION_REPORT.md`: Comprehensive test report and verification logs for Milestone 3.
+
+---
+
 ## [Milestone 2 — Real Computer Execution] - 2026-11-14
 
 ### Added
