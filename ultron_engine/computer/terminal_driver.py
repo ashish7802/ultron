@@ -157,6 +157,7 @@ def execute_command(
     cwd: Optional[str] = None,
     timeout_sec: int = 30,
     env: Optional[Dict[str, str]] = None,
+    approval_granted: bool = False,
 ) -> Dict[str, Any]:
     """
     Executes a shell command synchronously with strict timeout and output capture.
@@ -167,6 +168,7 @@ def execute_command(
         cwd (Optional[str]): Working directory.
         timeout_sec (int): Execution timeout in seconds.
         env (Optional[Dict[str, str]]): Additional environment variables.
+        approval_granted (bool): Explicit user authorization grant for high-risk actions.
 
     Returns:
         Dict[str, Any]: Execution result {success, exitCode, stdout, stderr, durationMs}.
@@ -180,6 +182,17 @@ def execute_command(
             "success": False,
             "exitCode": -1,
             "error": f"Security Violation: {risk['reason']}",
+            "blocked": True,
+        }
+
+    # Strict approval enforcement: block commands requiring approval unless explicitly authorized
+    if risk.get("requiresApproval", False) and not approval_granted:
+        return {
+            "success": False,
+            "exitCode": -1,
+            "requiresApproval": True,
+            "error": f"Security Policy Violation: Command requires explicit user approval: {risk['reason']}",
+            "risk": risk,
             "blocked": True,
         }
 
@@ -269,6 +282,7 @@ def start_background_job(
     command: str,
     shell_name: str = "powershell",
     cwd: Optional[str] = None,
+    approval_granted: bool = False,
 ) -> Dict[str, Any]:
     """
     Launches a long-running process asynchronously in the background.
@@ -277,6 +291,7 @@ def start_background_job(
         command (str): Command to execute.
         shell_name (str): Target shell.
         cwd (Optional[str]): Working directory.
+        approval_granted (bool): Explicit user authorization grant.
 
     Returns:
         Dict[str, Any]: {success, jobId, pid, command}.
@@ -287,6 +302,15 @@ def start_background_job(
     risk = classify_command_risk(command)
     if risk["isBlocked"]:
         return {"success": False, "error": f"Security Violation: {risk['reason']}", "blocked": True}
+
+    if risk.get("requiresApproval", False) and not approval_granted:
+        return {
+            "success": False,
+            "requiresApproval": True,
+            "error": f"Security Policy Violation: Background job requires explicit user approval: {risk['reason']}",
+            "risk": risk,
+            "blocked": True,
+        }
 
     shells = detect_shells()
     shell_info = shells.get(shell_name) or shells.get("powershell")

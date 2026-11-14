@@ -29,6 +29,17 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    // Prevent Cross-Site Request Forgery denial-of-service from arbitrary web origins
+    const origin = req.headers.get("origin") || "";
+    const isLoopback = !origin || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin);
+    const secFetchSite = req.headers.get("sec-fetch-site");
+    if (!isLoopback || secFetchSite === "cross-site") {
+      return NextResponse.json(
+        { ok: false, error: "Cross-origin emergency requests are prohibited." },
+        { status: 403 }
+      );
+    }
+
     const body = await req.json();
     const { action, reason, recoveryKey } = body;
 

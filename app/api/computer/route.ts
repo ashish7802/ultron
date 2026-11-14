@@ -17,8 +17,10 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import path from "path";
+import fs from "fs";
 import { validateSessionToken } from "@/lib/security/identityEngine";
 import { verifyExecutionGrant } from "@/lib/security/permissionEngine";
+import { verifyRecoveryKey } from "@/lib/security/recoveryKey";
 import {
   defaultDesktopEngine,
   defaultApplicationIntelligence,
@@ -42,10 +44,19 @@ function extractAuthSession(req: NextRequest) {
 
 /**
  * Validates path safety to prevent directory traversal and access to sensitive files.
+ * Resolves both logical path and physical filesystem target to prevent symlink/junction bypass.
  */
 function isPathSafe(targetPath: string | undefined): boolean {
   if (!targetPath || typeof targetPath !== "string") return false;
   const resolved = path.resolve(targetPath);
+  let real = resolved;
+  try {
+    if (fs.existsSync(resolved)) {
+      real = fs.realpathSync(resolved);
+    }
+  } catch {
+    // If target does not exist yet, real stays as resolved
+  }
   const forbiddenPatterns = [
     /windows[\\/]system32[\\/]config/i,
     /[\\/]\.vault_key$/i,
@@ -53,7 +64,7 @@ function isPathSafe(targetPath: string | undefined): boolean {
     /[\\/]\.env(\..+)?$/i,
     /[\\/]\.ssh[\\/]/i,
   ];
-  return !forbiddenPatterns.some((pattern) => pattern.test(resolved));
+  return !forbiddenPatterns.some((pattern) => pattern.test(resolved) || pattern.test(real));
 }
 
 export async function GET(req: NextRequest) {
@@ -143,10 +154,9 @@ export async function POST(req: NextRequest) {
       }
 
       const recoveryKey = payload?.recoveryKey;
-      const expectedRecoveryKey = process.env.ULTRON_RECOVERY_KEY || "TEST_RECOVERY_KEY_ULTRON_FOUNDER";
-      if (!recoveryKey || recoveryKey !== expectedRecoveryKey) {
+      if (!recoveryKey || !verifyRecoveryKey(recoveryKey)) {
         return NextResponse.json(
-          { success: false, error: "Forbidden: Valid recovery key required to reset Emergency Stop." },
+          { success: false, error: "Forbidden: Valid founder recovery key required to reset Emergency Stop." },
           { status: 403 }
         );
       }
@@ -245,6 +255,8 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      let hasApproval = false;
+
       // If high or critical risk or requiring approval, enforce valid execution grant token
       if (risk.riskLevel === "critical" || risk.riskLevel === "high" || risk.requiresApproval) {
         const grantToken = payload?.executionGrantToken || payload?.grantToken;
@@ -272,9 +284,17 @@ export async function POST(req: NextRequest) {
             { status: 403 }
           );
         }
+        // Grant was verified and authorized
+        hasApproval = true;
       }
 
-      const result = await defaultTerminalIntelligence.executeCommand(command, payload?.shell);
+      const result = await defaultTerminalIntelligence.executeCommand(
+        command,
+        payload?.shell,
+        undefined,
+        30,
+        hasApproval
+      );
       return NextResponse.json(result);
     }
 

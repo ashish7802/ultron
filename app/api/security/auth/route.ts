@@ -33,6 +33,7 @@ import {
   verifyWindowsHelloConsent,
 } from "@/lib/security/windowsHelloBridge";
 import { isSystemLockedDown } from "@/lib/security/emergencyEngine";
+import { verifyRecoveryKey } from "@/lib/security/recoveryKey";
 
 /**
  * Validates loopback origin to prevent CSRF / DNS rebinding.
@@ -104,8 +105,7 @@ export async function POST(req: NextRequest) {
 
         if (authMethod === "recovery_key") {
           // Cryptographic founder recovery passphrase verification
-          const expectedKey = process.env.ULTRON_RECOVERY_KEY || "FOUNDER_RECOVERY_OVERRIDE_KEY";
-          if (!recoveryKey || typeof recoveryKey !== "string" || recoveryKey.trim() !== expectedKey) {
+          if (!recoveryKey || typeof recoveryKey !== "string" || !verifyRecoveryKey(recoveryKey)) {
             return NextResponse.json(
               { ok: false, error: "Authentication Failed: Invalid founder recovery passphrase." },
               { status: 401 }
@@ -168,16 +168,40 @@ export async function POST(req: NextRequest) {
       }
 
       case "revoke_session": {
+        const callerToken = req.headers.get("x-ultron-session-token") || req.cookies.get("ultron_session")?.value || req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+        const auth = validateSessionToken(callerToken);
+        if (!auth.isValid || !auth.session) {
+          return NextResponse.json({ ok: false, error: "Authentication required to revoke sessions." }, { status: 401 });
+        }
+
         const { targetToken } = body;
-        if (!targetToken) {
+        if (!targetToken || typeof targetToken !== "string") {
           return NextResponse.json({ ok: false, error: "targetToken required." }, { status: 400 });
         }
-        const success = revokeSession(targetToken, "Revoked by Founder via Session Management HUD");
+
+        // Only Founder, Admin, or the session owner can revoke a session
+        const isOwner = auth.session.sessionToken === targetToken;
+        const isPrivileged = auth.session.userRole === "founder" || auth.session.userRole === "admin";
+        if (!isOwner && !isPrivileged) {
+          return NextResponse.json({ ok: false, error: "Forbidden: Cannot revoke another user's session." }, { status: 403 });
+        }
+
+        const success = revokeSession(targetToken, `Revoked by ${auth.session.userId} via Session Management HUD`);
         return NextResponse.json({ ok: success });
       }
 
       case "revoke_all_sessions": {
-        const count = revokeAllSessions("Global Session Revocation by Founder");
+        const callerToken = req.headers.get("x-ultron-session-token") || req.cookies.get("ultron_session")?.value || req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+        const auth = validateSessionToken(callerToken);
+        if (!auth.isValid || !auth.session) {
+          return NextResponse.json({ ok: false, error: "Authentication required to revoke sessions." }, { status: 401 });
+        }
+
+        if (auth.session.userRole !== "founder" && auth.session.userRole !== "admin") {
+          return NextResponse.json({ ok: false, error: "Forbidden: Only Founder or Admin can perform global session revocation." }, { status: 403 });
+        }
+
+        const count = revokeAllSessions(`Global Session Revocation by ${auth.session.userId}`);
         return NextResponse.json({ ok: true, revokedCount: count });
       }
 

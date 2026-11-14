@@ -28,20 +28,65 @@ import {
   listAllApprovals,
 } from "@/lib/security/permissionEngine";
 import { validateSessionToken } from "@/lib/security/identityEngine";
-import type { ApprovalStatus } from "@/lib/security/types";
+import type { ApprovalStatus, PermissionApprovalRequest } from "@/lib/security/types";
+
+/**
+ * Sanitizes approval request records by strictly removing single-use execution grant tokens.
+ */
+function sanitizeApprovalRecord(r: PermissionApprovalRequest) {
+  return {
+    ...r,
+    executionGrantToken: null,
+  };
+}
+
+/**
+ * Sanitizes historical approval records by removing both execution grants and expired approval tokens.
+ */
+function sanitizeHistoricalRecord(r: PermissionApprovalRequest) {
+  return {
+    ...r,
+    approvalToken: "[REDACTED]",
+    executionGrantToken: null,
+  };
+}
 
 export async function GET(req: NextRequest) {
+  const token =
+    req.headers.get("x-ultron-session-token") ||
+    req.cookies.get("ultron_session")?.value ||
+    req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+  const auth = validateSessionToken(token);
+  if (!auth.isValid || !auth.session) {
+    return NextResponse.json(
+      { ok: false, error: "Authentication required to access Permission subsystem." },
+      { status: 401 }
+    );
+  }
+
+  // Only Founder or Admin can inspect permission requests and audit records
+  if (auth.session.userRole !== "founder" && auth.session.userRole !== "admin") {
+    return NextResponse.json(
+      { ok: false, error: "Forbidden: Only Founder or Admin can query Permission Management." },
+      { status: 403 }
+    );
+  }
+
   const { searchParams } = new URL(req.url);
   const requestId = searchParams.get("requestId");
   const showHistory = searchParams.get("history") === "true";
   const statusFilter = searchParams.get("status") as ApprovalStatus | null;
 
   if (statusFilter) {
-    return NextResponse.json({ ok: true, approvals: listAllApprovals(statusFilter) });
+    const approvals = listAllApprovals(statusFilter).map(
+      statusFilter === "pending" ? sanitizeApprovalRecord : sanitizeHistoricalRecord
+    );
+    return NextResponse.json({ ok: true, approvals });
   }
 
   if (showHistory) {
-    return NextResponse.json({ ok: true, history: listApprovalHistory() });
+    const history = listApprovalHistory().map(sanitizeHistoricalRecord);
+    return NextResponse.json({ ok: true, history });
   }
 
   if (requestId) {
@@ -49,10 +94,11 @@ export async function GET(req: NextRequest) {
     if (!request) {
       return NextResponse.json({ ok: false, error: "Request not found or expired." }, { status: 404 });
     }
-    return NextResponse.json({ ok: true, request });
+    return NextResponse.json({ ok: true, request: sanitizeApprovalRecord(request) });
   }
 
-  return NextResponse.json({ ok: true, pendingRequests: listPendingRequests() });
+  const pendingRequests = listPendingRequests().map(sanitizeApprovalRecord);
+  return NextResponse.json({ ok: true, pendingRequests });
 }
 
 export async function POST(req: NextRequest) {

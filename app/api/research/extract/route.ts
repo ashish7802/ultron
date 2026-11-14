@@ -24,6 +24,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { evidenceCollectionEngine } from "@/lib/research/evidenceEngine";
 import { researchRepository } from "@/lib/research/repository";
+import { validateDesktopSession, createAuthErrorResponse } from "@/lib/sessionGate";
 import type {
   NormalizedDiscoveryResult,
   EvidenceExtractionResult,
@@ -33,6 +34,11 @@ import type {
 } from "@/lib/research/types";
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const auth = validateDesktopSession(req);
+  if (!auth.valid) {
+    return createAuthErrorResponse(auth);
+  }
+
   try {
     let body: { projectId: string; sources: NormalizedDiscoveryResult[] };
     try {

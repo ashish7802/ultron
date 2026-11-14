@@ -26,6 +26,7 @@
 
 import crypto from "crypto";
 import path from "path";
+import fs from "fs";
 import { revokeAllSessions } from "./identityEngine.ts";
 import { revokeScreenCaptureConsent } from "./privacyEngine.ts";
 import { recordSecurityEvent } from "./monitoringEngine.ts";
@@ -36,12 +37,19 @@ import type {
   LockdownTriggerParams,
   RecoveryUnlockParams,
 } from "./types.ts";
+import { getEffectiveRecoveryKey, verifyRecoveryKey } from "./recoveryKey.ts";
 
 /** Path to persistent lockdown state file. */
 const LOCKDOWN_FILE = path.join(
   /*turbopackIgnore: true*/ process.cwd(),
   ".security_vault",
   "lockdown.json"
+);
+
+/** Path to synchronized Python emergency stop lockfile. */
+const EMERGENCY_STOP_LOCKFILE = path.join(
+  /*turbopackIgnore: true*/ process.cwd(),
+  "ULTRON_EMERGENCY_STOP.lock"
 );
 
 /** Default recovery passphrase salt. */
@@ -111,7 +119,11 @@ function persistLockdownState(): void {
  * @returns True if locked down; false otherwise.
  */
 export function isSystemLockedDown(): boolean {
-  return currentState.isLockedDown;
+  if (currentState.isLockedDown) return true;
+  try {
+    if (fs.existsSync(EMERGENCY_STOP_LOCKFILE)) return true;
+  } catch {}
+  return false;
 }
 
 /**
@@ -120,7 +132,8 @@ export function isSystemLockedDown(): boolean {
  * @returns Read-only EmergencyLockdownState.
  */
 export function getLockdownStatus(): Readonly<EmergencyLockdownState> {
-  return { ...currentState };
+  const isLocked = isSystemLockedDown();
+  return { ...currentState, isLockedDown: isLocked };
 }
 
 /**
@@ -142,9 +155,7 @@ export function triggerEmergencyStop(params: LockdownTriggerParams): EmergencyLo
   revokeScreenCaptureConsent();
   const grantsInvalidated = invalidateAllActiveGrants(params.reason);
 
-  // Set default recovery key hash if none exists
-  const defaultRecoveryKey = process.env.ULTRON_RECOVERY_KEY || "FOUNDER_RECOVERY_OVERRIDE_KEY";
-  const recoveryPassphraseHash = hashRecoveryKey(defaultRecoveryKey);
+  const recoveryPassphraseHash = hashRecoveryKey(getEffectiveRecoveryKey());
 
   currentState = {
     isLockedDown: true,
@@ -158,6 +169,21 @@ export function triggerEmergencyStop(params: LockdownTriggerParams): EmergencyLo
   };
 
   persistLockdownState();
+
+  // Synchronize with Python safety lockfile
+  try {
+    fs.writeFileSync(
+      EMERGENCY_STOP_LOCKFILE,
+      JSON.stringify({
+        triggeredAt: now,
+        reason: params.reason,
+        actor: params.actor,
+      }),
+      "utf-8"
+    );
+  } catch (lockErr) {
+    console.warn("[EMERGENCY SYSTEM] Could not write Python emergency lockfile:", lockErr);
+  }
 
   recordSecurityEvent(
     "EMERGENCY_STOP_TRIGGERED",
@@ -184,20 +210,12 @@ export function triggerEmergencyStop(params: LockdownTriggerParams): EmergencyLo
 export function unlockFromEmergencyStop(
   params: RecoveryUnlockParams
 ): { success: boolean; error?: string } {
-  if (!currentState.isLockedDown) {
+  if (!isSystemLockedDown()) {
     return { success: true };
   }
 
-  // Validate recovery key
-  const submittedHash = hashRecoveryKey(params.recoveryKey);
-  const targetHash = currentState.recoveryPassphraseHash || hashRecoveryKey(process.env.ULTRON_RECOVERY_KEY || "FOUNDER_RECOVERY_OVERRIDE_KEY");
-
-  // Constant-time buffer comparison to prevent timing attacks
-  const isMatch =
-    submittedHash.length === targetHash.length &&
-    crypto.timingSafeEqual(Buffer.from(submittedHash), Buffer.from(targetHash));
-
-  if (!isMatch) {
+  // Validate recovery key via centralized constant-time validator
+  if (!verifyRecoveryKey(params.recoveryKey)) {
     recordSecurityEvent(
       "POLICY_VIOLATION",
       "CRITICAL",
@@ -219,6 +237,15 @@ export function unlockFromEmergencyStop(
   };
 
   persistLockdownState();
+
+  // Remove synchronized Python lockfile if present
+  try {
+    if (fs.existsSync(EMERGENCY_STOP_LOCKFILE)) {
+      fs.unlinkSync(EMERGENCY_STOP_LOCKFILE);
+    }
+  } catch (cleanErr) {
+    console.warn("[EMERGENCY SYSTEM] Could not remove Python emergency lockfile:", cleanErr);
+  }
 
   recordSecurityEvent(
     "EMERGENCY_STOP_RECOVERED",

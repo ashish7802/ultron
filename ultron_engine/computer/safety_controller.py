@@ -89,7 +89,8 @@ _emergency_stop_active = False
 
 def is_emergency_stop_active() -> bool:
     """
-    Checks if Emergency Stop is engaged via memory flag or disk lockfile.
+    Checks if Emergency Stop is engaged via memory flag, disk lockfile,
+    or synchronized vault lockdown state.
 
     Returns:
         bool: True if stopped; False otherwise.
@@ -97,7 +98,21 @@ def is_emergency_stop_active() -> bool:
     global _emergency_stop_active
     if _emergency_stop_active:
         return True
-    return os.path.exists(EMERGENCY_STOP_LOCKFILE)
+    if os.path.exists(EMERGENCY_STOP_LOCKFILE):
+        return True
+
+    # Check synchronized security vault state to maintain unified defense
+    lockdown_json = os.path.join(REPO_ROOT, ".security_vault", "lockdown.json")
+    try:
+        if os.path.exists(lockdown_json):
+            with open(lockdown_json, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if data.get("isLockedDown", False):
+                    return True
+    except Exception:
+        pass
+
+    return False
 
 
 def trigger_emergency_stop(reason: str = "Emergency Stop triggered") -> Dict[str, Any]:

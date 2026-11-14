@@ -22,7 +22,10 @@
  * - Rejects all operations when Emergency Stop is engaged.
  */
 
+import fs from "fs";
+import path from "path";
 import { defaultPythonBridge } from "./pythonBridge.ts";
+import { isSystemLockedDown, triggerEmergencyStop as triggerEmergencyLockdown } from "../security/emergencyEngine.ts";
 import type {
   EmergencyStopState,
   SafetyValidationResult,
@@ -32,11 +35,35 @@ export class ComputerSafetyControls {
   /**
    * Checks whether Emergency Stop is currently active.
    *
+   * Security Invariant:
+   * Fails closed: If local lockfile is present, emergencyEngine is locked, or
+   * Python safety bridge is unavailable/unresponsive, returns true (LOCKED).
+   *
    * @returns Boolean indicating active Emergency Stop.
    */
   public async isEmergencyStopActive(): Promise<boolean> {
-    const res = await defaultPythonBridge.execute<{ emergencyStopActive: boolean }>("emergency_stop_status");
-    return Boolean(res.emergencyStopActive);
+    const lockfilePath = path.join(process.cwd(), "ULTRON_EMERGENCY_STOP.lock");
+    try {
+      if (fs.existsSync(lockfilePath)) {
+        return true;
+      }
+    } catch {}
+
+    if (isSystemLockedDown()) {
+      return true;
+    }
+
+    try {
+      const res = await defaultPythonBridge.execute<{ emergencyStopActive: boolean }>("emergency_stop_status");
+      if (!res.success) {
+        console.warn("[SAFETY CONTROLS] Python safety bridge unavailable; failing closed (treating as locked).");
+        return true;
+      }
+      return Boolean(res.emergencyStopActive);
+    } catch {
+      console.warn("[SAFETY CONTROLS] Python bridge error in isEmergencyStopActive; failing closed.");
+      return true;
+    }
   }
 
   /**
@@ -48,10 +75,19 @@ export class ComputerSafetyControls {
    * @returns EmergencyStopState.
    */
   public async triggerEmergencyStop(reason: string = "User triggered Emergency Stop"): Promise<EmergencyStopState> {
+    triggerEmergencyLockdown({ actor: "safety_controls", reason, revokeAllSessions: true });
+
+    const lockfilePath = path.join(process.cwd(), "ULTRON_EMERGENCY_STOP.lock");
+    try {
+      fs.writeFileSync(lockfilePath, JSON.stringify({ triggeredAt: Date.now(), reason }), "utf-8");
+    } catch (err) {
+      console.warn("[SAFETY CONTROLS] Could not write emergency lockfile:", err);
+    }
+
     const res = await defaultPythonBridge.execute<EmergencyStopState>("trigger_emergency_stop", { reason });
     return {
       emergencyStopActive: true,
-      message: res.message as string | undefined,
+      message: (res.message as string) || "Emergency Stop triggered successfully.",
       jobsKilled: res.jobsKilled as number | undefined,
     };
   }
@@ -63,10 +99,19 @@ export class ComputerSafetyControls {
    * @returns EmergencyStopState.
    */
   public async resetEmergencyStop(reason: string = "Authorized founder reset"): Promise<EmergencyStopState> {
+    const lockfilePath = path.join(process.cwd(), "ULTRON_EMERGENCY_STOP.lock");
+    try {
+      if (fs.existsSync(lockfilePath)) {
+        fs.unlinkSync(lockfilePath);
+      }
+    } catch (err) {
+      console.warn("[SAFETY CONTROLS] Could not remove emergency lockfile:", err);
+    }
+
     const res = await defaultPythonBridge.execute<EmergencyStopState>("reset_emergency_stop", { reason });
     return {
       emergencyStopActive: false,
-      message: res.message as string | undefined,
+      message: (res.message as string) || "Emergency Stop reset successfully.",
     };
   }
 

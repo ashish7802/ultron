@@ -22,8 +22,50 @@ import {
   defaultLearningCoordinator,
   type TaskStepRecord,
 } from "@/lib/learning";
+import { validateSessionToken } from "@/lib/security/identityEngine";
+import { validateDesktopSession } from "@/lib/sessionGate";
+import type { NextRequest } from "next/server";
+
+/**
+ * Validates session authorization for Learning & Evolution requests.
+ */
+function isLearningAuthorized(request: Request): { authorized: boolean; role?: string; error?: string } {
+  const authHeader = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || "";
+  const tokenHeader = request.headers.get("x-ultron-session-token") || "";
+
+  const token = tokenHeader || authHeader;
+  if (token) {
+    const val = validateSessionToken(token);
+    if (val.isValid && val.session) {
+      return { authorized: true, role: val.session.userRole };
+    }
+  }
+
+  try {
+    const nextReq = request as NextRequest;
+    if (nextReq.cookies) {
+      const cookieToken = nextReq.cookies.get("ultron_session")?.value;
+      if (cookieToken) {
+        const val = validateSessionToken(cookieToken);
+        if (val.isValid && val.session) {
+          return { authorized: true, role: val.session.userRole };
+        }
+      }
+      const desktopVal = validateDesktopSession(nextReq);
+      if (desktopVal.valid) {
+        return { authorized: true, role: "founder" };
+      }
+    }
+  } catch {}
+
+  return { authorized: false, error: "Authentication required to access Learning & Evolution subsystem." };
+}
 
 export async function GET(request: Request) {
+  const auth = isLearningAuthorized(request);
+  if (!auth.authorized) {
+    return NextResponse.json({ success: false, error: auth.error || "Unauthorized" }, { status: 401 });
+  }
   try {
     const { searchParams } = new URL(request.url);
     const action = searchParams.get("action") || "overview";
@@ -171,6 +213,14 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const auth = isLearningAuthorized(request);
+    if (!auth.authorized) {
+      return NextResponse.json(
+        { success: false, error: auth.error || "Authentication required." },
+        { status: 401 }
+      );
+    }
+
     const body = await request.json();
     const action = body.action;
 
@@ -183,16 +233,28 @@ export async function POST(request: Request) {
 
     switch (action) {
       case "ingest_task": {
+        const rawOutcome = typeof body.outcome === "string" ? body.outcome.toUpperCase() : "";
+        const validOutcomes = ["SUCCESS", "FAILURE", "PARTIAL", "CANCELLED"];
+        if (!validOutcomes.includes(rawOutcome)) {
+          return NextResponse.json(
+            { success: false, error: `Invalid or missing 'outcome'. Must be one of: ${validOutcomes.join(", ")}` },
+            { status: 400 }
+          );
+        }
+
+        // Strict anti-poisoning: never default missing test verification to true
+        const verifiedByTest = body.verifiedByTest === true && Boolean(body.testEvidenceId);
+
         const res = defaultLearningCoordinator.ingestTaskOutcome({
           taskId: body.taskId || `task_${Date.now()}`,
           goal: body.goal || "Task Goal",
           category: body.category || "GENERAL",
           strategyUsed: body.strategyUsed || "STANDARD",
           steps: (body.steps || []) as TaskStepRecord[],
-          outcome: body.outcome || "SUCCESS",
-          executionDurationMs: body.executionDurationMs || 1000,
-          verifiedByTest: body.verifiedByTest ?? true,
-          testEvidenceId: body.testEvidenceId,
+          outcome: rawOutcome as "SUCCESS" | "FAILURE" | "PARTIAL" | "CANCELLED",
+          executionDurationMs: typeof body.executionDurationMs === "number" ? body.executionDurationMs : 1000,
+          verifiedByTest,
+          testEvidenceId: verifiedByTest ? body.testEvidenceId : undefined,
           errorMessage: body.errorMessage,
           projectId: body.projectId,
         });
@@ -228,6 +290,12 @@ export async function POST(request: Request) {
       }
 
       case "approve_evolution": {
+        if (auth.role !== "founder" && auth.role !== "admin") {
+          return NextResponse.json(
+            { success: false, error: "Forbidden: Evolution approval requires founder or admin privileges." },
+            { status: 403 }
+          );
+        }
         if (!body.evolutionId || !body.approvalToken) {
           return NextResponse.json(
             { success: false, error: "Missing 'evolutionId' or 'approvalToken'." },
@@ -254,6 +322,12 @@ export async function POST(request: Request) {
       }
 
       case "activate_evolution": {
+        if (auth.role !== "founder" && auth.role !== "admin") {
+          return NextResponse.json(
+            { success: false, error: "Forbidden: Evolution activation requires founder or admin privileges." },
+            { status: 403 }
+          );
+        }
         if (!body.evolutionId) {
           return NextResponse.json(
             { success: false, error: "Missing 'evolutionId'." },
@@ -265,6 +339,12 @@ export async function POST(request: Request) {
       }
 
       case "rollback_evolution": {
+        if (auth.role !== "founder" && auth.role !== "admin") {
+          return NextResponse.json(
+            { success: false, error: "Forbidden: Evolution rollback requires founder or admin privileges." },
+            { status: 403 }
+          );
+        }
         if (!body.evolutionId || !body.reason) {
           return NextResponse.json(
             { success: false, error: "Missing 'evolutionId' or rollback 'reason'." },

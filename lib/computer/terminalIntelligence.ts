@@ -83,13 +83,15 @@ export class TerminalIntelligence {
     command: string,
     shellName: string = "powershell",
     cwd?: string,
-    timeoutSec: number = 30
+    timeoutSec: number = 30,
+    approvalGranted?: boolean
   ): Promise<CommandExecutionResult> {
     const res = await defaultPythonBridge.execute<CommandExecutionResult>("exec_cmd", {
       command,
       shell: shellName,
       cwd,
       timeoutSec,
+      approvalGranted: Boolean(approvalGranted),
     });
     return {
       success: Boolean(res.success),
@@ -115,12 +117,14 @@ export class TerminalIntelligence {
   public async startBackgroundJob(
     command: string,
     shellName: string = "powershell",
-    cwd?: string
+    cwd?: string,
+    approvalGranted?: boolean
   ): Promise<{ success: boolean; jobId?: string; pid?: number; error?: string }> {
     const res = await defaultPythonBridge.execute<{ jobId: string; pid: number }>("start_job", {
       command,
       shell: shellName,
       cwd,
+      approvalGranted: Boolean(approvalGranted),
     });
     return {
       success: Boolean(res.success),
