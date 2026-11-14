@@ -31,3 +31,4 @@ export * from "./browserIntelligence.ts";
 export * from "./devEnvironmentIntelligence.ts";
 export * from "./safetyControls.ts";
 export * from "./workflowOrchestrator.ts";
+export * from "./toolRegistry.ts";

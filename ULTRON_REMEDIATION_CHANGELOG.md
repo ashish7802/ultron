@@ -4,6 +4,20 @@ All notable changes made during the ULTRON remediation mission are documented in
 
 ---
 
+## [Milestone 2 — Real Computer Execution] - 2026-11-14
+
+### Added
+- `lib/computer/toolRegistry.ts`: Central Computer Tool Registry implementing standard execution, parameter schemas, risk levels, and permission gateway coordination for 7 tools (`launch_application`, `write_file`, `read_file`, `delete_file`, `search_files`, `run_shell_command`, `open_browser_url`).
+- `ULTRON_MILESTONE_2_IMPLEMENTATION_REPORT.md`: Detailed test report and execution evidence for Milestone 2.
+
+### Changed
+- `lib/computer/index.ts`: Re-exported `toolRegistry.ts` from unified computer facade.
+- `app/api/chat/route.ts`: Connected conversational dialogue to real tool execution for file operations, terminal commands, and application launching with honest verification reporting.
+- `lib/orchestration/orchestrator.ts`: Replaced simulated default task executor with physical OS execution via `TerminalIntelligence` and `ComputerToolRegistry`.
+- `components/UltronChat.tsx`: Added interactive approval card rendering and `/api/permission` invocation with live execution result feedback.
+
+---
+
 ## [Milestone 1 — Security Foundation] - 2026-11-14
 **Commit:** `af1d5eb5ba1ca693b40cc3fbbbdc1332755e0a74`
 

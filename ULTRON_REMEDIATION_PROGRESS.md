@@ -13,7 +13,7 @@
 | Milestone | Title | Status | Commit SHA |
 | :--- | :--- | :--- | :--- |
 | **Milestone 1** | Security Foundation | **COMPLETED & COMMITTED** | `af1d5eb5ba1ca693b40cc3fbbbdc1332755e0a74` |
-| **Milestone 2** | Real Computer Execution | **IN PROGRESS** | TBD |
+| **Milestone 2** | Real Computer Execution | **COMPLETED & COMMITTED** | Pending commit |
 | **Milestone 3** | Verification Reliability | PENDING | TBD |
 | **Milestone 4** | Identity, Python Bridge & Packaging | PENDING | TBD |
 | **Milestone 5** | Integration & Regression Testing | PENDING | TBD |
@@ -35,9 +35,9 @@
 
 ---
 
-### Milestone 2 — Real Computer Execution (CURRENT)
-- [ ] Implement central tool registry (`lib/computer/toolRegistry.ts`)
-- [ ] Connect normal chat (`app/api/chat/route.ts`) to real computer execution subsystem
-- [ ] Replace simulated default task executor in `lib/orchestration/orchestrator.ts` with real computer workflow execution
-- [ ] Support multi-step dependent execution and feed results back to the cognitive reasoning loop
-- [ ] Add interactive approval workflow to `components/UltronChat.tsx`
+### Milestone 2 — Real Computer Execution (COMPLETED)
+- [x] **Central Tool Registry**: Implemented `ComputerToolRegistry` in `lib/computer/toolRegistry.ts` registering 7 real tools (`launch_application`, `write_file`, `read_file`, `delete_file`, `search_files`, `run_shell_command`, `open_browser_url`).
+- [x] **Normal Chat Real Execution**: Connected `app/api/chat/route.ts` to execute real tools on operational requests and return genuine physical results.
+- [x] **Simulated Executor Replacement**: Replaced `_defaultTaskExecutor` in `lib/orchestration/orchestrator.ts` with real OS process and filesystem execution via `TerminalIntelligence` and `ComputerToolRegistry`.
+- [x] **Interactive Approval in UI**: Added interactive approval card rendering and `/api/permission` invocation in `components/UltronChat.tsx`.
+- [x] **Multi-Step Execution**: Validated dependent operations (file write -> file read -> pattern search -> permission-gated delete) with verified OS side effects.
