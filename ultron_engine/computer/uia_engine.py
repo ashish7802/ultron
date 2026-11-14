@@ -36,8 +36,13 @@ import ctypes
 from ctypes import wintypes
 from typing import Any, Dict, List, Optional, Tuple
 
-import comtypes
-import comtypes.client
+try:
+    import comtypes
+    import comtypes.client
+    COMTYPES_AVAILABLE = True
+except ImportError:
+    comtypes = None
+    COMTYPES_AVAILABLE = False
 
 from . import desktop_engine
 from . import input_driver
@@ -127,6 +132,8 @@ def get_uia() -> Any:
         IUIAutomation: COM interface pointer.
     """
     global _uia_module, _uia_instance
+    if not COMTYPES_AVAILABLE:
+        raise RuntimeError("Windows UI Automation requires 'comtypes' package. Please install with: pip install comtypes")
     if _uia_instance is None:
         comtypes.CoInitialize()
         _uia_module = comtypes.client.GetModule("UIAutomationCore.dll")

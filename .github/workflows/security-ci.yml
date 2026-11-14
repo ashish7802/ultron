@@ -48,8 +48,8 @@ jobs:
         run: |
           npm ci
           python -m pip install --upgrade pip
-          pip install pypiwin32 pywin32 cryptography
-          python -c "import win32crypt; print('pywin32 import verified in CI environment')"
+          pip install pypiwin32 pywin32 cryptography comtypes
+          python -c "import win32crypt, comtypes; print('pywin32 and comtypes imports verified in CI environment')"
 
       - name: Run Milestone 5 Security Suite
         run: npx tsx scripts/test_milestone5_battery.cjs
