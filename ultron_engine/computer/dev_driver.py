@@ -194,7 +194,8 @@ def open_file_in_vscode(
         cmd = [code_bin, target]
 
     try:
-        subprocess.Popen(cmd, close_fds=True)
+        creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        subprocess.Popen(cmd, close_fds=True, creationflags=creation_flags)
         return {
             "success": True,
             "file": target,

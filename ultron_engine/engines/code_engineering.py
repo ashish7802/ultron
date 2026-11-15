@@ -55,7 +55,8 @@ class CodeEngineeringEngine(BaseEngine):
             return {"returncode": -1, "error": "Security violation: cwd outside permitted workspace", "passed": False}
 
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=120, cwd=cwd)
+            creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=120, cwd=cwd, creationflags=creation_flags)
             return {"returncode": r.returncode, "stdout": r.stdout[-2000:], "stderr": r.stderr[-2000:],
                     "passed": r.returncode == 0}
         except Exception as e:
@@ -63,7 +64,8 @@ class CodeEngineeringEngine(BaseEngine):
 
     def git_status(self, cwd=None):
         try:
-            r = subprocess.run(["git", "status", "--short"], capture_output=True, text=True, timeout=30, cwd=cwd)
+            creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+            r = subprocess.run(["git", "status", "--short"], capture_output=True, text=True, timeout=30, cwd=cwd, creationflags=creation_flags)
             return {"output": r.stdout, "clean": not r.stdout.strip()}
         except Exception as e:
             return {"error": str(e)}

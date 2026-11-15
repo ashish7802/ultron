@@ -120,10 +120,12 @@ def detect_biometric_hardware() -> Dict[str, Any]:
         cmd = [
             "powershell",
             "-NoProfile",
+            "-NonInteractive",
             "-Command",
             "Get-CimInstance -ClassName Win32_PnPEntity | Where-Object { $_.PNPClass -eq 'Biometric' } | Select-Object -Property Name, Manufacturer, DeviceID, Status | ConvertTo-Json",
         ]
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=15, creationflags=creation_flags)
         if proc.returncode == 0 and proc.stdout.strip():
             data = json.loads(proc.stdout.strip())
             if isinstance(data, list) and len(data) > 0:

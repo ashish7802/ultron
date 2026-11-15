@@ -193,20 +193,25 @@ function decryptVaultData(raw: string): MemoryVaultData | null {
         return JSON.parse(decrypted.toString("utf-8"));
       } catch {
         // Attempt 2: Fallback migration key for historical vaults
-        const legacyKey = crypto.createHash("sha256").update(LEGACY_VAULT_MIGRATION_SECRET).digest();
-        const fallbackDecipher = crypto.createDecipheriv("aes-256-gcm", legacyKey, iv);
-        fallbackDecipher.setAuthTag(tag);
-        const migratedDecrypted = Buffer.concat([fallbackDecipher.update(ciphertext), fallbackDecipher.final()]);
-        const migratedData: MemoryVaultData = JSON.parse(migratedDecrypted.toString("utf-8"));
-        // Asynchronously re-encrypt with the active key to complete migration
-        setImmediate(() => {
-          persistMemories(migratedData.memories);
-        });
-        return migratedData;
+        try {
+          const legacyKey = crypto.createHash("sha256").update(LEGACY_VAULT_MIGRATION_SECRET).digest();
+          const fallbackDecipher = crypto.createDecipheriv("aes-256-gcm", legacyKey, iv);
+          fallbackDecipher.setAuthTag(tag);
+          const migratedDecrypted = Buffer.concat([fallbackDecipher.update(ciphertext), fallbackDecipher.final()]);
+          const migratedData: MemoryVaultData = JSON.parse(migratedDecrypted.toString("utf-8"));
+          // Asynchronously re-encrypt with the active key to complete migration
+          setImmediate(() => {
+            persistMemories(migratedData.memories);
+          });
+          return migratedData;
+        } catch {
+          // Historical vault key mismatch: preserve file on disk safely without noise
+          return null;
+        }
       }
     }
   } catch (err) {
-    console.warn("[MEMORY MANAGER] Error decrypting memory vault:", err);
+    console.warn("[MEMORY MANAGER] Invalid vault format on disk:", err instanceof Error ? err.message : String(err));
   }
   return null;
 }

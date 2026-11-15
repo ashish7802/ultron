@@ -58,8 +58,8 @@ export async function getBatteryStatus(): Promise<{ percent: number | null; isCh
 
   return new Promise((resolve) => {
     exec(
-      'powershell -NoProfile -Command "Get-CimInstance Win32_Battery | Select-Object -Property EstimatedChargeRemaining, BatteryStatus | ConvertTo-Json"',
-      { timeout: 4000 },
+      'powershell -NoProfile -NonInteractive -Command "Get-CimInstance Win32_Battery | Select-Object -Property EstimatedChargeRemaining, BatteryStatus | ConvertTo-Json"',
+      { timeout: 4000, windowsHide: true },
       (err, stdout) => {
         if (err || !stdout.trim()) {
           resolve({ percent: null, isCharging: null });
@@ -133,8 +133,8 @@ export async function controlAudioVolume(
 
   return new Promise((resolve) => {
     exec(
-      `powershell -NoProfile -Command "for ($i=0; $i -lt ${repeat}; $i++) { (New-Object -ComObject Wscript.Shell).SendKeys([char]${charCode}) }"`,
-      { timeout: 3000 },
+      `powershell -NoProfile -NonInteractive -Command "for ($i=0; $i -lt ${repeat}; $i++) { (New-Object -ComObject Wscript.Shell).SendKeys([char]${charCode}) }"`,
+      { timeout: 3000, windowsHide: true },
       (err) => {
         resolve(!err);
       }

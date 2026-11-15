@@ -521,9 +521,8 @@ export class TaskOrchestrationEngine {
       }
     }
 
-    // 5. Default safe diagnostic execution (captures real system info to produce honest stdout)
-    const diagResult = await defaultTerminalIntelligence.executeCommand("Get-Date -Format o");
-    const timestampStr = (diagResult.stdout || "").trim();
+    // 5. Default safe diagnostic execution (timestamp verification)
+    const timestampStr = new Date().toISOString();
 
     return {
       success: true,

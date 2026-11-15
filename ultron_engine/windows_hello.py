@@ -142,7 +142,14 @@ def get_windows_hello_availability() -> Dict[str, Any]:
             "$task.Wait(); "
             "Write-Output $task.Result"
         )
-        proc = subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, text=True, timeout=8)
+        creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        proc = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            creationflags=creation_flags,
+        )
         availability_str = proc.stdout.strip() if proc.returncode == 0 else "Unknown"
     except Exception:
         # Fail closed: if the Windows Runtime availability probe cannot run (missing
@@ -202,11 +209,13 @@ def request_native_windows_hello_verification(prompt_message: str = "ULTRON Zero
     )
 
     try:
+        creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
         proc = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", ps_cmd],
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
             capture_output=True,
             text=True,
-            timeout=60  # Allow 60 seconds for user to touch sensor
+            timeout=60,  # Allow 60 seconds for user to touch sensor
+            creationflags=creation_flags,
         )
         res_str = proc.stdout.strip()
         # Fail closed: never trust a verification result emitted by a failed process.
