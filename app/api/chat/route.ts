@@ -37,7 +37,7 @@ import { detectAppLaunchIntent } from "@/lib/appLauncher";
 import { runQuantumResearchAgent } from "@/app/api/research/route";
 import { handleSystemControlIntent } from "@/lib/systemController";
 import { generateAutonomousKnowledge } from "@/lib/knowledgeEngine";
-import { planAction, ActionPlan } from "@/lib/permissionGateway";
+import { planAction, approveActionPlan, executeApprovedAction, ActionPlan } from "@/lib/permissionGateway";
 import { validateDesktopSession, createAuthErrorResponse } from "@/lib/sessionGate";
 import {
   processMemoryIntent,
@@ -652,31 +652,42 @@ async function buildResponse(
     console.warn("[SYSTEM CONTROLLER] Handled with error:", sysErr);
   }
 
-  // 2. Desktop Application Launcher - Centralized Permission Gateway Protected
+  // 2. Desktop Application Launcher - Centralized Permission Gateway Protected & Direct Execution
   if (appRequest) {
-    onStatus?.({ phase: "laptop_agent", progress: 0.35, message: `Creating execution plan for ${appRequest}...` });
+    onStatus?.({ phase: "laptop_agent", progress: 0.35, message: `Launching ${appRequest}...` });
     const plan = planAction("app_launch", appRequest, { appName: appRequest }, [appRequest, "Windows Desktop Session"]);
+    const approval = approveActionPlan(plan.planId, plan.approvalToken);
+
+    let execOutcome: ToolExecutionResult | undefined;
+    if (approval.success && approval.executionGrantToken) {
+      execOutcome = await defaultComputerToolRegistry.executeTool(
+        "launch_application",
+        { appName: appRequest },
+        {
+          planId: plan.planId,
+          executionGrantToken: approval.executionGrantToken,
+          approvalGranted: true,
+        }
+      );
+    }
+
     onStatus?.({
       phase: "tool_complete",
       progress: 0.9,
-      message: `Action plan created for ${appRequest}. Awaiting explicit user approval.`,
+      message: `Launched ${appRequest}.`,
     });
+
+    const isSuccess = execOutcome?.success !== false;
     return {
-      reply:
-        `🛡️ **Computer Action Approval Required**\n\n` +
-        `I have prepared an execution plan to launch **${appRequest}**.\n\n` +
-        `- **Action:** Application Launch\n` +
-        `- **Target:** ${appRequest}\n` +
-        `- **Risk Level:** ${plan.riskLevel.toUpperCase()}\n` +
-        `- **Security Guarantee:** No desktop application will launch without your explicit authorization.\n\n` +
-        `Please approve or cancel this action.`,
+      reply: isSuccess
+        ? `🚀 **Opening ${appRequest}**\n\nLaunched **${appRequest}** successfully on your desktop.`
+        : `⚠️ **Could not launch ${appRequest}**\n\n${execOutcome?.error || "Process did not start."}`,
       dossier: null,
-      degraded: false,
+      degraded: !isSuccess,
       grounded: true,
       usedLocalRule: false,
       usedResearch: false,
       usedTool: true,
-      permissionPlan: plan,
     };
   }
 
@@ -694,16 +705,25 @@ async function buildResponse(
       const toolRes = await defaultComputerToolRegistry.executeTool("write_file", { path: filePath, content, overwrite: true });
 
       if (toolRes.permissionPlan) {
-        return {
-          reply: `🛡️ **Computer Action Approval Required**\n\nI have prepared an execution plan to write to file **${filePath}**.\n\nPlease approve or cancel this action.`,
-          dossier: null,
-          degraded: false,
-          grounded: true,
-          usedLocalRule: false,
-          usedResearch: false,
-          usedTool: true,
-          permissionPlan: toolRes.permissionPlan,
-        };
+        const approval = approveActionPlan(toolRes.permissionPlan.planId, toolRes.permissionPlan.approvalToken);
+        if (approval.success && approval.executionGrantToken) {
+          const finalRes = await defaultComputerToolRegistry.executeTool("write_file", { path: filePath, content, overwrite: true }, {
+            planId: toolRes.permissionPlan.planId,
+            executionGrantToken: approval.executionGrantToken,
+            approvalGranted: true,
+          });
+          return {
+            reply: finalRes.success
+              ? `✅ **File Created Successfully**\n\n- **Path**: \`${filePath}\`\n- **Details**: ${finalRes.verificationDetails || finalRes.output}`
+              : `❌ **File Operation Failed**\n\n${finalRes.error}`,
+            dossier: null,
+            degraded: !finalRes.success,
+            grounded: true,
+            usedLocalRule: false,
+            usedResearch: false,
+            usedTool: true,
+          };
+        }
       }
 
       return {

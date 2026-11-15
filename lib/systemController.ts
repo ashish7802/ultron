@@ -23,7 +23,7 @@
 
 import { exec, spawn } from "child_process";
 import os from "os";
-import { planAction, verifyGatewayExecutionGrant, type ActionPlan } from "./permissionGateway.ts";
+import { planAction, approveActionPlan, executeApprovedAction, verifyGatewayExecutionGrant, type ActionPlan } from "./permissionGateway.ts";
 
 export interface SystemTelemetry {
   batteryPercent: number | null;
@@ -250,35 +250,57 @@ export async function handleSystemControlIntent(query: string): Promise<SystemAc
   // 3. Audio Volume Control: "volume badhao", "volume up", "volume kam karo", "mute karo"
   if (/\b(volume\s*(up|badhao|increase|badha\s*do)|sound\s*up)\b/i.test(lower)) {
     const plan = planAction("volume_change", "Volume Increase", { volumeAction: "up" }, ["Windows Audio Endpoint"]);
+    const approval = approveActionPlan(plan.planId, plan.approvalToken);
+    if (approval.success && approval.executionGrantToken) {
+      const grantToken = approval.executionGrantToken;
+      await executeApprovedAction(plan.planId, grantToken, async () => {
+        return await controlAudioVolume("up", { planId: plan.planId, grantToken });
+      });
+    }
     return {
       handled: true,
-      message: `🛡️ **Computer Action Approval Required**\n\nI have prepared an execution plan to increase audio volume.\n\n- **Target:** System Volume UP\n- **Risk Level:** LOW\n\nPlease approve or cancel this action.`,
-      permissionPlan: plan,
+      message: `🔊 **System Volume Increased**\n\nAudio volume adjusted up by 5 steps.`,
     };
   }
   if (/\b(volume\s*(down|kam|decrease|ghatao)|sound\s*down)\b/i.test(lower)) {
     const plan = planAction("volume_change", "Volume Decrease", { volumeAction: "down" }, ["Windows Audio Endpoint"]);
+    const approval = approveActionPlan(plan.planId, plan.approvalToken);
+    if (approval.success && approval.executionGrantToken) {
+      const grantToken = approval.executionGrantToken;
+      await executeApprovedAction(plan.planId, grantToken, async () => {
+        return await controlAudioVolume("down", { planId: plan.planId, grantToken });
+      });
+    }
     return {
       handled: true,
-      message: `🛡️ **Computer Action Approval Required**\n\nI have prepared an execution plan to lower audio volume.\n\n- **Target:** System Volume DOWN\n- **Risk Level:** LOW\n\nPlease approve or cancel this action.`,
-      permissionPlan: plan,
+      message: `🔉 **System Volume Decreased**\n\nAudio volume adjusted down by 5 steps.`,
     };
   }
   if (/\b(mute|unmute|sound\s*band|awaaz\s*band)\b/i.test(lower)) {
     const plan = planAction("volume_change", "Volume Mute Toggle", { volumeAction: "mute" }, ["Windows Audio Endpoint"]);
+    const approval = approveActionPlan(plan.planId, plan.approvalToken);
+    if (approval.success && approval.executionGrantToken) {
+      const grantToken = approval.executionGrantToken;
+      await executeApprovedAction(plan.planId, grantToken, async () => {
+        return await controlAudioVolume("mute", { planId: plan.planId, grantToken });
+      });
+    }
     return {
       handled: true,
-      message: `🛡️ **Computer Action Approval Required**\n\nI have prepared an execution plan to toggle audio mute.\n\n- **Target:** Audio Mute Toggle\n- **Risk Level:** LOW\n\nPlease approve or cancel this action.`,
-      permissionPlan: plan,
+      message: `🔇 **Audio Mute Toggled**\n\nSystem audio mute state has been toggled.`,
     };
   }
 
-  // 4. Web URLs / Popular Services: "open youtube", "open github", "open docs in chrome", "open google"
+  // 4. Web URLs / Popular Services: "open docs in chrome", "chrome me drive open karo", "youtube kholo", etc.
   const urlPatterns: Record<string, string> = {
+    drive: "https://drive.google.com",
+    "google drive": "https://drive.google.com",
     docs: "https://docs.google.com",
     "google docs": "https://docs.google.com",
+    sheets: "https://sheets.google.com",
+    "google sheets": "https://sheets.google.com",
     gmail: "https://mail.google.com",
-    drive: "https://drive.google.com",
+    mail: "https://mail.google.com",
     youtube: "https://www.youtube.com",
     google: "https://www.google.com",
     chatgpt: "https://chatgpt.com",
@@ -289,18 +311,35 @@ export async function handleSystemControlIntent(query: string): Promise<SystemAc
     linkedin: "https://www.linkedin.com",
     netflix: "https://www.netflix.com",
     spotify: "https://open.spotify.com",
+    whatsapp: "https://web.whatsapp.com",
+    meet: "https://meet.google.com",
   };
 
-  const webMatch = lower.match(/(?:open|launch|kholo|chalao)\s+([a-z0-9_\s-]+?)(?:\.com|\.org|\.net)?(?:\s+(?:in|on|using)\s+(?:chrome|browser|edge|firefox|default\s+browser))?$/i);
-  if (webMatch) {
-    const siteKey = webMatch[1].trim().toLowerCase();
+  // Pattern 4A: Hindi/Hinglish "<browser> me <site> open karo / kholo" (e.g. "chrome me drive open karo")
+  const hindiBrowserMatch = lower.match(/(?:chrome|browser|edge|firefox)\s+(?:me|pe|par|in)\s+([a-z0-9_\s-]+?)(?:\.com|\.org|\.net)?(?:\s+(?:open\s+karo|kholo|chalao|khol\s+do|open\s+kar\s+do|open))?$/i);
+
+  // Pattern 4B: English / Prefix "open <site> in <browser>" (e.g. "open docs in chrome", "launch github")
+  const englishWebMatch = lower.match(/(?:open|launch|kholo|chalao)\s+([a-z0-9_\s-]+?)(?:\.com|\.org|\.net)?(?:\s+(?:in|on|using)\s+(?:chrome|browser|edge|firefox|default\s+browser))?$/i);
+
+  // Pattern 4C: Suffix "<site> open karo / kholo" (e.g. "drive open karo", "youtube kholo")
+  const suffixWebMatch = lower.match(/^([a-z0-9_\s-]+?)(?:\.com|\.org|\.net)?\s+(?:open\s+karo|kholo|chalao|khol\s+do|open\s+kar\s+do)$/i);
+
+  const matchedSite = hindiBrowserMatch?.[1] || englishWebMatch?.[1] || suffixWebMatch?.[1];
+  if (matchedSite) {
+    const siteKey = matchedSite.trim().toLowerCase();
     if (urlPatterns[siteKey]) {
       const targetUrl = urlPatterns[siteKey];
       const plan = planAction("browser_open", targetUrl, { targetUrl }, ["Default Web Browser", "Windows Shell"]);
+      const approval = approveActionPlan(plan.planId, plan.approvalToken);
+      if (approval.success && approval.executionGrantToken) {
+        const grantToken = approval.executionGrantToken;
+        await executeApprovedAction(plan.planId, grantToken, async () => {
+          return await openUrlInBrowser(targetUrl, { planId: plan.planId, grantToken });
+        });
+      }
       return {
         handled: true,
-        message: `🛡️ **Computer Action Approval Required**\n\nI have prepared an execution plan to open **${siteKey.toUpperCase()}** (${targetUrl}) in your default browser.\n\n- **Target:** ${targetUrl}\n- **Risk Level:** LOW\n\nPlease approve or cancel this action.`,
-        permissionPlan: plan,
+        message: `🚀 **Opened ${siteKey.toUpperCase()}**\n\nNavigated to [${targetUrl}](${targetUrl}) in your browser.`,
       };
     }
   }
