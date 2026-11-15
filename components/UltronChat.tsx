@@ -580,8 +580,9 @@ export default function UltronChat() {
     setApprovingPlanId(plan.planId);
     try {
       // 1. Send approval to /api/permission adhering to strict API contract (F-02)
-      const res = await fetch("/api/permission", {
+      let res = await fetch("/api/permission", {
         method: "POST",
+        credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           planId: plan.planId,
@@ -590,7 +591,46 @@ export default function UltronChat() {
         }),
       });
 
-      const data = await res.json();
+      let data = await res.json();
+
+      // If rejected because Founder authorization is required, automatically prompt Windows Hello elevation
+      if (
+        !res.ok &&
+        res.status === 403 &&
+        (data.error?.includes("Founder") ||
+          data.error?.includes("FOUNDER_AUTHORIZED") ||
+          data.error?.includes("Authorization Denied"))
+      ) {
+        const authRes = await fetch("/api/security/auth", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "login",
+            authMethod: "windows_hello",
+            promptReason: `Founder Authorization Required to approve: ${plan.actionType} (${plan.target})`,
+          }),
+        });
+        const authData = await authRes.json();
+        if (authRes.ok && authData.ok) {
+          // Retry the approval now that the session is elevated to FOUNDER_AUTHORIZED!
+          res = await fetch("/api/permission", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              planId: plan.planId,
+              action: "approve",
+              approvalToken: plan.approvalToken,
+            }),
+          });
+          data = await res.json();
+        } else {
+          alert(`Founder authorization could not be completed: ${authData.error || "Verification failed."}`);
+          return;
+        }
+      }
+
       const isSuccess = res.ok && (data.ok === true || data.success === true);
       if (!isSuccess) {
         alert(`Approval failed: ${data.error || "Unknown error"}`);
@@ -643,6 +683,7 @@ export default function UltronChat() {
     try {
       await fetch("/api/permission", {
         method: "POST",
+        credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           planId: plan.planId,
@@ -771,6 +812,7 @@ export default function UltronChat() {
       // Dispatch to Next.js API route
       const response = await fetch("/api/chat", {
         method: "POST",
+        credentials: "same-origin",
         headers: {
           "Content-Type": "application/json",
         },

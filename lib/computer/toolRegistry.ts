@@ -320,8 +320,26 @@ export class ComputerToolRegistry {
       ],
       execute: async (params) => {
         const startTime = Date.now();
-        const appName = String(params.appName || "");
-        const args = Array.isArray(params.args) ? (params.args as string[]) : undefined;
+        let appName = String(params.appName || "");
+        let args = Array.isArray(params.args) ? (params.args as string[]) : undefined;
+
+        // Smart intent resolution for "X in chrome" or "X in edge" (e.g. "docs in chrome")
+        const inBrowserMatch = appName.match(/^(.+?)\s+in\s+(chrome|edge|browser)$/i);
+        if (inBrowserMatch) {
+          const targetItem = inBrowserMatch[1].trim().toLowerCase();
+          const browserName = inBrowserMatch[2].trim().toLowerCase();
+          const urlMap: Record<string, string> = {
+            docs: "https://docs.google.com",
+            "google docs": "https://docs.google.com",
+            gmail: "https://mail.google.com",
+            drive: "https://drive.google.com",
+            youtube: "https://www.youtube.com",
+            github: "https://github.com",
+          };
+          const resolvedUrl = urlMap[targetItem] || (targetItem.startsWith("http") ? targetItem : `https://${targetItem}.com`);
+          appName = browserName === "browser" ? "chrome" : browserName;
+          args = [resolvedUrl];
+        }
 
         const launchRes = await defaultApplicationIntelligence.launchApp(appName, args);
         if (!launchRes.success) {

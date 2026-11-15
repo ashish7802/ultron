@@ -28,6 +28,7 @@ Safety / Security Guarantees:
 
 import os
 import sys
+import re
 import time
 import winreg
 import subprocess
@@ -256,6 +257,28 @@ def find_app(query: str) -> Optional[Dict[str, Any]]:
         if q in app["name"].lower():
             return app
 
+    # Smart intent resolution for "X in chrome" or "X in edge" (e.g. "docs in chrome")
+    in_browser = re.match(r"^(.+?)\s+in\s+(chrome|edge|browser)$", q)
+    if in_browser:
+        target_item = in_browser.group(1).strip()
+        browser_choice = in_browser.group(2).strip()
+        url_map = {
+            "docs": "https://docs.google.com",
+            "google docs": "https://docs.google.com",
+            "gmail": "https://mail.google.com",
+            "drive": "https://drive.google.com",
+            "youtube": "https://www.youtube.com",
+            "github": "https://github.com",
+        }
+        resolved_url = url_map.get(target_item, target_item if target_item.startswith("http") else f"https://{target_item}.com")
+        browser_exe = "chrome.exe" if browser_choice != "edge" else "msedge.exe"
+        return {
+            "name": f"Google Chrome ({target_item})",
+            "executable": browser_exe,
+            "type": "browser",
+            "default_args": [resolved_url],
+        }
+
     return None
 
 
@@ -289,6 +312,8 @@ def launch_app(app_name_or_path: str, args: Optional[List[str]] = None) -> Dict[
                 return {"success": False, "error": f"Failed to open shortcut: {e}"}
         elif target.get("executable"):
             cmd = [target["executable"]]
+            if not args and target.get("default_args"):
+                args = list(target["default_args"])
     else:
         # Direct executable or file path
         if os.path.exists(app_name_or_path):
@@ -303,6 +328,7 @@ def launch_app(app_name_or_path: str, args: Optional[List[str]] = None) -> Dict[
         cmd.extend(args)
 
     try:
+        creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if sys.platform == "win32" else 0
         proc = subprocess.Popen(
             cmd,
             shell=False,
@@ -310,6 +336,7 @@ def launch_app(app_name_or_path: str, args: Optional[List[str]] = None) -> Dict[
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             close_fds=True,
+            creationflags=creation_flags,
         )
         return {
             "success": True,

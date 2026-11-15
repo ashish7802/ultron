@@ -192,7 +192,7 @@ export async function verifyWindowsHelloConsent(
 
   return new Promise((resolve) => {
     const child = spawn(pythonExec, [WINDOWS_HELLO_SCRIPT, "--verify", "--reason", promptReason], {
-      windowsHide: false, // Must be visible so the Windows Hello UI appears in the foreground
+      windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
     });
 

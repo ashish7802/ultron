@@ -67,7 +67,7 @@ export default function ScreenAwarenessIndicator() {
 
     try {
       if (!authCheckedRef.current) {
-        const authResponse = await fetch("/api/security/auth", { cache: "no-store" });
+        const authResponse = await fetch("/api/security/auth", { cache: "no-store", credentials: "same-origin" });
         if (!authResponse.ok) {
           throw new Error(`Could not check founder authentication (HTTP ${authResponse.status}).`);
         }
@@ -86,7 +86,7 @@ export default function ScreenAwarenessIndicator() {
         authCheckedRef.current = true;
       }
 
-      const res = await fetch("/api/screen/control");
+      const res = await fetch("/api/screen/control", { credentials: "same-origin" });
       if (res.status === 401) {
         authCheckedRef.current = false;
         markAuthenticationRequired();
@@ -123,6 +123,7 @@ export default function ScreenAwarenessIndicator() {
       if (authRequiredRef.current) {
         const authResponse = await fetch("/api/security/auth", {
           method: "POST",
+          credentials: "same-origin",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             action: "login",
@@ -154,6 +155,7 @@ export default function ScreenAwarenessIndicator() {
       const action = status.isCapturing ? "STOP" : "START";
       const res = await fetch("/api/screen/control", {
         method: "POST",
+        credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, durationMs: 10 * 60 * 1000 }), // 10 min session
       });
@@ -182,6 +184,7 @@ export default function ScreenAwarenessIndicator() {
     try {
       const res = await fetch("/api/screen/control", {
         method: "POST",
+        credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "EMERGENCY_KILL", reason: "User triggered emergency kill" }),
       });

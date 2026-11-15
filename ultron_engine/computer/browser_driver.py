@@ -189,7 +189,8 @@ def navigate_to_url(url: str, browser: Optional[str] = None) -> Dict[str, Any]:
     if browser and browser.lower() in KNOWN_BROWSERS:
         exe = KNOWN_BROWSERS[browser.lower()]["exe"]
         try:
-            subprocess.Popen([exe, safe_url], close_fds=True)
+            creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if sys.platform == "win32" else 0
+            subprocess.Popen([exe, safe_url], close_fds=True, creationflags=creation_flags)
             return {
                 "success": True,
                 "url": safe_url,

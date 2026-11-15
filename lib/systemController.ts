@@ -273,8 +273,12 @@ export async function handleSystemControlIntent(query: string): Promise<SystemAc
     };
   }
 
-  // 4. Web URLs / Popular Services: "open youtube", "open github", "youtube kholo", "open google"
+  // 4. Web URLs / Popular Services: "open youtube", "open github", "open docs in chrome", "open google"
   const urlPatterns: Record<string, string> = {
+    docs: "https://docs.google.com",
+    "google docs": "https://docs.google.com",
+    gmail: "https://mail.google.com",
+    drive: "https://drive.google.com",
     youtube: "https://www.youtube.com",
     google: "https://www.google.com",
     chatgpt: "https://chatgpt.com",
@@ -287,9 +291,9 @@ export async function handleSystemControlIntent(query: string): Promise<SystemAc
     spotify: "https://open.spotify.com",
   };
 
-  const webMatch = lower.match(/(?:open|launch|kholo|chalao)\s+([a-z0-9_-]+)(?:\.com|\.org|\.net)?$/i);
+  const webMatch = lower.match(/(?:open|launch|kholo|chalao)\s+([a-z0-9_\s-]+?)(?:\.com|\.org|\.net)?(?:\s+(?:in|on|using)\s+(?:chrome|browser|edge|firefox|default\s+browser))?$/i);
   if (webMatch) {
-    const siteKey = webMatch[1].toLowerCase();
+    const siteKey = webMatch[1].trim().toLowerCase();
     if (urlPatterns[siteKey]) {
       const targetUrl = urlPatterns[siteKey];
       const plan = planAction("browser_open", targetUrl, { targetUrl }, ["Default Web Browser", "Windows Shell"]);
