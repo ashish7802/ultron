@@ -1,11 +1,25 @@
 """
-ultron_engine.dpapi_helper
-Windows DPAPI CryptProtectData and CryptUnprotectData Subprocess Helper.
+===============================================================================
+ULTRON CYBERNETIC INTELLIGENCE SYSTEM
+Module: ultron_engine.dpapi_helper
+Purpose: Native Windows DPAPI (Data Protection API) Stdin Cryptographic Helper
+===============================================================================
 
-Security Invariants:
-- Uses stdin stream for input payload transport to prevent command line argument sniffing.
-- Restricts memory exposure; outputs solely the base64-encoded ciphertext or plaintext.
-- Handles Windows DPAPI errors gracefully with explicit exit codes.
+Subsystem:
+Centralized Cryptographic Key Custody Architecture (F-06 & F-16 Hardening).
+
+Key Responsibilities:
+- Wraps sensitive master key and recovery key secrets with Windows DPAPI (`CryptProtectData`).
+- Unwraps DPAPI blobs (`CryptUnprotectData`) strictly within the user logon context.
+- Reads secret payloads EXCLUSIVELY via standard input (stdin) to prevent command-line
+  secret sniffing in Task Manager, Process Explorer, or `Get-CimInstance Win32_Process`.
+- Strictly rejects any command-line arguments beyond the single operation argument (`protect` or `unprotect`).
+
+Security & Safety Guarantees:
+- Zero command-line argument secrets: `sys.argv[2]` payload transport is strictly prohibited and rejected.
+- Fails closed with distinct exit codes for missing dependencies, invalid usage, empty payload, or DPAPI error.
+- Binds encryption to current Windows user login credentials with integrity hash.
+===============================================================================
 """
 
 import sys
@@ -17,19 +31,25 @@ try:
 except ImportError:
     HAS_WIN32CRYPT = False
 
+
 def main():
     if not HAS_WIN32CRYPT:
         sys.stderr.write("ERROR_WIN32CRYPT_UNAVAILABLE: pywin32 is not installed or platform is not Windows\n")
         sys.exit(2)
 
-    action = sys.argv[1] if len(sys.argv) > 1 else "protect"
-    
-    # Read payload from stdin for secrecy (avoid command-line argument inspection via taskmgr/process explorer)
+    # Invariant: Strictly reject unexpected command-line arguments (prevent secret sniffing)
+    if len(sys.argv) > 2:
+        sys.stderr.write("ERROR_UNEXPECTED_ARGUMENTS: Secret payloads via command-line arguments are prohibited. Pass payload via stdin exclusively.\n")
+        sys.exit(5)
+
+    if len(sys.argv) < 2 or sys.argv[1] not in ("protect", "unprotect"):
+        sys.stderr.write("ERROR_INVALID_USAGE: Usage: python dpapi_helper.py <protect|unprotect> (payload via stdin)\n")
+        sys.exit(4)
+
+    action = sys.argv[1]
+
+    # Read payload strictly from stdin
     stdin_data = sys.stdin.read().strip()
-    
-    # Fallback to sys.argv[2] if stdin was empty and argument provided
-    if not stdin_data and len(sys.argv) > 2:
-        stdin_data = sys.argv[2].strip()
 
     if not stdin_data:
         sys.stderr.write("ERROR_EMPTY_PAYLOAD\n")
@@ -53,6 +73,7 @@ def main():
     except Exception as e:
         sys.stderr.write(f"ERROR_DPAPI_FAILURE: {str(e)}\n")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

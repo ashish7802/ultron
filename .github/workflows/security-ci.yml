@@ -71,3 +71,6 @@ jobs:
 
       - name: Run Phase 2 Browser & API Workflow Battery
         run: npx tsx scripts/test_phase2_browser_workflows.cjs
+
+      - name: Run Final Security Invariants & Custody Battery
+        run: npx tsx scripts/test_final_security_invariants.cjs

@@ -23,6 +23,7 @@ import {
   revokeAllSessions,
   createSensitiveActionChallenge,
   verifySensitiveActionChallenge,
+  elevateSessionWithBiometricChallenge,
   recordAuthFailure,
   resetAuthFailure,
   FOUNDER_IDENTITY,
@@ -232,6 +233,28 @@ export async function POST(req: NextRequest) {
         const { promptReason } = body;
         const bioResult = await verifyWindowsHelloConsent(promptReason || "ULTRON Security Authorization");
         return NextResponse.json({ ok: bioResult.success, result: bioResult });
+      }
+
+      case "elevate_founder": {
+        const token = req.headers.get("x-ultron-session-token") || req.cookies.get("ultron_session")?.value;
+        if (!token) {
+          return NextResponse.json({ ok: false, error: "Authentication token required." }, { status: 401 });
+        }
+        const { challengeId, proof } = body;
+        const result = elevateSessionWithBiometricChallenge(token, challengeId, proof);
+        if (!result.success) {
+          return NextResponse.json({ ok: false, error: result.error }, { status: 401 });
+        }
+        return NextResponse.json({
+          ok: true,
+          message: "Session elevated to Founder Authorized.",
+          session: {
+            sessionId: result.session?.sessionId,
+            userRole: result.session?.userRole,
+            authenticationLevel: result.session?.authenticationLevel,
+            lastBiometricVerificationAt: result.session?.lastBiometricVerificationAt,
+          },
+        });
       }
 
       default:

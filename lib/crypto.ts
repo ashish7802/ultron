@@ -1,28 +1,24 @@
 /**
  * @file lib/crypto.ts
- * @description Transport Cryptography Module for ULTRON Web & API Subsystems.
+ * @description Cryptographic Engine & Windows DPAPI Key Custody for ULTRON.
  *
  * Subsystem:
- * Encryption & End-to-End (E2EE) Transport Fabric.
+ * Encryption, Master Key Custody & End-to-End Transport Fabric.
  *
  * Key Responsibilities:
- * - Employs AES-256-GCM (Authenticated Encryption with Associated Data) via the native
- *   Web Crypto API (`SubtleCrypto`), available in modern browsers, Edge and Node.js 20+.
- * - Generates a fresh 96-bit CSPRNG nonce per payload to guarantee replay immunity.
- * - Computes optional HMAC-SHA256 handshake signatures for transport integrity.
- * - Provides sealed-envelope helpers so transcript/audio payloads can be encrypted before
- *   transmission or storage.
+ * - Employs AES-256-GCM (Authenticated Encryption with Associated Data) via Web Crypto API (SubtleCrypto).
+ * - Enforces Windows DPAPI (`CryptProtectData`/`CryptUnprotectData`) as exclusive master key storage on Windows.
+ * - Guarantees zero plaintext key persistence in Windows production environments.
+ * - Generates 96-bit CSPRNG nonces per sealed envelope for absolute replay immunity.
+ * - Atomically persists DPAPI blobs with immediate unprotect verification before accepting.
+ * - Fails closed if DPAPI is unavailable, verification fails, or an existing key cannot be read.
  *
- * Architectural Role & Safety Guarantees:
- * - Interfaces between the UI layer (`UltronOrb.tsx`) and Next.js API routes.
- * - Tamper-evidence: any modification of the ciphertext or 128-bit authentication tag makes
- *   the Web Crypto decrypt operation reject immediately.
- *
- * Authentication note (updated per user request):
- * - Fingerprint / WebAuthn / Zero-Trust session gating has been REMOVED from the app. ULTRON
- *   is a local single-user desktop assistant and all local API routes are intentionally open
- *   on the loopback interface. This module therefore no longer issues or verifies session
- *   tokens; only transport sealing/authenticity helpers remain.
+ * Security Invariants & Guarantees:
+ * - On Windows production, DPAPI-protected `.vault_key.dpapi` is the only routine master-key storage.
+ * - Plaintext `.vault_key` is never written on Windows production.
+ * - Key rotation strictly uses atomic DPAPI writes verified before memory commitment.
+ * - Existing keys are never silently regenerated or replaced if inaccessible.
+ * - Legacy plaintext keys remain read-only during migration until DPAPI blob is roundtrip-verified.
  */
 
 import fs from "fs";
@@ -43,16 +39,19 @@ const LEGACY_MIGRATION_KEY = "STARK_ULTRON_MARK_LXXXV_OMEGA_SEC_256BIT_KEY";
 /**
  * Retrieves or lazily generates the active cryptographic master transport secret.
  *
- * WHY & HOW:
- * Production cryptographic keys must NEVER be hardcoded static strings in source code.
- * This function resolves the key through the following priority order:
+ * Priority Order:
  * 1. Environment variable `process.env.ULTRON_MASTER_KEY` (if >= 16 characters).
- * 2. Deterministic persistent storage via `defaultAppPathService.getVaultKeyPath()`.
- *    - Checks for DPAPI-protected key file (`.vault_key.dpapi`) and decrypts via `defaultDpapiBridge`.
- *    - If plaintext `.vault_key` exists, reads it and opportunistically protects it via DPAPI into `.vault_key.dpapi`.
- * 3. Fresh 256-bit CSPRNG key generation via `crypto.getRandomValues()`, saving protected copy to disk.
+ * 2. DPAPI-protected key file (`.vault_key.dpapi`) via `defaultAppPathService.getVaultKeyPath()`.
+ * 3. Read-only legacy plaintext migration (`.vault_key`) with atomic DPAPI round-trip verification.
+ * 4. Fresh 256-bit CSPRNG generation (development only; fails closed in packaged production).
+ *
+ * Security Invariants:
+ * - Never silently regenerates or replaces an existing key that cannot be decrypted.
+ * - Never writes plaintext `.vault_key` on Windows production.
+ * - Fails closed if DPAPI verification fails.
  *
  * @returns 256-bit hex secret string.
+ * @throws Error if key retrieval, migration, or DPAPI verification fails.
  */
 export function getActiveMasterSecret(): string {
   if (typeof process !== "undefined" && process.env?.ULTRON_MASTER_KEY && process.env.ULTRON_MASTER_KEY.trim().length >= 16) {
@@ -61,80 +60,114 @@ export function getActiveMasterSecret(): string {
   if (!dynamicMasterKey) {
     // If in Node.js runtime, check for persistent local key to ensure cross-process consistency
     if (typeof process !== "undefined" && process.versions?.node) {
-      try {
-        const basePath = defaultAppPathService.getVaultKeyPath();
-        const dpapiPath = `${basePath}.dpapi`;
+      const isWindows = process.platform === "win32";
+      const isProd = process.env.NODE_ENV === "production";
+      const isPackaged = defaultAppPathService.isPackaged();
+      const basePath = defaultAppPathService.getVaultKeyPath();
+      const dpapiPath = `${basePath}.dpapi`;
 
-        // 1. Primary on Windows: Read DPAPI-protected key file exclusively
-        if (fs.existsSync(dpapiPath)) {
-          const encData = fs.readFileSync(dpapiPath, "utf-8").trim();
-          if (encData.length > 0) {
-            const unwrapped = defaultDpapiBridge.unprotectSecret(encData);
-            if (unwrapped && unwrapped.length >= 32) {
-              dynamicMasterKey = unwrapped;
-              return unwrapped;
-            }
+      // 1. Primary on Windows: Read DPAPI-protected key file exclusively
+      if (fs.existsSync(dpapiPath)) {
+        const encData = fs.readFileSync(dpapiPath, "utf-8").trim();
+        if (encData.length > 0) {
+          const unwrapped = defaultDpapiBridge.unprotectSecret(encData);
+          if (unwrapped && unwrapped.length >= 32) {
+            dynamicMasterKey = unwrapped;
+            return unwrapped;
           }
+          // Invariant: Existing DPAPI file present but cannot be decrypted -> FAIL CLOSED
+          throw new Error(
+            "Security Invariant Violation: Failed to decrypt existing DPAPI-protected master key. Refusing to regenerate key silently."
+          );
+        } else {
+          throw new Error(
+            "Security Invariant Violation: Existing DPAPI-protected master key file is empty or corrupted."
+          );
         }
+      }
 
-        // 2. Migration: If plaintext .vault_key exists on Windows, migrate to DPAPI immediately
-        if (fs.existsSync(basePath)) {
-          const stored = fs.readFileSync(basePath, "utf-8").trim();
-          if (stored.length >= 32) {
+      // 2. Migration: If legacy plaintext .vault_key exists, migrate to DPAPI read-only without modifying original
+      if (fs.existsSync(basePath)) {
+        const stored = fs.readFileSync(basePath, "utf-8").trim();
+        if (stored.length >= 32) {
+          if (isWindows) {
             if (defaultDpapiBridge.isAvailable()) {
               const protectedBlob = defaultDpapiBridge.protectSecret(stored, "Ultron Vault Master Key");
-              if (protectedBlob && !protectedBlob.startsWith("DEV_CI_NON_WINDOWS_FALLBACK:")) {
-                // Write DPAPI blob atomically
-                const tmpDpapi = `${dpapiPath}.tmp.${Date.now()}`;
-                fs.writeFileSync(tmpDpapi, protectedBlob, { encoding: "utf-8", mode: 0o600 });
-                fs.renameSync(tmpDpapi, dpapiPath);
-
-                // Verify written DPAPI blob unprotects identically before accepting
-                const verifyCheck = defaultDpapiBridge.unprotectSecret(fs.readFileSync(dpapiPath, "utf-8").trim());
-                if (verifyCheck === stored) {
-                  dynamicMasterKey = stored;
-                  return stored;
-                }
+              if (!protectedBlob || (isProd && protectedBlob.startsWith("DEV_CI_NON_WINDOWS_FALLBACK:"))) {
+                throw new Error("Security Invariant Violation: Windows DPAPI protection failed during master key migration in production.");
               }
-            } else if (process.platform !== "win32") {
-              // Non-Windows dev/CI environment fallback
-              dynamicMasterKey = stored;
-              return stored;
+
+              // Write DPAPI blob atomically
+              const tmpDpapi = `${dpapiPath}.tmp.${Date.now()}`;
+              fs.writeFileSync(tmpDpapi, protectedBlob, { encoding: "utf-8", mode: 0o600 });
+              fs.renameSync(tmpDpapi, dpapiPath);
+
+              // Verify written DPAPI blob unprotects identically before accepting
+              const verifyCheck = defaultDpapiBridge.unprotectSecret(fs.readFileSync(dpapiPath, "utf-8").trim());
+              if (verifyCheck === stored) {
+                dynamicMasterKey = stored;
+                return stored;
+              } else {
+                throw new Error("Security Invariant Violation: DPAPI verification round-trip failed during master key migration.");
+              }
+            } else if (isProd) {
+              throw new Error("Security Invariant Violation: Windows DPAPI is unavailable for master key custody in production.");
             }
+          } else {
+            // Non-Windows dev/CI environment fallback
+            dynamicMasterKey = stored;
+            return stored;
           }
         }
-      } catch {
-        // Fall through to CSPRNG generation
       }
+
+      // 3. If in packaged production and keys are missing -> FAIL CLOSED
+      if (isPackaged) {
+        throw new Error(
+          "Security Invariant Violation: Required master encryption key is missing in packaged production environment. Refusing to create new key."
+        );
+      }
+
+      // 4. Fresh CSPRNG generation for development / initial onboarding
+      const array = new Uint8Array(32);
+      crypto.getRandomValues(array);
+      const generated = Array.from(array)
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+
+      if (isWindows) {
+        if (defaultDpapiBridge.isAvailable()) {
+          const protectedBlob = defaultDpapiBridge.protectSecret(generated, "Ultron Vault Master Key");
+          if (!protectedBlob || (isProd && protectedBlob.startsWith("DEV_CI_NON_WINDOWS_FALLBACK:"))) {
+            throw new Error("Security Invariant Violation: Windows DPAPI protection failed for newly generated master key.");
+          }
+          const tmpDpapi = `${dpapiPath}.tmp.${Date.now()}`;
+          fs.writeFileSync(tmpDpapi, protectedBlob, { encoding: "utf-8", mode: 0o600 });
+          fs.renameSync(tmpDpapi, dpapiPath);
+
+          const verifyCheck = defaultDpapiBridge.unprotectSecret(fs.readFileSync(dpapiPath, "utf-8").trim());
+          if (verifyCheck !== generated) {
+            throw new Error("Security Invariant Violation: DPAPI verification round-trip failed for newly generated master key.");
+          }
+          // Invariant: Never write plaintext .vault_key on Windows
+        } else if (isProd) {
+          throw new Error("Security Invariant Violation: Windows DPAPI is unavailable for master key generation in production.");
+        }
+      } else {
+        // Non-Windows dev/CI mode fallback
+        fs.writeFileSync(basePath, generated, { encoding: "utf-8", mode: 0o600 });
+      }
+
+      dynamicMasterKey = generated;
+      return generated;
     }
 
+    // Web / browser runtime fallback
     const array = new Uint8Array(32);
     crypto.getRandomValues(array);
     dynamicMasterKey = Array.from(array)
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
-
-    if (typeof process !== "undefined" && process.versions?.node) {
-      try {
-        const basePath = defaultAppPathService.getVaultKeyPath();
-        const dpapiPath = `${basePath}.dpapi`;
-
-        // On Windows with DPAPI available, store exclusively as .vault_key.dpapi
-        if (defaultDpapiBridge.isAvailable()) {
-          const protectedBlob = defaultDpapiBridge.protectSecret(dynamicMasterKey, "Ultron Vault Master Key");
-          if (protectedBlob && !protectedBlob.startsWith("DEV_CI_NON_WINDOWS_FALLBACK:")) {
-            const tmpDpapi = `${dpapiPath}.tmp.${Date.now()}`;
-            fs.writeFileSync(tmpDpapi, protectedBlob, { encoding: "utf-8", mode: 0o600 });
-            fs.renameSync(tmpDpapi, dpapiPath);
-          }
-        } else {
-          // Non-Windows dev/CI mode fallback
-          fs.writeFileSync(basePath, dynamicMasterKey, { encoding: "utf-8", mode: 0o600 });
-        }
-      } catch {
-        // Non-fatal if filesystem is restricted
-      }
-    }
   }
   return dynamicMasterKey ?? "";
 }
@@ -142,36 +175,56 @@ export function getActiveMasterSecret(): string {
 /**
  * Rotates the active master key in memory and synchronizes with persistent storage.
  *
- * WHY: When the master cryptographic key is rotated, any running or subsequent
- * Node.js desktop process reading `.vault_key` must remain in cryptographic parity.
+ * Security Invariants:
+ * - On Windows, writes exclusively to DPAPI-protected `.vault_key.dpapi`. Never writes plaintext.
+ * - Writes DPAPI blob atomically via temporary file and rename.
+ * - Verifies round-trip decryption before committing the new key to memory.
+ * - Fails closed without mutating state if protection or verification fails.
  *
  * @returns The newly generated 256-bit hex key.
+ * @throws Error if key rotation fails in production.
  */
 export function rotateMasterKey(): string {
   const array = new Uint8Array(32);
   crypto.getRandomValues(array);
-  dynamicMasterKey = Array.from(array)
+  const newKey = Array.from(array)
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 
   if (typeof process !== "undefined" && process.versions?.node) {
-    try {
-      const basePath = defaultAppPathService.getVaultKeyPath();
-      const dpapiPath = `${basePath}.dpapi`;
+    const isWindows = process.platform === "win32";
+    const isProd = process.env.NODE_ENV === "production";
+    const basePath = defaultAppPathService.getVaultKeyPath();
+    const dpapiPath = `${basePath}.dpapi`;
 
-      fs.writeFileSync(basePath, dynamicMasterKey, { encoding: "utf-8", mode: 0o600 });
-
+    if (isWindows) {
       if (defaultDpapiBridge.isAvailable()) {
-        const protectedBlob = defaultDpapiBridge.protectSecret(dynamicMasterKey, "Ultron Vault Master Key");
-        if (protectedBlob && !protectedBlob.startsWith("PLAINTEXT_FALLBACK:")) {
-          fs.writeFileSync(dpapiPath, protectedBlob, { encoding: "utf-8", mode: 0o600 });
+        const protectedBlob = defaultDpapiBridge.protectSecret(newKey, "Ultron Vault Master Key");
+        if (!protectedBlob || (isProd && protectedBlob.startsWith("DEV_CI_NON_WINDOWS_FALLBACK:"))) {
+          throw new Error("Security Invariant Violation: DPAPI protection failed during master key rotation.");
         }
+
+        // Atomically write protected blob
+        const tmpDpapi = `${dpapiPath}.tmp.${Date.now()}`;
+        fs.writeFileSync(tmpDpapi, protectedBlob, { encoding: "utf-8", mode: 0o600 });
+        fs.renameSync(tmpDpapi, dpapiPath);
+
+        // Verify round-trip unprotect
+        const verifyCheck = defaultDpapiBridge.unprotectSecret(fs.readFileSync(dpapiPath, "utf-8").trim());
+        if (verifyCheck !== newKey) {
+          throw new Error("Security Invariant Violation: DPAPI round-trip verification failed during master key rotation.");
+        }
+        // Invariant: Never write plaintext .vault_key on Windows
+      } else if (isProd) {
+        throw new Error("Security Invariant Violation: Windows DPAPI is unavailable for key rotation in production.");
       }
-    } catch {
-      // Non-fatal if filesystem is restricted
+    } else {
+      // Non-Windows dev/CI mode fallback
+      fs.writeFileSync(basePath, newKey, { encoding: "utf-8", mode: 0o600 });
     }
   }
 
+  dynamicMasterKey = newKey;
   return dynamicMasterKey;
 }
 

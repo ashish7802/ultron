@@ -80,77 +80,113 @@ export function getEffectiveRecoveryKey(): string {
   }
 
   // 2. Check local secure storage
-  try {
-    const recoveryKeyFile = defaultAppPathService.getRecoveryKeyPath();
-    const dpapiRecoveryFile = `${recoveryKeyFile}.dpapi`;
-    const vaultDir = path.dirname(recoveryKeyFile);
+  const isWindows = process.platform === "win32";
+  const isProd = process.env.NODE_ENV === "production";
+  const isPackaged = defaultAppPathService.isPackaged();
+  const recoveryKeyFile = defaultAppPathService.getRecoveryKeyPath();
+  const dpapiRecoveryFile = `${recoveryKeyFile}.dpapi`;
+  const vaultDir = path.dirname(recoveryKeyFile);
 
-    if (!fs.existsSync(vaultDir)) {
+  if (!fs.existsSync(vaultDir)) {
+    try {
       fs.mkdirSync(vaultDir, { recursive: true, mode: 0o700 });
+    } catch (mkdirErr) {
+      throw new Error(`Security Invariant Violation: Could not create security vault directory: ${mkdirErr}`);
     }
+  }
 
-    // 2a. Primary on Windows: Read DPAPI-protected recovery key exclusively
-    if (fs.existsSync(dpapiRecoveryFile)) {
-      const encBlob = fs.readFileSync(dpapiRecoveryFile, "utf-8").trim();
-      if (encBlob.length > 0) {
-        const unwrapped = defaultDpapiBridge.unprotectSecret(encBlob);
-        if (unwrapped && unwrapped.length >= 32 && !PROHIBITED_DEFAULTS.has(unwrapped.toUpperCase())) {
-          cachedRecoveryKey = unwrapped;
-          return unwrapped;
-        }
+  // 2a. Primary on Windows: Read DPAPI-protected recovery key exclusively
+  if (fs.existsSync(dpapiRecoveryFile)) {
+    const encBlob = fs.readFileSync(dpapiRecoveryFile, "utf-8").trim();
+    if (encBlob.length > 0) {
+      const unwrapped = defaultDpapiBridge.unprotectSecret(encBlob);
+      if (unwrapped && unwrapped.length >= 32 && !PROHIBITED_DEFAULTS.has(unwrapped.toUpperCase())) {
+        cachedRecoveryKey = unwrapped;
+        return unwrapped;
       }
+      // Existing DPAPI recovery key cannot be decrypted -> FAIL CLOSED
+      throw new Error(
+        "Security Invariant Violation: Failed to decrypt existing DPAPI-protected recovery key. Refusing to regenerate recovery key silently."
+      );
+    } else {
+      throw new Error(
+        "Security Invariant Violation: Existing DPAPI recovery key file is empty or corrupted."
+      );
     }
+  }
 
-    // 2b. Migration: If plaintext recovery.key exists on Windows, migrate to DPAPI immediately
-    if (fs.existsSync(recoveryKeyFile)) {
-      const stored = fs.readFileSync(recoveryKeyFile, "utf-8").trim();
-      if (stored.length >= 32 && !PROHIBITED_DEFAULTS.has(stored.toUpperCase())) {
+  // 2b. Migration: If plaintext recovery.key exists on Windows, migrate to DPAPI read-only
+  if (fs.existsSync(recoveryKeyFile)) {
+    const stored = fs.readFileSync(recoveryKeyFile, "utf-8").trim();
+    if (stored.length >= 32 && !PROHIBITED_DEFAULTS.has(stored.toUpperCase())) {
+      if (isWindows) {
         if (defaultDpapiBridge.isAvailable()) {
           const protectedBlob = defaultDpapiBridge.protectSecret(stored, "Ultron Founder Recovery Key");
-          if (protectedBlob && !protectedBlob.startsWith("DEV_CI_NON_WINDOWS_FALLBACK:")) {
-            const tmpDpapi = `${dpapiRecoveryFile}.tmp.${Date.now()}`;
-            fs.writeFileSync(tmpDpapi, protectedBlob, { encoding: "utf-8", mode: 0o600 });
-            fs.renameSync(tmpDpapi, dpapiRecoveryFile);
-
-            const verifyCheck = defaultDpapiBridge.unprotectSecret(fs.readFileSync(dpapiRecoveryFile, "utf-8").trim());
-            if (verifyCheck === stored) {
-              cachedRecoveryKey = stored;
-              return stored;
-            }
+          if (!protectedBlob || (isProd && protectedBlob.startsWith("DEV_CI_NON_WINDOWS_FALLBACK:"))) {
+            throw new Error("Security Invariant Violation: DPAPI protection failed during recovery key migration in production.");
           }
-        } else if (process.platform !== "win32") {
-          // Non-Windows dev/CI environment fallback
-          cachedRecoveryKey = stored;
-          return stored;
+          const tmpDpapi = `${dpapiRecoveryFile}.tmp.${Date.now()}`;
+          fs.writeFileSync(tmpDpapi, protectedBlob, { encoding: "utf-8", mode: 0o600 });
+          fs.renameSync(tmpDpapi, dpapiRecoveryFile);
+
+          const verifyCheck = defaultDpapiBridge.unprotectSecret(fs.readFileSync(dpapiRecoveryFile, "utf-8").trim());
+          if (verifyCheck === stored) {
+            cachedRecoveryKey = stored;
+            return stored;
+          } else {
+            throw new Error("Security Invariant Violation: DPAPI verification round-trip failed during recovery key migration.");
+          }
+        } else if (isProd) {
+          throw new Error("Security Invariant Violation: Windows DPAPI is unavailable for recovery key custody in production.");
         }
+      } else {
+        // Non-Windows dev/CI environment fallback
+        cachedRecoveryKey = stored;
+        return stored;
       }
+    } else if (stored.length > 0) {
+      throw new Error("Security Invariant Violation: Existing recovery key in storage is invalid or matches prohibited defaults.");
     }
+  }
 
-    // 3. Generate fresh cryptographically secure random key
-    const generated = crypto.randomBytes(32).toString("hex");
+  // 2c. Packaged production check: if recovery key is missing, fail closed without creating empty keys
+  if (isPackaged) {
+    throw new Error(
+      "Security Invariant Violation: Required Founder recovery key is missing in packaged production environment."
+    );
+  }
 
+  // 3. Generate fresh cryptographically secure random key (development / initial onboarding only)
+  const generated = crypto.randomBytes(32).toString("hex");
+
+  if (isWindows) {
     if (defaultDpapiBridge.isAvailable()) {
       const protectedBlob = defaultDpapiBridge.protectSecret(generated, "Ultron Founder Recovery Key");
-      if (protectedBlob && !protectedBlob.startsWith("DEV_CI_NON_WINDOWS_FALLBACK:")) {
-        const tmpDpapi = `${dpapiRecoveryFile}.tmp.${Date.now()}`;
-        fs.writeFileSync(tmpDpapi, protectedBlob, { encoding: "utf-8", mode: 0o600 });
-        fs.renameSync(tmpDpapi, dpapiRecoveryFile);
+      if (!protectedBlob || (isProd && protectedBlob.startsWith("DEV_CI_NON_WINDOWS_FALLBACK:"))) {
+        throw new Error("Security Invariant Violation: DPAPI protection failed for newly generated recovery key.");
       }
-    } else {
-      fs.writeFileSync(recoveryKeyFile, generated, { encoding: "utf-8", mode: 0o600 });
-    }
+      const tmpDpapi = `${dpapiRecoveryFile}.tmp.${Date.now()}`;
+      fs.writeFileSync(tmpDpapi, protectedBlob, { encoding: "utf-8", mode: 0o600 });
+      fs.renameSync(tmpDpapi, dpapiRecoveryFile);
 
-    console.info(
-      "[SECURITY] Initialized local single-user Founder Recovery Key in .security_vault/recovery.key"
-    );
-    cachedRecoveryKey = generated;
-    return generated;
-  } catch (err) {
-    console.warn("[SECURITY] Could not persist recovery key to disk:", err);
-    // Ephemeral in-memory fallback
-    cachedRecoveryKey = crypto.randomBytes(32).toString("hex");
-    return cachedRecoveryKey;
+      const verifyCheck = defaultDpapiBridge.unprotectSecret(fs.readFileSync(dpapiRecoveryFile, "utf-8").trim());
+      if (verifyCheck !== generated) {
+        throw new Error("Security Invariant Violation: DPAPI verification round-trip failed for newly generated recovery key.");
+      }
+      // Invariant: Never write plaintext recovery.key on Windows
+    } else if (isProd) {
+      throw new Error("Security Invariant Violation: Windows DPAPI is unavailable for recovery key custody in production.");
+    }
+  } else {
+    // Non-Windows dev/CI mode fallback
+    fs.writeFileSync(recoveryKeyFile, generated, { encoding: "utf-8", mode: 0o600 });
   }
+
+  console.info(
+    "[SECURITY] Initialized local single-user Founder Recovery Key in persistent DPAPI custody."
+  );
+  cachedRecoveryKey = generated;
+  return generated;
 }
 
 /**

@@ -165,7 +165,7 @@ export function getLocalDeviceBinding(): DeviceBinding {
  * @returns Fresh DesktopSession.
  */
 export function createAuthenticatedSession(
-  role: UserRole = "founder",
+  role: UserRole = "operator",
   userId: string = FOUNDER_IDENTITY.userId,
   verifiedBiometrics: boolean = false
 ): DesktopSession {
@@ -174,24 +174,31 @@ export function createAuthenticatedSession(
   const device = getLocalDeviceBinding();
   const now = Date.now();
 
-  // Explicit AuthenticationLevel determination (F-01)
+  let effectiveRole = role;
   let authenticationLevel: AuthenticationLevel = "CHAT_AUTHENTICATED";
-  if (verifiedBiometrics) {
-    authenticationLevel = role === "founder" ? "FOUNDER_AUTHORIZED" : "BIOMETRIC_VERIFIED";
-  } else if (role === "founder") {
-    // Founder session created via recovery key authentication
+
+  // Strict invariant: FOUNDER_AUTHORIZED requires verified biometric verification
+  if (verifiedBiometrics && role === "founder") {
     authenticationLevel = "FOUNDER_AUTHORIZED";
-  } else if (role === "admin" || role === "operator") {
-    authenticationLevel = "CHAT_AUTHENTICATED";
+    effectiveRole = "founder";
+  } else if (verifiedBiometrics) {
+    authenticationLevel = "BIOMETRIC_VERIFIED";
   } else {
-    authenticationLevel = "ANONYMOUS";
+    // Unverified claims cannot receive Founder privileges.
+    // Degrade unverified requests to operator role with CHAT_AUTHENTICATED level.
+    if (effectiveRole === "founder") {
+      effectiveRole = "operator";
+    }
+    authenticationLevel = (effectiveRole === "admin" || effectiveRole === "operator")
+      ? "CHAT_AUTHENTICATED"
+      : "ANONYMOUS";
   }
 
   const session: DesktopSession = {
     sessionId,
     sessionToken,
     userId,
-    userRole: role,
+    userRole: effectiveRole,
     authenticationLevel,
     deviceId: device.deviceId,
     createdAt: now,
@@ -204,6 +211,63 @@ export function createAuthenticatedSession(
   activeSessions.set(sessionToken, session);
   persistSessions();
   return session;
+}
+
+/**
+ * Upgrades an existing authenticated session to FOUNDER_AUTHORIZED upon successful
+ * single-use biometric verification challenge proof.
+ *
+ * Security Invariants:
+ * - Session must exist, be active, and not revoked.
+ * - Challenge must exist, not be expired, and not be consumed.
+ * - Challenge is consumed and deleted immediately upon elevation.
+ * - Replay attacks using the same challenge are rejected fail-closed.
+ */
+export function elevateSessionWithBiometricChallenge(
+  sessionToken: string,
+  challengeId: string,
+  proof: { method: AuthMethod; biometricResult?: BiometricVerificationResult; recoveryKey?: string }
+): { success: boolean; session?: DesktopSession; error?: string } {
+  const session = activeSessions.get(sessionToken);
+  if (!session || session.isRevoked || session.expiresAt < Date.now()) {
+    return { success: false, error: "Active session required for elevation." };
+  }
+
+  const challenge = activeChallenges.get(challengeId);
+  if (!challenge) {
+    return { success: false, error: "Authorization challenge not found or already consumed." };
+  }
+
+  if (challenge.isConsumed || Date.now() > challenge.expiresAt) {
+    activeChallenges.delete(challengeId);
+    return { success: false, error: "Authorization challenge expired or already consumed (anti-replay)." };
+  }
+
+  // Validate proof
+  if (proof.method === "windows_hello" || proof.method === "fingerprint") {
+    if (!proof.biometricResult || !proof.biometricResult.success || proof.biometricResult.result !== "Verified") {
+      return { success: false, error: "Biometric verification failed or was canceled." };
+    }
+  } else if (proof.method === "recovery_key") {
+    if (!proof.recoveryKey || !verifyRecoveryKey(proof.recoveryKey)) {
+      return { success: false, error: "Invalid founder recovery key." };
+    }
+  } else {
+    return { success: false, error: `Unsupported authorization method: ${proof.method}` };
+  }
+
+  // Anti-replay: consume challenge immediately
+  challenge.isConsumed = true;
+  activeChallenges.delete(challengeId);
+
+  // Elevate session
+  session.userRole = "founder";
+  session.authenticationLevel = "FOUNDER_AUTHORIZED";
+  session.lastBiometricVerificationAt = Date.now();
+  session.lastActiveAt = Date.now();
+  persistSessions();
+
+  return { success: true, session };
 }
 
 /**

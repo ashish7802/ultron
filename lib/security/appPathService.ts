@@ -70,11 +70,13 @@ export class AppPathService {
 
   /**
    * Resolves the path to the central encrypted memory vault (`ultron_memory_vault.json`).
-   * Supports backward-compatible discovery: if present in project root during migration, preserves it.
+   * 
+   * In packaged production: Exclusively resolves to `_userDataDir/ultron_memory_vault.json`.
+   * In development: Resolves to `_userDataDir`, with read-only fallback to project root for migration.
    */
   public getMemoryVaultPath(): string {
     const primaryPath = path.join(this._userDataDir, "ultron_memory_vault.json");
-    if (!fs.existsSync(primaryPath) && this._isPackaged) {
+    if (!this._isPackaged && !fs.existsSync(primaryPath)) {
       const devPath = path.join(process.cwd(), "ultron_memory_vault.json");
       if (fs.existsSync(devPath)) {
         return devPath;
@@ -85,10 +87,13 @@ export class AppPathService {
 
   /**
    * Resolves the path to the primary master key storage file (`.vault_key` or `.vault_key.dpapi`).
+   *
+   * In packaged production: Exclusively resolves to `_userDataDir/.vault_key`.
+   * In development: Resolves to `_userDataDir`, with read-only fallback to project root for migration.
    */
   public getVaultKeyPath(): string {
     const primaryPath = path.join(this._userDataDir, ".vault_key");
-    if (!fs.existsSync(primaryPath) && this._isPackaged) {
+    if (!this._isPackaged && !fs.existsSync(primaryPath)) {
       const devPath = path.join(process.cwd(), ".vault_key");
       if (fs.existsSync(devPath)) {
         return devPath;
@@ -99,10 +104,13 @@ export class AppPathService {
 
   /**
    * Resolves the directory for secure key storage and recovery records (`.security_vault/`).
+   *
+   * In packaged production: Exclusively resolves to `_userDataDir/.security_vault`.
+   * In development: Resolves to `_userDataDir`, with read-only fallback to project root for migration.
    */
   public getSecurityVaultDir(): string {
     const primaryDir = path.join(this._userDataDir, ".security_vault");
-    if (!fs.existsSync(primaryDir) && this._isPackaged) {
+    if (!this._isPackaged && !fs.existsSync(primaryDir)) {
       const devDir = path.join(process.cwd(), ".security_vault");
       if (fs.existsSync(devDir)) {
         return devDir;
@@ -139,18 +147,10 @@ export class AppPathService {
 
   /**
    * Resolves the path to the ultron_engine directory across dev and packaged Electron environments.
+   * Prioritizes packaged `process.resourcesPath/standalone/ultron_engine` in packaged mode.
    */
   public getUltronEngineDir(): string {
-    const envEngine = process.env.ULTRON_ENGINE_DIR?.trim();
-    if (envEngine && fs.existsSync(envEngine)) {
-      return path.resolve(envEngine);
-    }
-    // Check local cwd
-    const localDir = path.join(process.cwd(), "ultron_engine");
-    if (fs.existsSync(localDir)) {
-      return localDir;
-    }
-    // Check relative to resources in packaged builds
+    // 1. In packaged builds, check relative to process.resourcesPath first
     const procAny = process as unknown as { resourcesPath?: string };
     if (typeof procAny.resourcesPath === "string") {
       const resDir = path.join(procAny.resourcesPath, "standalone", "ultron_engine");
@@ -158,6 +158,19 @@ export class AppPathService {
         return resDir;
       }
     }
+
+    // 2. Explicit environment override
+    const envEngine = process.env.ULTRON_ENGINE_DIR?.trim();
+    if (envEngine && fs.existsSync(envEngine)) {
+      return path.resolve(envEngine);
+    }
+
+    // 3. Development local cwd check
+    const localDir = path.join(process.cwd(), "ultron_engine");
+    if (fs.existsSync(localDir)) {
+      return localDir;
+    }
+
     return localDir;
   }
 
