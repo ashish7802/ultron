@@ -105,6 +105,9 @@ async function ensureOllamaService(): Promise<boolean> {
       stdio: "ignore",
       windowsHide: true,
     });
+    child.on("error", (err) => {
+      console.warn("[OLLAMA AUTO-START] Ollama process error:", err.message);
+    });
     child.unref();
 
     // Poll for readiness up to 3 seconds
@@ -184,14 +187,14 @@ interface ResponseOutcome {
  */
 function calculateResearchConfidence(dossier: Record<string, unknown> | null): number {
   if (!dossier || !Array.isArray(dossier.sources) || dossier.sources.length === 0) {
-    return 0.75;
+    return 0.0;
   }
   const sources = dossier.sources as Array<Record<string, unknown>>;
   const validScores = sources
     .map((s) => (typeof s.credibility_score === "number" ? s.credibility_score : null))
     .filter((s): s is number => s !== null);
   if (validScores.length === 0) {
-    return 0.80;
+    return 0.70;
   }
   const avg = validScores.reduce((a, b) => a + b, 0) / validScores.length;
   return Math.min(0.95, Math.max(0.70, parseFloat(avg.toFixed(2))));
@@ -652,42 +655,31 @@ async function buildResponse(
     console.warn("[SYSTEM CONTROLLER] Handled with error:", sysErr);
   }
 
-  // 2. Desktop Application Launcher - Centralized Permission Gateway Protected & Direct Execution
+  // 2. Desktop Application Launcher - Centralized Permission Gateway Protected
   if (appRequest) {
-    onStatus?.({ phase: "laptop_agent", progress: 0.35, message: `Launching ${appRequest}...` });
+    onStatus?.({ phase: "laptop_agent", progress: 0.35, message: `Creating execution plan for ${appRequest}...` });
     const plan = planAction("app_launch", appRequest, { appName: appRequest }, [appRequest, "Windows Desktop Session"]);
-    const approval = approveActionPlan(plan.planId, plan.approvalToken);
-
-    let execOutcome: ToolExecutionResult | undefined;
-    if (approval.success && approval.executionGrantToken) {
-      execOutcome = await defaultComputerToolRegistry.executeTool(
-        "launch_application",
-        { appName: appRequest },
-        {
-          planId: plan.planId,
-          executionGrantToken: approval.executionGrantToken,
-          approvalGranted: true,
-        }
-      );
-    }
-
     onStatus?.({
       phase: "tool_complete",
       progress: 0.9,
-      message: `Launched ${appRequest}.`,
+      message: `Action plan created for ${appRequest}. Awaiting explicit user approval.`,
     });
-
-    const isSuccess = execOutcome?.success !== false;
     return {
-      reply: isSuccess
-        ? `🚀 **Opening ${appRequest}**\n\nLaunched **${appRequest}** successfully on your desktop.`
-        : `⚠️ **Could not launch ${appRequest}**\n\n${execOutcome?.error || "Process did not start."}`,
+      reply:
+        `🛡️ **Computer Action Approval Required**\n\n` +
+        `I have prepared an execution plan to launch **${appRequest}**.\n\n` +
+        `- **Action:** Application Launch\n` +
+        `- **Target:** ${appRequest}\n` +
+        `- **Risk Level:** ${plan.riskLevel.toUpperCase()}\n` +
+        `- **Security Guarantee:** No desktop application will launch without your explicit authorization.\n\n` +
+        `Please approve or cancel this action.`,
       dossier: null,
-      degraded: !isSuccess,
+      degraded: false,
       grounded: true,
       usedLocalRule: false,
       usedResearch: false,
       usedTool: true,
+      permissionPlan: plan,
     };
   }
 
@@ -705,33 +697,32 @@ async function buildResponse(
       const toolRes = await defaultComputerToolRegistry.executeTool("write_file", { path: filePath, content, overwrite: true });
 
       if (toolRes.permissionPlan) {
-        const approval = approveActionPlan(toolRes.permissionPlan.planId, toolRes.permissionPlan.approvalToken);
-        if (approval.success && approval.executionGrantToken) {
-          const finalRes = await defaultComputerToolRegistry.executeTool("write_file", { path: filePath, content, overwrite: true }, {
-            planId: toolRes.permissionPlan.planId,
-            executionGrantToken: approval.executionGrantToken,
-            approvalGranted: true,
-          });
-          return {
-            reply: finalRes.success
-              ? `✅ **File Created Successfully**\n\n- **Path**: \`${filePath}\`\n- **Details**: ${finalRes.verificationDetails || finalRes.output}`
-              : `❌ **File Operation Failed**\n\n${finalRes.error}`,
-            dossier: null,
-            degraded: !finalRes.success,
-            grounded: true,
-            usedLocalRule: false,
-            usedResearch: false,
-            usedTool: true,
-          };
-        }
+        return {
+          reply:
+            `🛡️ **Computer Action Approval Required**\n\n` +
+            `I have prepared an execution plan to write to file **${filePath}** (overwriting existing file).\n\n` +
+            `- **Action:** File Overwrite\n` +
+            `- **Target:** \`${filePath}\`\n` +
+            `- **Risk Level:** ${toolRes.permissionPlan.riskLevel.toUpperCase()}\n` +
+            `- **Security Guarantee:** Existing files will not be overwritten without your explicit authorization.\n\n` +
+            `Please approve or cancel this action.`,
+          dossier: null,
+          degraded: false,
+          grounded: true,
+          usedLocalRule: false,
+          usedResearch: false,
+          usedTool: true,
+          permissionPlan: toolRes.permissionPlan,
+        };
       }
 
+      const isWriteSuccess = Boolean(toolRes && toolRes.success === true);
       return {
-        reply: toolRes.success
+        reply: isWriteSuccess
           ? `✅ **File Created Successfully**\n\n- **Path**: \`${filePath}\`\n- **Details**: ${toolRes.verificationDetails || toolRes.output}`
           : `❌ **File Operation Failed**\n\n${toolRes.error}`,
         dossier: null,
-        degraded: !toolRes.success,
+        degraded: !isWriteSuccess,
         grounded: true,
         usedLocalRule: false,
         usedResearch: false,
@@ -821,7 +812,8 @@ async function buildResponse(
   let reply = resolveLocalRule(query);
   const usedLocalRule = Boolean(reply);
   let dossier: Record<string, unknown> | null = null;
-  const degraded = false;
+  let degraded = false;
+  let usedResearch = false;
 
   // 4. Quantum Autonomous Web Research Agent (Superposition multi-vector search)
   if (!reply && isResearchQuery(query)) {
@@ -832,16 +824,25 @@ async function buildResponse(
         progress: 0.25,
         message: "Quantum Research: Decomposing search vectors across live web...",
       });
-      dossier = await runQuantumResearchAgent(query, 6, signal);
-      const summary = dossier?.executive_summary;
+      const researchDossier = await runQuantumResearchAgent(query, 6, signal);
+      const summary = researchDossier?.executive_summary;
       if (typeof summary === "string" && summary.trim()) {
         reply = summary;
+        dossier = researchDossier;
+        usedResearch = true;
+      } else {
+        dossier = null;
+        usedResearch = false;
+        degraded = true;
       }
       onStatus?.({ phase: "synthesis", progress: 0.85, message: "Synthesizing verified research briefing with citations..." });
     } catch (rErr) {
       console.warn("[QUANTUM RESEARCH] Falling back to the local model.", {
         errorType: rErr instanceof Error ? rErr.name : "UnknownError",
       });
+      dossier = null;
+      usedResearch = false;
+      degraded = true;
       if (signal.aborted) throw new Error("Request aborted during research", { cause: rErr });
     }
   }
@@ -900,6 +901,9 @@ async function buildResponse(
       }
 
       cognitiveConfidence = calculateCalibratedConfidence(cog.context, audit.complianceScore, 1, cog.uncertainty);
+    } else {
+      // Ollama inference failed or model is offline; mark degraded state
+      degraded = true;
     }
   }
 
@@ -941,6 +945,7 @@ async function buildResponse(
           if (!payload || (Date.now() - payload.timestamp > 15000)) {
             reply =
               "Screen awareness is active, but a fresh desktop frame could not be acquired or context expired (>15s TTL). Please check OS capture permissions.";
+            degraded = true;
           } else {
             // Check if actual neural multimodal vision inference was performed
             const isModelInferenceLive = payload.visualEvidence?.some(
@@ -972,6 +977,7 @@ async function buildResponse(
             } else {
               // Multimodal Vision Model is UNAVAILABLE / OFFLINE (DEGRADED mode)
               // Strictly explain that model analysis is unavailable and provide ONLY verified OS/OCR data
+              degraded = true;
               const ocrLines =
                 payload.ocrEvidence && payload.ocrEvidence.length > 0
                   ? payload.ocrEvidence.slice(0, 8).map((l) => `* ${l}`).join("\n")
@@ -997,7 +1003,10 @@ async function buildResponse(
             }
           }
         } catch (err) {
-          reply = `Unable to inspect screen: ${err instanceof Error ? err.message : "Capture driver unavailable"}`;
+          // P3 Security: Log internal driver or hardware errors on server, sanitize user-facing output
+          console.warn("[SCREEN VQA] Screen inspection error:", err);
+          reply = "Unable to inspect screen: the screen capture subsystem or display driver is unavailable.";
+          degraded = true;
         }
       }
     }
@@ -1005,6 +1014,7 @@ async function buildResponse(
 
   // 8. Polite & Context-Aware Intelligent Dialogue Fallback
   if (!reply) {
+    degraded = true;
     reply =
       `I have analyzed your inquiry regarding **"${query}"**.\n\n` +
       `Here is how we can explore this effectively:\n\n` +
@@ -1017,9 +1027,9 @@ async function buildResponse(
     reply,
     dossier,
     degraded,
-    grounded: usedLocalRule || Boolean(dossier),
+    grounded: usedLocalRule || usedResearch,
     usedLocalRule,
-    usedResearch: Boolean(dossier),
+    usedResearch,
     usedTool: false,
     cognitiveTier,
     cognitiveConfidence,
