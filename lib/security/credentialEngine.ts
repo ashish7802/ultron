@@ -82,20 +82,17 @@ initializeVault();
 
 /**
  * Persists the encrypted credentials vault atomically.
+ * Throws an error on write failure so calling actions fail-closed.
  */
 function persistVault(): void {
-  try {
-    const dir = path.dirname(CREDENTIAL_VAULT_FILE);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    const tempFile = `${CREDENTIAL_VAULT_FILE}.tmp.${crypto.randomBytes(4).toString("hex")}`;
-    const list = Array.from(secretRecords.values());
-    fs.writeFileSync(tempFile, JSON.stringify(list, null, 2), "utf-8");
-    fs.renameSync(tempFile, CREDENTIAL_VAULT_FILE);
-  } catch (err) {
-    console.error("[CREDENTIAL ENGINE] Failed to persist credentials vault:", err);
+  const dir = path.dirname(CREDENTIAL_VAULT_FILE);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
   }
+  const tempFile = `${CREDENTIAL_VAULT_FILE}.tmp.${crypto.randomBytes(4).toString("hex")}`;
+  const list = Array.from(secretRecords.values());
+  fs.writeFileSync(tempFile, JSON.stringify(list, null, 2), "utf-8");
+  fs.renameSync(tempFile, CREDENTIAL_VAULT_FILE);
 }
 
 /**
@@ -144,6 +141,9 @@ export function storeCredential(
   const encryptedBuf = Buffer.concat([cipher.update(secretValue, "utf-8"), cipher.final()]);
   const authTag = cipher.getAuthTag();
 
+  // Defensive clone of allowedRoles array to prevent external callers from mutating access allowlist
+  const safeAllowedRoles: UserRole[] = [...allowedRoles];
+
   const metadata: CredentialMetadata = {
     secretId,
     name: cleanName,
@@ -152,7 +152,7 @@ export function storeCredential(
     lastRotatedAt: now,
     isRevoked: false,
     isDPAPIProtected: process.platform === "win32",
-    allowedRoles,
+    allowedRoles: safeAllowedRoles,
     fingerprint: computeSecretFingerprint(secretValue),
   };
 
@@ -166,9 +166,16 @@ export function storeCredential(
 
   secretRecords.set(secretId, record);
   knownSecretsForRedaction.add(secretValue.trim());
-  persistVault();
 
-  return { success: true, metadata };
+  try {
+    persistVault();
+  } catch (err) {
+    secretRecords.delete(secretId);
+    console.error("[CREDENTIAL ENGINE] Failed to persist credentials vault:", err);
+    return { success: false, error: "Failed to persist credential vault to disk." };
+  }
+
+  return { success: true, metadata: { ...metadata, allowedRoles: [...metadata.allowedRoles] } };
 }
 
 /**
@@ -241,17 +248,27 @@ export function revokeCredential(secretIdOrName: string, actorRole: UserRole): b
   if (!record) return false;
 
   record.metadata.isRevoked = true;
-  persistVault();
-  return true;
+  try {
+    persistVault();
+    return true;
+  } catch (err) {
+    console.error("[CREDENTIAL ENGINE] Failed to persist revocation:", err);
+    record.metadata.isRevoked = false;
+    return false;
+  }
 }
 
 /**
  * Lists all credential metadata without revealing raw secret values.
+ * Returns defensive clones of allowedRoles arrays.
  *
  * @returns Array of CredentialMetadata.
  */
 export function listCredentialMetadata(): CredentialMetadata[] {
-  return Array.from(secretRecords.values()).map((r) => ({ ...r.metadata }));
+  return Array.from(secretRecords.values()).map((r) => ({
+    ...r.metadata,
+    allowedRoles: [...r.metadata.allowedRoles],
+  }));
 }
 
 /**

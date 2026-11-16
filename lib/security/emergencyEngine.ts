@@ -74,22 +74,50 @@ function hashRecoveryKey(recoveryKey: string): string {
 
 /**
  * Loads persistent lockdown state from disk on startup.
+ *
+ * Security Invariant (High Priority Fix):
+ * If the lockdown state file exists on disk, it MUST be valid. If it is empty, corrupt,
+ * unparseable, or missing the boolean isLockedDown attribute, the engine MUST fail-closed
+ * into active lockdown, preventing an attacker or disk corruption from silently unlocking the system.
  */
 function initializeLockdownState(): void {
   try {
-    const loaded = readVaultJsonSync<EmergencyLockdownState | null>(LOCKDOWN_FILE, null);
-    if (loaded && loaded.isLockedDown) {
-      currentState = loaded;
-      console.warn("[EMERGENCY SYSTEM] *** SYSTEM BOOTED IN ACTIVE EMERGENCY LOCKDOWN ***");
+    if (fs.existsSync(LOCKDOWN_FILE)) {
+      const raw = fs.readFileSync(LOCKDOWN_FILE, "utf-8").trim();
+      if (!raw) {
+        throw new Error("Lockdown state file exists on disk but is empty/corrupt.");
+      }
+      let loaded: unknown = null;
+      try {
+        loaded = JSON.parse(raw);
+      } catch (parseErr) {
+        throw new Error(`Lockdown state file is unparseable: ${(parseErr as Error).message}`);
+      }
+
+      if (loaded && typeof loaded === "object" && "isLockedDown" in loaded) {
+        const candidate = loaded as EmergencyLockdownState;
+        if (typeof candidate.isLockedDown !== "boolean") {
+          throw new Error("Corrupted lockdown state: isLockedDown is not a boolean.");
+        }
+        if (candidate.isLockedDown) {
+          currentState = candidate;
+          console.warn("[EMERGENCY SYSTEM] *** SYSTEM BOOTED IN ACTIVE EMERGENCY LOCKDOWN ***");
+        } else {
+          currentState = candidate;
+        }
+        return;
+      } else {
+        throw new Error("Lockdown state file does not contain a valid lockdown state object.");
+      }
     }
   } catch (err) {
-    // Fail closed: if state read fails, enter lockdown
+    // Fail closed: if state read or parsing fails on existing file, enter lockdown
     console.error("[EMERGENCY SYSTEM] Error reading lockdown state, defaulting to LOCKED:", err);
     currentState = {
       isLockedDown: true,
       lockedAt: Date.now(),
       lockedByActor: "system_fail_closed",
-      triggerReason: "Lockdown state corruption detected on boot.",
+      triggerReason: `Lockdown state corruption detected on boot: ${err instanceof Error ? err.message : String(err)}`,
       activeExecutionsTerminated: 0,
       sessionsRevokedCount: 0,
       recoveryVerificationRequired: true,

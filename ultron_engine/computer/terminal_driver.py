@@ -58,6 +58,10 @@ HIGH_RISK_PATTERNS = [
     r"git\s+reset\s+--hard",
     r"kill\s+-9",
     r"taskkill\s+/f",
+    r"\bclear-content\b",
+    r"\bclc\b",
+    r"\bset-content\b",
+    r"\bremove-item\b",
 ]
 
 # In-memory execution history (up to 500 commands)

@@ -152,36 +152,71 @@ export function getLocalDeviceBinding(): DeviceBinding {
   };
 }
 
+export type BiometricProofInput =
+  | boolean
+  | {
+      biometricResult?: BiometricVerificationResult;
+      challengeId?: string;
+      recoveryKey?: string;
+    };
+
 /**
  * Creates and registers a new authenticated desktop session for a given role.
  *
- * Security Invariant:
- * Biometric verification timestamp is ONLY set when verifiedBiometrics is explicitly true,
+ * Security Invariant (High Priority Audit Fix):
+ * Biometric verification timestamp is ONLY set when verifiedBiometrics proof is genuinely verified,
  * ensuring unverified sessions never claim biometric verification occurred (ChatGPT Finding F-01).
  *
- * @param role - Target user role (defaults to "founder" for local desktop).
+ * @param role - Target user role (defaults to "operator" for unprivileged access).
  * @param userId - Target user identifier.
- * @param verifiedBiometrics - True if genuine OS-backed biometric verification succeeded.
+ * @param verifiedBiometrics - True or cryptographic proof object if genuine biometric verification succeeded.
  * @returns Fresh DesktopSession.
  */
 export function createAuthenticatedSession(
   role: UserRole = "operator",
   userId: string = FOUNDER_IDENTITY.userId,
-  verifiedBiometrics: boolean = false
+  verifiedBiometrics: BiometricProofInput = false
 ): DesktopSession {
   const sessionToken = "ultron_sec_" + crypto.randomBytes(32).toString("hex");
   const sessionId = "sess_" + crypto.randomBytes(12).toString("hex");
   const device = getLocalDeviceBinding();
   const now = Date.now();
 
+  let isBiometricVerified = false;
+  if (typeof verifiedBiometrics === "object" && verifiedBiometrics !== null) {
+    if (verifiedBiometrics.biometricResult) {
+      isBiometricVerified = Boolean(
+        verifiedBiometrics.biometricResult.success &&
+        verifiedBiometrics.biometricResult.result === "Verified"
+      );
+    } else if (verifiedBiometrics.challengeId) {
+      const challenge = activeChallenges.get(verifiedBiometrics.challengeId);
+      if (challenge && !challenge.isConsumed && Date.now() <= challenge.expiresAt) {
+        challenge.isConsumed = true;
+        activeChallenges.delete(verifiedBiometrics.challengeId);
+        isBiometricVerified = true;
+      }
+    } else if (verifiedBiometrics.recoveryKey) {
+      isBiometricVerified = verifyRecoveryKey(verifiedBiometrics.recoveryKey);
+    }
+  } else if (typeof verifiedBiometrics === "boolean") {
+    // In production environments, raw unauthenticated boolean is rejected fail-closed
+    if (process.env.NODE_ENV === "production" && verifiedBiometrics) {
+      console.warn("[IDENTITY ENGINE] Security Warning: Raw boolean biometric claim rejected in production environment.");
+      isBiometricVerified = false;
+    } else {
+      isBiometricVerified = verifiedBiometrics;
+    }
+  }
+
   let effectiveRole = role;
   let authenticationLevel: AuthenticationLevel = "CHAT_AUTHENTICATED";
 
   // Strict invariant: FOUNDER_AUTHORIZED requires verified biometric verification
-  if (verifiedBiometrics && role === "founder") {
+  if (isBiometricVerified && role === "founder") {
     authenticationLevel = "FOUNDER_AUTHORIZED";
     effectiveRole = "founder";
-  } else if (verifiedBiometrics) {
+  } else if (isBiometricVerified) {
     authenticationLevel = "BIOMETRIC_VERIFIED";
   } else {
     // Unverified claims cannot receive Founder privileges.
@@ -205,7 +240,7 @@ export function createAuthenticatedSession(
     expiresAt: now + SESSION_TTL_MS,
     lastActiveAt: now,
     isRevoked: false,
-    lastBiometricVerificationAt: verifiedBiometrics ? now : undefined,
+    lastBiometricVerificationAt: isBiometricVerified ? now : undefined,
   };
 
   activeSessions.set(sessionToken, session);

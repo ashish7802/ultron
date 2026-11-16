@@ -26,6 +26,18 @@ const { spawnSync } = require("child_process");
 
 let totalTests = 0;
 let passedTests = 0;
+let skippedTests = 0;
+
+class SkipTestException extends Error {
+  constructor(reason) {
+    super(reason);
+    this.name = "SkipTestException";
+  }
+}
+
+function skip(reason) {
+  throw new SkipTestException(reason);
+}
 
 function runTest(testName, fn) {
   totalTests++;
@@ -34,6 +46,11 @@ function runTest(testName, fn) {
     passedTests++;
     console.log(`  [PASS] Test ${totalTests}: ${testName}`);
   } catch (err) {
+    if (err instanceof SkipTestException) {
+      skippedTests++;
+      console.log(`  [SKIP] Test ${totalTests}: ${testName} (Skipped: ${err.message})`);
+      return;
+    }
     console.error(`  [FAIL] Test ${totalTests}: ${testName}`);
     console.error(`         Error: ${err.message}`);
     process.exitCode = 1;
@@ -47,6 +64,11 @@ async function runAsyncTest(testName, fn) {
     passedTests++;
     console.log(`  [PASS] Test ${totalTests}: ${testName}`);
   } catch (err) {
+    if (err instanceof SkipTestException) {
+      skippedTests++;
+      console.log(`  [SKIP] Test ${totalTests}: ${testName} (Skipped: ${err.message})`);
+      return;
+    }
     console.error(`  [FAIL] Test ${totalTests}: ${testName}`);
     console.error(`         Error: ${err.message}`);
     process.exitCode = 1;
@@ -87,7 +109,7 @@ async function main() {
       const key = getActiveMasterSecret();
       assert.ok(key && key.length >= 32, "Active master secret must be valid");
     } else {
-      console.log("    (Skipped: platform is non-Windows)");
+      skip("platform is non-Windows");
     }
   });
 
@@ -113,7 +135,7 @@ async function main() {
         }
       }
     } else {
-      console.log("    (Skipped: platform is non-Windows or DPAPI unavailable)");
+      skip("platform is non-Windows or DPAPI unavailable");
     }
   });
 
@@ -202,7 +224,7 @@ async function main() {
         "Helper stderr must report unexpected command-line arguments"
       );
     } else {
-      console.log("    (Skipped: platform is non-Windows)");
+      skip("platform is non-Windows");
     }
   });
 
@@ -233,7 +255,7 @@ async function main() {
       const decrypted = unprotRes.stdout.trim();
       assert.strictEqual(decrypted, secret, "Decrypted text must match original secret");
     } else {
-      console.log("    (Skipped: platform is non-Windows)");
+      skip("platform is non-Windows");
     }
   });
 
@@ -268,7 +290,7 @@ async function main() {
         }, /Security Invariant Violation/);
       }
     } else {
-      console.log("    (Skipped: running in development mode)");
+      skip("running in development mode");
     }
   });
 
@@ -349,7 +371,7 @@ async function main() {
   });
 
   console.log("\n==================================================================");
-  console.log(`FINAL SECURITY INVARIANTS RESULTS: ${passedTests} / ${totalTests} tests passed (100%)`);
+  console.log(`FINAL SECURITY INVARIANTS RESULTS: ${passedTests} passed, ${skippedTests} skipped (${totalTests} total tests)`);
   console.log("==================================================================");
 }
 

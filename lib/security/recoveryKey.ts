@@ -91,7 +91,7 @@ export function getEffectiveRecoveryKey(): string {
     try {
       fs.mkdirSync(vaultDir, { recursive: true, mode: 0o700 });
     } catch (mkdirErr) {
-      throw new Error(`Security Invariant Violation: Could not create security vault directory: ${mkdirErr}`);
+      throw new Error(`Security Invariant Violation: Could not create security vault directory: ${mkdirErr}`, { cause: mkdirErr });
     }
   }
 

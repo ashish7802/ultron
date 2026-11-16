@@ -26,6 +26,7 @@ Safety / Security Guarantees:
 """
 
 from typing import Any, Optional
+import os
 
 try:
     # Optional dependency: desktop/audit environments intentionally do not install it.

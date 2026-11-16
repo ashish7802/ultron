@@ -95,7 +95,7 @@ export class DpapiBridge {
       return output;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(`Windows DPAPI CryptProtectData execution failed: ${msg}`);
+      throw new Error(`Windows DPAPI CryptProtectData execution failed: ${msg}`, { cause: err });
     }
   }
 
@@ -150,7 +150,7 @@ export class DpapiBridge {
       return output;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(`Windows DPAPI CryptUnprotectData execution failed: ${msg}`);
+      throw new Error(`Windows DPAPI CryptUnprotectData execution failed: ${msg}`, { cause: err });
     }
   }
 }

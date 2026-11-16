@@ -1063,12 +1063,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * @returns Validated messages, or null when the payload is invalid.
  */
 function validateMessages(rawMessages: unknown): ChatMessage[] | null {
-  if (!Array.isArray(rawMessages) || rawMessages.length === 0 || rawMessages.length > MAX_MESSAGES) {
+  if (!Array.isArray(rawMessages) || rawMessages.length === 0) {
     return null;
   }
 
+  // Gracefully maintain sliding window if conversation exceeds MAX_MESSAGES
+  const candidateList = rawMessages.length > MAX_MESSAGES
+    ? rawMessages.slice(-MAX_MESSAGES)
+    : rawMessages;
+
   const messages: ChatMessage[] = [];
-  for (const entry of rawMessages) {
+  for (const entry of candidateList) {
     if (!isRecord(entry)) return null;
     const role = entry.role;
     const content = entry.content;

@@ -402,23 +402,32 @@ def search_files(
 
 def create_backup(target_path: str) -> Optional[str]:
     """
-    Creates an atomic backup snapshot of an existing file before modification.
+    Creates an atomic backup snapshot of an existing file or directory before modification.
 
     Args:
-        target_path (str): File to backup.
+        target_path (str): File or directory to backup.
 
     Returns:
-        Optional[str]: Path to backup file or None if source file does not exist.
+        Optional[str]: Path to backup snapshot or None if source does not exist or backup fails.
 
     Side Effects:
-        Writes backup file to disk.
+        Writes backup file or folder snapshot to disk.
     """
-    if not os.path.isfile(target_path):
+    if not os.path.exists(target_path):
         return None
 
     os.makedirs(BACKUP_DIR, exist_ok=True)
-    base_name = os.path.basename(target_path)
+    base_name = os.path.basename(os.path.normpath(target_path)) or "snapshot"
     ts = int(time.time())
+
+    if os.path.isdir(target_path):
+        backup_dest = os.path.join(BACKUP_DIR, f"{base_name}.{ts}.bak_dir")
+        try:
+            shutil.copytree(target_path, backup_dest)
+            return backup_dest
+        except Exception:
+            return None
+
     backup_filename = f"{base_name}.{ts}.bak"
     backup_dest = os.path.join(BACKUP_DIR, backup_filename)
 
@@ -591,6 +600,11 @@ def delete_file(target_path: str) -> Dict[str, Any]:
         return {"success": False, "error": f"Target '{norm}' does not exist."}
 
     backup_path = create_backup(norm)
+    if not backup_path:
+        return {
+            "success": False,
+            "error": f"Safety Violation: Cannot delete '{norm}' because automatic recovery backup creation failed.",
+        }
 
     try:
         if os.path.isdir(norm):

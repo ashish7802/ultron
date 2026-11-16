@@ -5,6 +5,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const assert = require('assert');
 
 // 1. Security & Identity
@@ -29,7 +30,12 @@ async function runMilestone5Battery() {
   // ── TEST GROUP 1: SECURITY FOUNDATION REGRESSION (M1) ─────────────────
   console.log('>>> [GROUP 1] Security Foundation Regression Tests');
 
-  // SEC-01: Prohibited default recovery keys
+  // Preserve pre-existing emergency stop state to ensure test cleanup doesn't silently remove active locks
+  const preExistingEmergencyLock = await defaultSafetyControls.isEmergencyStopActive();
+  const testTempDir = path.join(os.tmpdir(), `temp_m5_battery_${Date.now()}`);
+
+  try {
+    // SEC-01: Prohibited default recovery keys
   assert.strictEqual(verifyRecoveryKey('FOUNDER_RECOVERY_OVERRIDE_KEY'), false, 'FOUNDER_RECOVERY_OVERRIDE_KEY must be rejected');
   assert.strictEqual(verifyRecoveryKey('TEST_RECOVERY_KEY_ULTRON_FOUNDER'), false, 'TEST_RECOVERY_KEY_ULTRON_FOUNDER must be rejected');
   assert.strictEqual(verifyRecoveryKey(''), false, 'Empty key must be rejected');
@@ -102,7 +108,6 @@ async function runMilestone5Battery() {
   // ── TEST GROUP 3: REAL COMPUTER EXECUTION (M2 & M4) ───────────────────
   console.log('\n>>> [GROUP 3] Real Computer Execution Pipeline Tests');
 
-  const testTempDir = path.join(process.cwd(), 'temp_m5_battery');
   if (!fs.existsSync(testTempDir)) fs.mkdirSync(testTempDir, { recursive: true });
   const testFilePath = path.join(testTempDir, 'm5_test_file.txt');
 
@@ -188,22 +193,32 @@ async function runMilestone5Battery() {
   console.log('  [PASS] Missing exit code rejected with isVerified: false.');
 
   // VER-02: Empty file on disk rejected
-  const emptyTemp = path.join(process.cwd(), 'temp_m5_empty.txt');
+  const emptyTemp = path.join(os.tmpdir(), `temp_m5_empty_${Date.now()}.txt`);
   fs.writeFileSync(emptyTemp, '', 'utf-8');
   const vEmpty = defaultTaskVerificationEngine.verifyTask({
     id: 't_empty',
     title: 'Empty file check',
     status: 'READY',
-    acceptanceCriteria: [{ id: 'c_fl', description: 'Non-empty file', evaluator: 'FILE_NON_EMPTY', expectedValue: 'temp_m5_empty.txt' }],
-    deliverables: ['temp_m5_empty.txt']
+    acceptanceCriteria: [{ id: 'c_fl', description: 'Non-empty file', evaluator: 'FILE_NON_EMPTY', expectedValue: emptyTemp }],
+    deliverables: [emptyTemp]
   }, { success: true });
   assert.strictEqual(vEmpty.isVerified, false, 'Empty file must fail FILE_NON_EMPTY');
-  fs.unlinkSync(emptyTemp);
+  if (fs.existsSync(emptyTemp)) fs.unlinkSync(emptyTemp);
   console.log('  [PASS] Empty file on disk rejected with isVerified: false.');
 
   console.log('\n================================================================');
   console.log('ALL MILESTONE 5 INTEGRATION & REGRESSION TESTS PASSED (100%)');
   console.log('================================================================\n');
+  } finally {
+    if (preExistingEmergencyLock) {
+      await defaultSafetyControls.triggerEmergencyStop('Restore pre-existing emergency stop state');
+    }
+    try {
+      if (fs.existsSync(testTempDir)) {
+        fs.rmSync(testTempDir, { recursive: true, force: true });
+      }
+    } catch {}
+  }
 }
 
 runMilestone5Battery().catch(err => {

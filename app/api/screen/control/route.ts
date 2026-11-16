@@ -98,6 +98,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       defaultVisionControl.pauseSession();
     } else if (body.action === "RESUME") {
       defaultVisionControl.resumeSession();
+    } else {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Unsupported screen control action: '${body.action}'. Permitted actions: START, STOP, PAUSE, RESUME, EMERGENCY_KILL.`,
+        },
+        { status: 400 }
+      );
     }
 
     const updatedStatus = defaultVisionControl.getStatus();

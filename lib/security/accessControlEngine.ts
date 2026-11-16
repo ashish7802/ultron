@@ -88,7 +88,17 @@ const DEFAULT_POLICIES: ResourceAccessPolicy[] = [
     requiresApprovalForOperations: ["execute"],
     isRestricted: false,
   },
-  // 5. Project Local Workspace Files
+  // 5. Root & OS System Files (Evaluated BEFORE generic workspace wildcard to prevent privilege bypass)
+  {
+    policyId: "pol_file_os_root",
+    domain: "file",
+    resourcePattern: "^(?:[a-zA-Z]:[/\\\\](?:Windows|Program Files|Program Files \\(x86\\)|System Volume Information)|/(?:etc|bin|usr|sbin|sys|proc)).*",
+    allowedRoles: ["founder"],
+    allowedOperations: ["read"],
+    requiresApprovalForOperations: ["read"],
+    isRestricted: true,
+  },
+  // 6. Project Local Workspace Files
   {
     policyId: "pol_file_workspace",
     domain: "file",
@@ -97,16 +107,6 @@ const DEFAULT_POLICIES: ResourceAccessPolicy[] = [
     allowedOperations: ["read", "write", "delete"],
     requiresApprovalForOperations: ["write", "delete"],
     isRestricted: false,
-  },
-  // 6. Root & OS System Files
-  {
-    policyId: "pol_file_os_root",
-    domain: "file",
-    resourcePattern: "^(C:\\\\Windows|C:\\\\Program Files|/etc|/bin|/usr).*",
-    allowedRoles: ["founder"],
-    allowedOperations: ["read"],
-    requiresApprovalForOperations: ["read"],
-    isRestricted: true,
   },
   // 7. Credentials Vault
   {
@@ -211,9 +211,22 @@ export function evaluateAccess(context: ABACContext): AccessEvaluationResult {
   }
 
   // 3. Find matching policies
-  const matchedPolicies = activePolicies.filter(
-    (p) => p.domain === resourceDomain && matchesResourcePattern(resourceIdentifier, p.resourcePattern)
-  );
+  // Priority: Sort restricted and specific-pattern policies ahead of generic .* wildcard rules
+  const matchedPolicies = activePolicies
+    .filter(
+      (p) => p.domain === resourceDomain && matchesResourcePattern(resourceIdentifier, p.resourcePattern)
+    )
+    .sort((a, b) => {
+      // 1. Restricted policies come first
+      if (a.isRestricted && !b.isRestricted) return -1;
+      if (!a.isRestricted && b.isRestricted) return 1;
+      // 2. Longer, more specific patterns come before catch-all wildcards (".*")
+      const aIsWild = a.resourcePattern === ".*" || a.resourcePattern === ".+";
+      const bIsWild = b.resourcePattern === ".*" || b.resourcePattern === ".+";
+      if (!aIsWild && bIsWild) return -1;
+      if (aIsWild && !bIsWild) return 1;
+      return b.resourcePattern.length - a.resourcePattern.length;
+    });
 
   if (matchedPolicies.length === 0) {
     // Fail-closed default deny
@@ -225,8 +238,13 @@ export function evaluateAccess(context: ABACContext): AccessEvaluationResult {
     };
   }
 
+  // If the resource matched a restricted security containment policy (e.g. OS root, vault, credentials),
+  // evaluation MUST be governed strictly by the restricted policy; wildcard fallthrough is forbidden.
+  const restrictedPolicy = matchedPolicies.find((p) => p.isRestricted);
+  const evaluationCandidates = restrictedPolicy ? [restrictedPolicy] : matchedPolicies;
+
   // Evaluate candidate policies
-  for (const policy of matchedPolicies) {
+  for (const policy of evaluationCandidates) {
     // Project isolation check
     if (policy.projectId && projectId && policy.projectId !== projectId) {
       continue; // Skip policy belonging to a different project

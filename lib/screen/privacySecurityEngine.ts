@@ -89,12 +89,24 @@ export class PrivacySecurityEngine {
       };
     }
 
-    // 3. Check Sensitive Window Blacklist
-    if (windowTitle && isWindowExcluded(windowTitle)) {
-      this.recordAudit("SENSITIVE_APP_EXCLUDED", "DENIED", `Target window "${windowTitle}" is in sensitive exclusion blacklist`, windowTitle, processName, sessionId);
+    // 3. Check Sensitive Window & Process Blacklist
+    const isExcluded =
+      (windowTitle && isWindowExcluded(windowTitle)) ||
+      (processName && isWindowExcluded(processName));
+
+    if (isExcluded) {
+      const targetIdentifier = [windowTitle, processName ? `Process: ${processName}` : ""].filter(Boolean).join(" | ");
+      this.recordAudit(
+        "SENSITIVE_APP_EXCLUDED",
+        "DENIED",
+        `Target "${targetIdentifier}" is in sensitive exclusion blacklist`,
+        windowTitle,
+        processName,
+        sessionId
+      );
       return {
         isPermissible: false,
-        denialReason: `Target window "${windowTitle}" contains sensitive data (password manager, private browsing, banking). Capture blocked for privacy.`,
+        denialReason: `Target application "${targetIdentifier}" contains sensitive data (password manager, private browsing, banking). Capture blocked for privacy.`,
         requiresMasking: false,
         masks: [],
         policyState: policy.state,

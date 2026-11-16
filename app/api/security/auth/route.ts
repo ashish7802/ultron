@@ -104,6 +104,8 @@ export async function POST(req: NextRequest) {
 
         let verifiedBiometrics = false;
 
+        let bioResult: any = undefined;
+
         if (authMethod === "recovery_key") {
           // Cryptographic founder recovery passphrase verification
           if (!recoveryKey || typeof recoveryKey !== "string" || !verifyRecoveryKey(recoveryKey)) {
@@ -116,7 +118,7 @@ export async function POST(req: NextRequest) {
         } else {
           // Mandatory Genuine OS-Backed User Verification via Windows Hello (Finding F-01)
           const prompt = promptReason || "ULTRON Founder Security Gate: Verify biometric identity.";
-          const bioResult = await verifyWindowsHelloConsent(prompt);
+          bioResult = await verifyWindowsHelloConsent(prompt);
 
           if (!bioResult.success || bioResult.result !== "Verified") {
             return NextResponse.json(
@@ -133,7 +135,10 @@ export async function POST(req: NextRequest) {
           resetAuthFailure(clientIp);
         }
 
-        const session = createAuthenticatedSession("founder", FOUNDER_IDENTITY.userId, verifiedBiometrics);
+        const session = createAuthenticatedSession("founder", FOUNDER_IDENTITY.userId, {
+          biometricResult: bioResult,
+          recoveryKey: authMethod === "recovery_key" ? recoveryKey : undefined,
+        });
         const resp = NextResponse.json({
           ok: true,
           message: "Authenticated successfully as Founder.",

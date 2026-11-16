@@ -192,7 +192,7 @@ class MemoryEngine(BaseEngine):
         defense_allowed, _ = default_intruder_defense.check_access_permission(session_token)
         if not defense_allowed:
             is_authenticated = False
-            if tier == "sensitive":
+            if tier in ("sensitive", "long"):
                 return []
         else:
             is_authenticated = self._validate_token(session_token)
@@ -212,8 +212,9 @@ class MemoryEngine(BaseEngine):
         for r in rows:
             record_id, record_tier, raw_content, rec_hash, rec_ts, raw_meta = r
 
-            # Zero-Trust Check: If record is sensitive and user is not authenticated, block it
-            if record_tier == "sensitive" and not is_authenticated:
+            # Zero-Trust Check (High Priority Audit Fix): If record is sensitive or long-term memory
+            # and caller has not presented a verified session token, block unauthenticated recall.
+            if record_tier in ("sensitive", "long") and not is_authenticated:
                 continue
 
             try:

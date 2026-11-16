@@ -54,8 +54,12 @@ const LEGACY_MIGRATION_KEY = "STARK_ULTRON_MARK_LXXXV_OMEGA_SEC_256BIT_KEY";
  * @throws Error if key retrieval, migration, or DPAPI verification fails.
  */
 export function getActiveMasterSecret(): string {
+  if (dynamicMasterKey) {
+    return dynamicMasterKey;
+  }
   if (typeof process !== "undefined" && process.env?.ULTRON_MASTER_KEY && process.env.ULTRON_MASTER_KEY.trim().length >= 16) {
-    return process.env.ULTRON_MASTER_KEY;
+    dynamicMasterKey = process.env.ULTRON_MASTER_KEY.trim();
+    return dynamicMasterKey;
   }
   if (!dynamicMasterKey) {
     // If in Node.js runtime, check for persistent local key to ensure cross-process consistency
@@ -225,6 +229,9 @@ export function rotateMasterKey(): string {
   }
 
   dynamicMasterKey = newKey;
+  if (typeof process !== "undefined" && process.env) {
+    process.env.ULTRON_MASTER_KEY = newKey;
+  }
   return dynamicMasterKey;
 }
 

@@ -92,12 +92,13 @@ export function isWindowExcluded(windowTitle: string): boolean {
  * Returns false unless:
  * 1. Screen awareness has been explicitly enabled by the user.
  * 2. Active consent timestamp is in the future.
- * 3. The target window is not in the sensitive exclusion list.
+ * 3. The target window and process are not in the sensitive exclusion list.
  *
  * @param windowTitle - Optional window title being evaluated.
+ * @param processName - Optional executable process name being evaluated.
  * @returns Boolean indicating capture authorization.
  */
-export function canCaptureScreen(windowTitle?: string): boolean {
+export function canCaptureScreen(windowTitle?: string, processName?: string): boolean {
   if (!currentPolicy.enabled || currentPolicy.state !== "ACTIVE_CAPTURE") {
     return false;
   }
@@ -108,6 +109,10 @@ export function canCaptureScreen(windowTitle?: string): boolean {
   }
 
   if (windowTitle && isWindowExcluded(windowTitle)) {
+    return false;
+  }
+
+  if (processName && isWindowExcluded(processName)) {
     return false;
   }
 

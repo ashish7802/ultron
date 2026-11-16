@@ -133,7 +133,10 @@ def test_zero_plaintext_sqlite_at_rest():
     bus = EventBus()
     state = SharedState()
     mem = MemoryEngine(bus, state)
+    sec = SecurityEngine(bus, state)
     loop.run_until_complete(mem.start())
+    loop.run_until_complete(sec.start())
+    tok = sec.issue_session_token()
 
     # Store a sensitive confidential phrase
     secret_phrase = "classified_iron_man_nanotech_blueprint_gamma_99"
@@ -151,8 +154,8 @@ def test_zero_plaintext_sqlite_at_rest():
     assert secret_phrase not in stored_raw_text, "CRITICAL FLAW: Plaintext leaked into SQLite database!"
     assert stored_raw_text.startswith("A"), "Encrypted envelope must start with Version header"
 
-    # Verify that MemoryEngine can recall and unseal it
-    recalled = loop.run_until_complete(mem.recall(secret_phrase[:15]))
+    # Verify that MemoryEngine can recall and unseal it with verified token
+    recalled = loop.run_until_complete(mem.recall(secret_phrase[:15], session_token=tok))
     assert len(recalled) > 0
     assert recalled[0]["content"] == secret_phrase
     print("  -> PASSED: Disk file contains 0% plaintext. Recalls and unseals seamlessly.")

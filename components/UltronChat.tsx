@@ -457,11 +457,31 @@ export default function UltronChat() {
   const handleClearAllMemoriesFromModal = async () => {
     if (!confirm("Are you sure you want to clear all stored memories?")) return;
     try {
-      const res = await fetch("/api/memory?clearAll=true", {
-        method: "DELETE",
+      // 1. Request single-use action authorization token for bulk deletion
+      const tokenRes = await fetch("/api/auth/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "CONFIRM_CLEAR_VAULT" }),
       });
+      const tokenData = await tokenRes.json();
+      if (!tokenData.ok || !tokenData.actionToken) {
+        console.error("Failed to acquire action token:", tokenData.error);
+        alert("Failed to acquire security authorization token to clear vault.");
+        return;
+      }
+
+      // 2. Invoke DELETE with required confirmation parameter and action token
+      const res = await fetch(
+        `/api/memory?clearAll=true&confirm=CONFIRM_CLEAR_VAULT&actionToken=${encodeURIComponent(tokenData.actionToken)}`,
+        {
+          method: "DELETE",
+        }
+      );
       if (res.ok) {
         setMemoriesList([]);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        alert(`Failed to clear memories: ${errData.error || res.statusText}`);
       }
     } catch (err) {
       console.error("Error clearing memories:", err);
@@ -803,8 +823,8 @@ export default function UltronChat() {
     abortControllerRef.current = controller;
 
     try {
-      // Build conversation payload formatted for API route
-      const apiMessages = updatedMessages.map((m) => ({
+      // Build conversation payload formatted for API route (sliding window of latest 100 messages)
+      const apiMessages = updatedMessages.slice(-100).map((m) => ({
         role: m.role,
         content: m.content,
       }));

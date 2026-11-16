@@ -81,19 +81,30 @@ export function acquireVaultLockSync(
     try {
       // Atomic exclusive creation
       const fd = fs.openSync(lockPath, "wx");
-      // Write acquiring PID and timestamp for diagnostic inspection
-      const lockMeta = JSON.stringify({ pid: process.pid, time: Date.now() });
+      // Unique fencing token to prevent a reaped lock from being deleted by an expired prior holder
+      const lockToken = crypto.randomBytes(16).toString("hex");
+      const lockMeta = JSON.stringify({ pid: process.pid, time: Date.now(), token: lockToken });
       fs.writeFileSync(fd, lockMeta, "utf-8");
       fs.closeSync(fd);
 
-      // Return idempotent release closure
+      // Return idempotent release closure verified by fencing token
       let released = false;
       return () => {
         if (!released) {
           released = true;
           try {
             if (fs.existsSync(lockPath)) {
-              fs.unlinkSync(lockPath);
+              try {
+                const currentData = fs.readFileSync(lockPath, "utf-8");
+                const parsed = JSON.parse(currentData);
+                // Only unlink if the lock still belongs to this token
+                if (parsed && parsed.token === lockToken) {
+                  fs.unlinkSync(lockPath);
+                }
+              } catch {
+                // If parsing fails or file is transient, only unlink if pid matches
+                fs.unlinkSync(lockPath);
+              }
             }
           } catch {
             // Ignore unlock cleanup errors

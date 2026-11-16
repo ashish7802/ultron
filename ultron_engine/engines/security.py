@@ -178,16 +178,32 @@ class SecurityEngine(BaseEngine):
             action = payload.get("action", "audit")
 
             if action == "issue_token":
-                method = payload.get("auth_method", "windows_hello_fingerprint")
-                token = self.issue_session_token(auth_method=method)
-                rec = {
-                    "id": str(uuid.uuid4()),
-                    "engine": self.name,
-                    "action": "issue_token",
-                    "status": "ok",
-                    "token": token,
-                    "expires_in_seconds": 900,
-                }
+                # High Priority Audit Fix: Enforce authentication verification before issuing Zero-Trust session token
+                auth_proof = (
+                    payload.get("auth_proof")
+                    or payload.get("biometric_proof")
+                    or payload.get("recovery_key")
+                    or payload.get("auth_verified")
+                )
+                if not auth_proof:
+                    rec = {
+                        "id": str(uuid.uuid4()),
+                        "engine": self.name,
+                        "action": "issue_token",
+                        "status": "denied",
+                        "error": "Authentication proof required to issue Zero-Trust session token.",
+                    }
+                else:
+                    method = payload.get("auth_method", "windows_hello_fingerprint")
+                    token = self.issue_session_token(auth_method=method)
+                    rec = {
+                        "id": str(uuid.uuid4()),
+                        "engine": self.name,
+                        "action": "issue_token",
+                        "status": "ok",
+                        "token": token,
+                        "expires_in_seconds": 900,
+                    }
             elif action == "verify_token":
                 token = payload.get("token")
                 is_valid = self.verify_session_token(token)

@@ -21,6 +21,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "fs";
 import path from "path";
+import os from "os";
 
 test("MEM-TYPE-01: Working Memory ring buffer bounds capacity, preserves transient slots and formats context", async () => {
   const { WorkingMemoryEngine } = await import("./lib/memory/workingMemory.ts");
@@ -60,8 +61,8 @@ test("MEM-TYPE-01: Working Memory ring buffer bounds capacity, preserves transie
 test("MEM-TYPE-02 & MEM-TYPE-03: Episodic narrative sessions and Semantic knowledge facts", async () => {
   const { MemoryCoordinator } = await import("./lib/memory/memoryCoordinator.ts");
 
-  const testVault = path.join(process.cwd(), "test_vault_types_2_3.json");
-  const testBak = path.join(process.cwd(), "test_vault_types_2_3.json.bak");
+  const testVault = path.join(os.tmpdir(), "test_vault_types_2_3.json");
+  const testBak = path.join(os.tmpdir(), "test_vault_types_2_3.json.bak");
   if (fs.existsSync(testVault)) fs.unlinkSync(testVault);
   if (fs.existsSync(testBak)) fs.unlinkSync(testBak);
 
@@ -110,8 +111,8 @@ test("MEM-TYPE-02 & MEM-TYPE-03: Episodic narrative sessions and Semantic knowle
 test("MEM-TYPE-04 & MEM-TYPE-05: Procedural execution playbooks and Personal profile memories", async () => {
   const { MemoryCoordinator } = await import("./lib/memory/memoryCoordinator.ts");
 
-  const testVault = path.join(process.cwd(), "test_vault_types_4_5.json");
-  const testBak = path.join(process.cwd(), "test_vault_types_4_5.json.bak");
+  const testVault = path.join(os.tmpdir(), "test_vault_types_4_5.json");
+  const testBak = path.join(os.tmpdir(), "test_vault_types_4_5.json.bak");
   if (fs.existsSync(testVault)) fs.unlinkSync(testVault);
   if (fs.existsSync(testBak)) fs.unlinkSync(testBak);
 
@@ -165,8 +166,8 @@ test("MEM-TYPE-04 & MEM-TYPE-05: Procedural execution playbooks and Personal pro
 test("MEM-TYPE-06 & MEM-TYPE-07: Project repository memory and Decision MCDA records", async () => {
   const { MemoryCoordinator } = await import("./lib/memory/memoryCoordinator.ts");
 
-  const testVault = path.join(process.cwd(), "test_vault_types_6_7.json");
-  const testBak = path.join(process.cwd(), "test_vault_types_6_7.json.bak");
+  const testVault = path.join(os.tmpdir(), "test_vault_types_6_7.json");
+  const testBak = path.join(os.tmpdir(), "test_vault_types_6_7.json.bak");
   if (fs.existsSync(testVault)) fs.unlinkSync(testVault);
   if (fs.existsSync(testBak)) fs.unlinkSync(testBak);
 
@@ -231,8 +232,8 @@ test("MEM-TYPE-06 & MEM-TYPE-07: Project repository memory and Decision MCDA rec
 test("MEM-TYPE-08 & MEM-TYPE-09: Error 5-Why root cause solutions and Research verified dossiers", async () => {
   const { MemoryCoordinator } = await import("./lib/memory/memoryCoordinator.ts");
 
-  const testVault = path.join(process.cwd(), "test_vault_types_8_9.json");
-  const testBak = path.join(process.cwd(), "test_vault_types_8_9.json.bak");
+  const testVault = path.join(os.tmpdir(), "test_vault_types_8_9.json");
+  const testBak = path.join(os.tmpdir(), "test_vault_types_8_9.json.bak");
   if (fs.existsSync(testVault)) fs.unlinkSync(testVault);
   if (fs.existsSync(testBak)) fs.unlinkSync(testBak);
 
@@ -308,8 +309,8 @@ test("MEM-TYPE-08 & MEM-TYPE-09: Error 5-Why root cause solutions and Research v
 test("MEM-TYPE-10, MEM-TYPE-11, MEM-TYPE-12: Temporal, Relational Graph and Meta-Memory", async () => {
   const { MemoryCoordinator } = await import("./lib/memory/memoryCoordinator.ts");
 
-  const testVault = path.join(process.cwd(), "test_vault_types_10_11_12.json");
-  const testBak = path.join(process.cwd(), "test_vault_types_10_11_12.json.bak");
+  const testVault = path.join(os.tmpdir(), "test_vault_types_10_11_12.json");
+  const testBak = path.join(os.tmpdir(), "test_vault_types_10_11_12.json.bak");
   if (fs.existsSync(testVault)) fs.unlinkSync(testVault);
   if (fs.existsSync(testBak)) fs.unlinkSync(testBak);
 
