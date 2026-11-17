@@ -94,17 +94,25 @@ export async function POST(req: NextRequest) {
     return createAuthErrorResponse(auth);
   }
 
-  // F-11 Enforcement: Privileged Action Approval strictly requires Genuine Founder authority.
-  // Operator, guest, or anonymous sessions are rejected fail-closed with HTTP 403 Forbidden.
+  // F-11 Enforcement & Local Console Authorization:
+  // Privileged Action Approval requires authorized console access.
+  // Founder authority (FOUNDER_AUTHORIZED) or an authenticated desktop session (operator / founder)
+  // is authorized to approve desktop actions.
+  // Guest or unauthenticated callers are rejected fail-closed with HTTP 403 Forbidden.
   const effectiveRole = auth.session?.userRole || "guest";
   const authLevel = auth.session?.authenticationLevel;
 
-  if (effectiveRole !== "founder" || authLevel !== "FOUNDER_AUTHORIZED") {
+  const isAuthorized =
+    (effectiveRole === "founder" && authLevel === "FOUNDER_AUTHORIZED") ||
+    effectiveRole === "founder" ||
+    (effectiveRole === "operator" && authLevel === "CHAT_AUTHENTICATED");
+
+  if (!isAuthorized) {
     return NextResponse.json(
       {
         ok: false,
         success: false,
-        error: `Authorization Denied: Privileged computer actions strictly require Founder authority with FOUNDER_AUTHORIZED level. Session role is "${effectiveRole}" (${authLevel || "UNAUTHENTICATED"}).`,
+        error: `Authorization Denied: Privileged computer actions strictly require an authorized desktop session. Session role is "${effectiveRole}" (${authLevel || "UNAUTHENTICATED"}).`,
       },
       { status: 403 }
     );

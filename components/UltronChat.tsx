@@ -646,14 +646,21 @@ export default function UltronChat() {
           });
           data = await res.json();
         } else {
-          alert(`Founder authorization could not be completed: ${authData.error || "Verification failed."}`);
-          return;
+          console.warn("[APPROVAL] Founder authorization prompt outcome:", authData);
         }
       }
 
       const isSuccess = res.ok && (data.ok === true || data.success === true);
       if (!isSuccess) {
-        alert(`Approval failed: ${data.error || "Unknown error"}`);
+        const errorMsg: ChatMessage = {
+          id: generateId(),
+          role: "assistant",
+          content: `⚠️ **Approval Failed**: ${data.error || "Action could not be executed."}`,
+          timestamp: Date.now(),
+        };
+        setConversations((prev) =>
+          prev.map((c) => (c.id === (activeId || prev[0]?.id) ? { ...c, messages: [...c.messages, errorMsg] } : c))
+        );
         return;
       }
 

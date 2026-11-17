@@ -323,7 +323,16 @@ export class ComputerToolRegistry {
         let appName = String(params.appName || "");
         let args = Array.isArray(params.args) ? (params.args as string[]) : undefined;
 
-        // Smart intent resolution for "X in chrome" or "X in edge" (e.g. "docs in chrome")
+        // Smart intent resolution for Hinglish phrasing: "chrome me drive", "chrome par youtube"
+        // Normalizes to canonical format "drive in chrome" for consistent URL mapping.
+        const hinglishBrowser = appName.match(/^(chrome|edge|browser)\s+(?:me|pe|par|mein)\s+(.+)$/i);
+        if (hinglishBrowser) {
+          const browserName = hinglishBrowser[1].trim().toLowerCase();
+          const targetItem = hinglishBrowser[2].trim().toLowerCase();
+          appName = `${targetItem} in ${browserName}`;
+        }
+
+        // Smart intent resolution for "X in chrome" or "X in edge" (e.g. "docs in chrome", "drive in chrome")
         const inBrowserMatch = appName.match(/^(.+?)\s+in\s+(chrome|edge|browser)$/i);
         if (inBrowserMatch) {
           const targetItem = inBrowserMatch[1].trim().toLowerCase();
@@ -333,8 +342,14 @@ export class ComputerToolRegistry {
             "google docs": "https://docs.google.com",
             gmail: "https://mail.google.com",
             drive: "https://drive.google.com",
+            "google drive": "https://drive.google.com",
+            sheets: "https://sheets.google.com",
+            "google sheets": "https://sheets.google.com",
+            slides: "https://slides.google.com",
             youtube: "https://www.youtube.com",
             github: "https://github.com",
+            whatsapp: "https://web.whatsapp.com",
+            chatgpt: "https://chatgpt.com",
           };
           const resolvedUrl = urlMap[targetItem] || (targetItem.startsWith("http") ? targetItem : `https://${targetItem}.com`);
           appName = browserName === "browser" ? "chrome" : browserName;
