@@ -13,7 +13,7 @@
     "build": "npm run build:next && npm run build:electron",
     "start": "electron .",
     "lint": "eslint .",
-    "test": "tsx scripts/test_milestone5_battery.cjs && tsx scripts/test_phase2_battery.cjs && tsx scripts/test_final_security_invariants.cjs",
+    "test": "tsx scripts/test_milestone5_battery.cjs && tsx scripts/test_phase2_battery.cjs && tsx scripts/test_final_security_invariants.cjs && tsx scripts/test_gamedev_battery.cjs",
     "package": "electron-builder",
     "dist": "electron-builder"
   },

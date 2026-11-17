@@ -103,6 +103,23 @@ export class AppPathService {
   }
 
   /**
+   * Resolves the path to the central game development vault (`ultron_gamedev_vault.json`).
+   *
+   * In packaged production: Exclusively resolves to `_userDataDir/ultron_gamedev_vault.json`.
+   * In development: Resolves to `_userDataDir`, with read-only fallback to project root for migration.
+   */
+  public getGameDevVaultPath(): string {
+    const primaryPath = path.join(this._userDataDir, "ultron_gamedev_vault.json");
+    if (!this._isPackaged && !fs.existsSync(primaryPath)) {
+      const devPath = path.join(/*turbopackIgnore: true*/ process.cwd(), "ultron_gamedev_vault.json");
+      if (fs.existsSync(devPath)) {
+        return devPath;
+      }
+    }
+    return primaryPath;
+  }
+
+  /**
    * Resolves the path to the primary master key storage file (`.vault_key` or `.vault_key.dpapi`).
    *
    * In packaged production: Exclusively resolves to `_userDataDir/.vault_key`.
