@@ -42,6 +42,8 @@ export interface PermissionPlanData {
   target: string;
   riskLevel: string;
   summary: string;
+  riskExplanation?: string;
+  affectedResources?: string[];
   requiresApproval: boolean;
   approvalToken?: string;
   parameters?: Record<string, unknown>;
@@ -179,6 +181,11 @@ export default function UltronChat() {
   const [newMemoryInput, setNewMemoryInput] = useState<string>("");
   const [newMemoryCat, setNewMemoryCat] = useState<"profile" | "preference" | "project" | "fact" | "instruction">("fact");
   const [isSavingMemory, setIsSavingMemory] = useState<boolean>(false);
+  const [memoryLoading, setMemoryLoading] = useState<boolean>(false);
+  const [memoryError, setMemoryError] = useState<string | null>(null);
+  const [memorySuccess, setMemorySuccess] = useState<string | null>(null);
+  const [isListening, setIsListening] = useState<boolean>(false);
+  const recognitionRef = useRef<any>(null);
 
   // ── System Status & Refs ────────────────────────────────────────────────
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -441,28 +448,39 @@ export default function UltronChat() {
 
   // ── Memory Management Handlers ──────────────────────────────────────────
   const fetchMemories = async () => {
+    setMemoryLoading(true);
+    setMemoryError(null);
     try {
       const res = await fetch("/api/memory");
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data.memories)) {
-          setMemoriesList(data.memories);
-        }
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        setMemoryError(errData.error || `HTTP ${res.status}: Failed to load memories.`);
+        return;
+      }
+      const data = await res.json();
+      if (Array.isArray(data.memories)) {
+        setMemoriesList(data.memories);
       }
     } catch (err) {
-      console.warn("Could not load memories:", err);
+      setMemoryError("Network error: Could not connect to memory service.");
+    } finally {
+      setMemoryLoading(false);
     }
   };
 
   const handleOpenMemoryModal = () => {
+    setMemoryError(null);
+    setMemorySuccess(null);
     setIsMemoryModalOpen(true);
     fetchMemories();
   };
 
   const handleCreateMemory = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!newMemoryInput.trim()) return;
+    if (!newMemoryInput.trim() || isSavingMemory) return;
     setIsSavingMemory(true);
+    setMemoryError(null);
+    setMemorySuccess(null);
     try {
       const res = await fetch("/api/memory", {
         method: "POST",
@@ -473,27 +491,90 @@ export default function UltronChat() {
           importance: 4,
         }),
       });
-      if (res.ok) {
-        setNewMemoryInput("");
-        fetchMemories();
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        setMemoryError(errData.error || `Failed to save memory (HTTP ${res.status}).`);
+        return;
       }
+      setNewMemoryInput("");
+      setMemorySuccess("Memory saved securely to vault.");
+      await fetchMemories();
     } catch (err) {
-      console.error("Error creating memory:", err);
+      setMemoryError("Network error: Memory could not be persisted.");
     } finally {
       setIsSavingMemory(false);
     }
   };
 
   const handleDeleteMemory = async (id: string) => {
+    setMemoryError(null);
+    setMemorySuccess(null);
     try {
       const res = await fetch(`/api/memory?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
       });
-      if (res.ok) {
-        setMemoriesList((prev) => prev.filter((m) => m.id !== id));
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        setMemoryError(errData.error || `Failed to delete memory (HTTP ${res.status}).`);
+        return;
       }
+      setMemoriesList((prev) => prev.filter((m) => m.id !== id));
+      setMemorySuccess("Memory deleted successfully.");
     } catch (err) {
-      console.error("Error deleting memory:", err);
+      setMemoryError("Network error: Could not delete memory.");
+    }
+  };
+
+  const toggleVoiceInput = () => {
+    if (isListening) {
+      try {
+        recognitionRef.current?.stop();
+      } catch {}
+      setIsListening(false);
+      return;
+    }
+
+    if (typeof window === "undefined") return;
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Speech recognition is not supported in this browser window. Please type your message.");
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.lang = "en-IN";
+
+      recognition.onstart = () => {
+        setIsListening(true);
+      };
+
+      recognition.onresult = (event: any) => {
+        let transcript = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          transcript += event.results[i][0].transcript;
+        }
+        if (transcript) {
+          setInputPrompt(transcript);
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        console.warn("[SPEECH RECOGNITION] Error:", event.error);
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (err) {
+      console.error("[SPEECH RECOGNITION] Start failed:", err);
+      setIsListening(false);
     }
   };
 
@@ -1455,7 +1536,7 @@ export default function UltronChat() {
         {/* ── Scrollable Chat Messages Area ───────────────────────────────── */}
         <div className="ultron-chat-scrollable">
           {(!activeConversation || activeConversation.messages.length === 0) ? (
-            /* ── EMPTY STATE WELCOME SCREEN (ChatGPT Clean Minimalist Style) ── */
+            /* ── EMPTY STATE WELCOME SCREEN (Helpful, Human Desktop Assistant Style) ── */
             <div className="ultron-welcome-view">
               <div className="ultron-welcome-hero">
                 <div className="ultron-core-crest">
@@ -1463,10 +1544,58 @@ export default function UltronChat() {
                   <div className="ultron-crest-inner-ring" />
                   <div className="ultron-crest-symbol">U</div>
                 </div>
-                <h1 className="ultron-welcome-title">How can I help you today?</h1>
+                <h1 className="ultron-welcome-title">Good day, Founder. How can I help?</h1>
                 <p className="ultron-welcome-subtitle">
-                  Autonomous Multi-Agent Core is online. Ask anything, launch apps, inspect laptop specs, or trigger quantum web research.
+                  ULTRON desktop assistant is ready on your machine. You can speak or type to control apps, query system specs, run research, or manage memories.
                 </p>
+
+                {/* Example Quick Action Prompts */}
+                <div
+                  className="ultron-welcome-suggestions"
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                    gap: "10px",
+                    marginTop: "24px",
+                    maxWidth: "680px",
+                    width: "100%",
+                  }}
+                >
+                  {[
+                    { label: "🚀 Open Drive in Chrome", prompt: "chrome me drive open karo" },
+                    { label: "💻 Check Laptop Telemetry", prompt: "pc specs aur ram usage kitna hai" },
+                    { label: "🌐 Deep Research", prompt: "Research the latest Next.js 16 security updates" },
+                    { label: "🧠 Memory Recall", prompt: "What do you remember about my profile and projects?" },
+                  ].map((item, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => handleSendMessage(item.prompt)}
+                      style={{
+                        padding: "12px 16px",
+                        textAlign: "left",
+                        backgroundColor: "rgba(15, 23, 42, 0.6)",
+                        border: "1px solid rgba(56, 189, 248, 0.2)",
+                        borderRadius: "10px",
+                        color: "#e2e8f0",
+                        fontSize: "0.85rem",
+                        cursor: "pointer",
+                        transition: "all 0.2s ease",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = "rgba(56, 189, 248, 0.6)";
+                        e.currentTarget.style.backgroundColor = "rgba(30, 41, 59, 0.8)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = "rgba(56, 189, 248, 0.2)";
+                        e.currentTarget.style.backgroundColor = "rgba(15, 23, 42, 0.6)";
+                      }}
+                    >
+                      <div style={{ fontWeight: 600, color: "#38bdf8", marginBottom: "4px" }}>{item.label}</div>
+                      <div style={{ fontSize: "0.78rem", color: "#94a3b8" }}>&ldquo;{item.prompt}&rdquo;</div>
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           ) : (
@@ -1568,9 +1697,19 @@ export default function UltronChat() {
                                 {message.meta.permissionPlan.riskLevel.toUpperCase()}
                               </span>
                             </div>
-                            <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginBottom: "0.6rem" }}>
+                            <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginBottom: "0.4rem" }}>
                               Target: <code style={{ color: "#38bdf8" }}>{message.meta.permissionPlan.target}</code>
                             </div>
+                            {message.meta.permissionPlan.riskExplanation && (
+                              <div style={{ fontSize: "0.78rem", color: "#cbd5e1", marginBottom: "0.4rem", lineHeight: 1.4 }}>
+                                <strong>Risk:</strong> {message.meta.permissionPlan.riskExplanation}
+                              </div>
+                            )}
+                            {message.meta.permissionPlan.affectedResources && message.meta.permissionPlan.affectedResources.length > 0 && (
+                              <div style={{ fontSize: "0.75rem", color: "#64748b", marginBottom: "0.6rem" }}>
+                                <strong>Affected:</strong> {message.meta.permissionPlan.affectedResources.join(", ")}
+                              </div>
+                            )}
                             <div style={{ display: "flex", gap: "0.5rem" }}>
                               <button
                                 type="button"
@@ -1707,6 +1846,33 @@ export default function UltronChat() {
             />
 
             <div className="ultron-composer-controls">
+              {/* Voice Speech-to-Text Button */}
+              <button
+                type="button"
+                onClick={toggleVoiceInput}
+                className={`ultron-voice-mic-btn ${isListening ? "listening" : ""}`}
+                title={isListening ? "Listening... Click to stop" : "Speak to ULTRON"}
+                aria-label={isListening ? "Stop listening" : "Start voice input"}
+                style={{
+                  padding: "6px",
+                  borderRadius: "6px",
+                  background: isListening ? "rgba(239, 68, 68, 0.25)" : "transparent",
+                  color: isListening ? "#ef4444" : "#94a3b8",
+                  border: isListening ? "1px solid #ef4444" : "1px solid transparent",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  <line x1="12" y1="19" x2="12" y2="23" />
+                  <line x1="8" y1="23" x2="16" y2="23" />
+                </svg>
+              </button>
+
               {isGenerating ? (
                 <button
                   type="button"
@@ -1769,6 +1935,60 @@ export default function UltronChat() {
             </header>
 
             <div className="ultron-memory-modal-body">
+              {/* Error & Feedback Alerts */}
+              {memoryError && (
+                <div
+                  role="alert"
+                  style={{
+                    padding: "10px 14px",
+                    marginBottom: "12px",
+                    borderRadius: "8px",
+                    backgroundColor: "rgba(239, 68, 68, 0.15)",
+                    border: "1px solid rgba(239, 68, 68, 0.4)",
+                    color: "#fca5a5",
+                    fontSize: "0.85rem",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "8px",
+                  }}
+                >
+                  <span>⚠️ {memoryError}</span>
+                  <button
+                    type="button"
+                    onClick={() => fetchMemories()}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: "4px",
+                      background: "rgba(239, 68, 68, 0.3)",
+                      color: "#fff",
+                      border: "none",
+                      fontSize: "0.75rem",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
+
+              {memorySuccess && (
+                <div
+                  role="status"
+                  style={{
+                    padding: "8px 12px",
+                    marginBottom: "12px",
+                    borderRadius: "6px",
+                    backgroundColor: "rgba(34, 197, 94, 0.15)",
+                    border: "1px solid rgba(34, 197, 94, 0.3)",
+                    color: "#86efac",
+                    fontSize: "0.8rem",
+                  }}
+                >
+                  ✓ {memorySuccess}
+                </div>
+              )}
+
               {/* Add Memory Form */}
               <form onSubmit={handleCreateMemory} className="ultron-memory-add-form">
                 <input
@@ -1776,11 +1996,13 @@ export default function UltronChat() {
                   placeholder="Teach ULTRON a new fact (e.g. My name is Ashish, I prefer TypeScript)..."
                   value={newMemoryInput}
                   onChange={(e) => setNewMemoryInput(e.target.value)}
+                  disabled={isSavingMemory}
                   className="ultron-memory-add-input"
                 />
                 <select
                   value={newMemoryCat}
                   onChange={(e) => setNewMemoryCat(e.target.value as typeof newMemoryCat)}
+                  disabled={isSavingMemory}
                   className="ultron-memory-cat-select"
                 >
                   <option value="fact">Fact</option>
@@ -1800,7 +2022,11 @@ export default function UltronChat() {
 
               {/* Memory List */}
               <div className="ultron-memory-list">
-                {memoriesList.length === 0 ? (
+                {memoryLoading ? (
+                  <p style={{ color: "#38bdf8", textAlign: "center", padding: "2rem 0", fontSize: "0.9rem" }}>
+                    Loading neural memories from secure vault...
+                  </p>
+                ) : memoriesList.length === 0 ? (
                   <p style={{ color: "#64748b", textAlign: "center", padding: "1.5rem 0", fontSize: "0.9rem" }}>
                     No memories stored yet. Tell ULTRON facts about you or add one above!
                   </p>

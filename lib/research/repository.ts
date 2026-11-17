@@ -31,9 +31,9 @@
  */
 
 import fs from "fs";
-import path from "path";
 import crypto from "crypto";
 import { getActiveMasterSecret } from "../crypto.ts";
+import { defaultAppPathService } from "../security/appPathService.ts";
 import type {
   ResearchProjectRecord,
   ResearchQueryRecord,
@@ -103,8 +103,12 @@ export interface ResearchVaultData {
   citationVerifications: Record<string, CitationIntegrityVerificationRecord>;
 }
 
-const VAULT_FILE_PATH = path.join(/*turbopackIgnore: true*/ process.cwd(), "ultron_research_vault.json");
-const VAULT_BACKUP_PATH = path.join(/*turbopackIgnore: true*/ process.cwd(), "ultron_research_vault.json.bak");
+function getVaultPath(): string {
+  return defaultAppPathService.getResearchVaultPath();
+}
+function getVaultBackupPath(): string {
+  return `${defaultAppPathService.getResearchVaultPath()}.bak`;
+}
 
 /**
  * Derives a dynamic 256-bit AES key for persistent vault encryption at rest.
@@ -142,10 +146,12 @@ function encryptVaultData(data: ResearchVaultData): string {
 
 /**
  * Decrypts research vault data from disk using AES-256-GCM.
+ * Preserves original ciphertext and backups fail-closed on authentication/key failure.
  *
  * @param rawContent - Raw encrypted JSON string.
  * @param isRetry - Flag preventing infinite recursive recovery when backup is also unreadable.
  * @returns Parsed ResearchVaultData object.
+ * @throws Error if ciphertext cannot be decrypted with the active master key.
  */
 function decryptVaultData(rawContent: string, isRetry: boolean = false): ResearchVaultData {
   try {
@@ -171,17 +177,22 @@ function decryptVaultData(rawContent: string, isRetry: boolean = false): Researc
     }
 
     throw new Error("Invalid research vault format");
-  } catch {
+  } catch (err) {
+    const backupPath = getVaultBackupPath();
     // If decryption fails and not already retrying backup, attempt recovery from backup once
-    if (!isRetry && fs.existsSync(VAULT_BACKUP_PATH)) {
+    if (!isRetry && fs.existsSync(backupPath)) {
       try {
-        const backupContent = fs.readFileSync(VAULT_BACKUP_PATH, "utf8");
+        const backupContent = fs.readFileSync(backupPath, "utf8");
         return decryptVaultData(backupContent, true);
-      } catch {
-        // Fall through to empty vault initialization
+      } catch (bakErr) {
+        console.warn("[RESEARCH REPOSITORY] Backup recovery also failed:", bakErr);
       }
     }
-    return createEmptyVault();
+    // Fail-closed invariant: Never overwrite unreadable ciphertext with an empty vault
+    throw new Error(
+      `Security Invariant Violation: Failed to decrypt research vault with active master key (${err instanceof Error ? err.message : String(err)}). Original vault preserved.`,
+      { cause: err }
+    );
   }
 }
 
@@ -251,12 +262,14 @@ export class ResearchRepository {
   }
 
   /**
-   * Loads the vault from disk or initializes an empty vault.
+   * Loads the vault from disk or initializes an empty in-memory vault.
+   * Does NOT write to disk during initialization (prevents build-time side effects).
    */
   private loadVault(): void {
+    const vaultPath = getVaultPath();
     try {
-      if (fs.existsSync(VAULT_FILE_PATH)) {
-        const raw = fs.readFileSync(VAULT_FILE_PATH, "utf8");
+      if (fs.existsSync(vaultPath)) {
+        const raw = fs.readFileSync(vaultPath, "utf8");
         this.vaultData = decryptVaultData(raw);
         if (this.vaultData) {
           this.vaultData.memoryLinks = this.vaultData.memoryLinks || {};
@@ -268,11 +281,13 @@ export class ResearchRepository {
           this.vaultData.citationVerifications = this.vaultData.citationVerifications || {};
         }
       } else {
+        // In-memory initialization only: do NOT write empty vault to disk until explicit record is saved
         this.vaultData = createEmptyVault();
-        this.persistVaultSync();
       }
-    } catch {
-      this.vaultData = createEmptyVault();
+    } catch (err) {
+      console.error("[ResearchRepository] Security protection: Failed to load vault. Refusing to overwrite data:", err);
+      // Invariant: Do not overwrite unreadable ciphertext with an empty vault
+      this.vaultData = null;
     }
   }
 
@@ -282,18 +297,20 @@ export class ResearchRepository {
   private persistVaultSync(): void {
     if (!this.vaultData || this.isWriting) return;
     this.isWriting = true;
+    const vaultPath = getVaultPath();
+    const backupPath = getVaultBackupPath();
     try {
       this.vaultData.lastUpdated = Date.now();
       const encrypted = encryptVaultData(this.vaultData);
-      const tempPath = `${VAULT_FILE_PATH}.tmp.${Date.now()}`;
+      const tempPath = `${vaultPath}.tmp.${Date.now()}`;
 
       // Write temp file first
       fs.writeFileSync(tempPath, encrypted, "utf8");
 
       // Rotate existing file to backup
-      if (fs.existsSync(VAULT_FILE_PATH)) {
+      if (fs.existsSync(vaultPath)) {
         try {
-          fs.copyFileSync(VAULT_FILE_PATH, VAULT_BACKUP_PATH);
+          fs.copyFileSync(vaultPath, backupPath);
         } catch {
           // Non-fatal backup copy
         }
@@ -301,11 +318,11 @@ export class ResearchRepository {
 
       // Atomic rename with Windows fallback
       try {
-        fs.renameSync(tempPath, VAULT_FILE_PATH);
+        fs.renameSync(tempPath, vaultPath);
       } catch {
         // On Windows, renameSync throws EPERM if the target is briefly locked. Fall back to copy + unlink
         try {
-          fs.copyFileSync(tempPath, VAULT_FILE_PATH);
+          fs.copyFileSync(tempPath, vaultPath);
           fs.unlinkSync(tempPath);
         } catch {
           // Non-fatal if temporary file cannot be unlinked immediately

@@ -33,7 +33,7 @@ export class AppPathService {
       this._isPackaged = true;
     } else {
       // Development fallback: root project directory
-      this._userDataDir = path.resolve(process.cwd());
+      this._userDataDir = path.resolve(/*turbopackIgnore: true*/ process.cwd());
       this._isPackaged = false;
     }
 
@@ -77,7 +77,24 @@ export class AppPathService {
   public getMemoryVaultPath(): string {
     const primaryPath = path.join(this._userDataDir, "ultron_memory_vault.json");
     if (!this._isPackaged && !fs.existsSync(primaryPath)) {
-      const devPath = path.join(process.cwd(), "ultron_memory_vault.json");
+      const devPath = path.join(/*turbopackIgnore: true*/ process.cwd(), "ultron_memory_vault.json");
+      if (fs.existsSync(devPath)) {
+        return devPath;
+      }
+    }
+    return primaryPath;
+  }
+
+  /**
+   * Resolves the path to the central encrypted research vault (`ultron_research_vault.json`).
+   *
+   * In packaged production: Exclusively resolves to `_userDataDir/ultron_research_vault.json`.
+   * In development: Resolves to `_userDataDir`, with read-only fallback to project root for migration.
+   */
+  public getResearchVaultPath(): string {
+    const primaryPath = path.join(this._userDataDir, "ultron_research_vault.json");
+    if (!this._isPackaged && !fs.existsSync(primaryPath)) {
+      const devPath = path.join(/*turbopackIgnore: true*/ process.cwd(), "ultron_research_vault.json");
       if (fs.existsSync(devPath)) {
         return devPath;
       }

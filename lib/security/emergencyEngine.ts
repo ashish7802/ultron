@@ -31,7 +31,7 @@ import { revokeAllSessions } from "./identityEngine.ts";
 import { revokeScreenCaptureConsent } from "./privacyEngine.ts";
 import { recordSecurityEvent } from "./monitoringEngine.ts";
 import { invalidateAllActiveGrants } from "./permissionEngine.ts";
-import { readVaultJsonSync, writeVaultJsonSync } from "./vaultStorage.ts";
+import { writeVaultJsonSync } from "./vaultStorage.ts";
 import type {
   EmergencyLockdownState,
   LockdownTriggerParams,
@@ -91,7 +91,9 @@ function initializeLockdownState(): void {
       try {
         loaded = JSON.parse(raw);
       } catch (parseErr) {
-        throw new Error(`Lockdown state file is unparseable: ${(parseErr as Error).message}`);
+        throw new Error(`Lockdown state file is unparseable: ${(parseErr as Error).message}`, {
+          cause: parseErr,
+        });
       }
 
       if (loaded && typeof loaded === "object" && "isLockedDown" in loaded) {

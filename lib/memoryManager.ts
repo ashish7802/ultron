@@ -23,7 +23,6 @@
  */
 
 import fs from "fs";
-import path from "path";
 import crypto from "crypto";
 import { getActiveMasterSecret } from "./crypto.ts";
 import { defaultMemoryCoordinator } from "./memory/memoryCoordinator.ts";
@@ -280,12 +279,7 @@ export function loadAllMemories(): MemoryRecord[] {
     } catch {}
   }
 
-  try {
-    persistMemories(loadedMemories);
-  } catch (saveErr) {
-    console.warn("[MEMORY MANAGER] Failed to synchronize persistent memories:", saveErr);
-  }
-
+  // Pure read: loadAllMemories never writes back to disk during read operations.
   return loadedMemories;
 }
 
@@ -293,6 +287,7 @@ export function loadAllMemories(): MemoryRecord[] {
  * Atomically saves all memories to disk using authenticated AES-256-GCM encryption and backup.
  *
  * @param memories - Array of memory records to persist.
+ * @throws Error if atomic write or encryption fails.
  */
 export function persistMemories(memories: MemoryRecord[]): void {
   const data: MemoryVaultData = {
@@ -322,6 +317,9 @@ export function persistMemories(memories: MemoryRecord[]): void {
     if (fs.existsSync(tempPath)) {
       try { fs.unlinkSync(tempPath); } catch { /* cleanup */ }
     }
+    throw new Error(`Failed to persist memory vault to disk: ${err instanceof Error ? err.message : String(err)}`, {
+      cause: err,
+    });
   }
 }
 
@@ -554,18 +552,29 @@ export function parseNameIntent(text: string): { wrong?: string; right: string; 
     return { wrong: corrC[1], right: corrC[2], type: "correction" };
   }
 
-  // 3. Direct identity statements must also consume the whole utterance to avoid extracting
-  // arbitrary words from longer requests as a user's name.
-  const direct = /^(?:my name is|my name's|call me|mera naam|naam hai|mujhe|i am|i'm|mai|main)\s+([a-zA-Z]{2,20})(?:\s+(?:hai|hu|hoon|bolo|bolte))?[.!?]?$/i.exec(clean);
+  // 3. Direct identity statements: requires complete, unambiguous name declaration frames.
+  // Plain sentences such as "I am building...", "I am going...", or "Main kal..." must never be misparsed as names.
+  const direct =
+    /^(?:my name is|my name's|call me|mera naam|naam hai|mujhe)\s+([a-zA-Z]{2,20})(?:\s+(?:hai|bolo|bolte))?[.!?]?$/i.exec(clean) ||
+    /^(?:i am|i'm)\s+([a-zA-Z]{2,20})[.!?]?$/i.exec(clean) ||
+    /^(?:mai|main)\s+([a-zA-Z]{2,20})\s+(?:hu|hoon|hun)[.!?]?$/i.exec(clean);
+
   if (direct) {
-    const candidate = direct[1];
+    const candidate = direct[1].trim();
+    const candidateLower = candidate.toLowerCase();
     const stopwords = new Set([
       "not", "here", "ready", "fine", "doing", "trying", "ultron", "assistant",
       "today", "going", "back", "sorry", "happy", "listening", "good", "bad",
       "feeling", "sure", "a", "an", "the", "your", "you", "my", "me", "it",
-      "name", "what", "is", "this", "that", "there", "who", "why", "how", "user"
+      "name", "what", "is", "this", "that", "there", "who", "why", "how", "user",
+      "building", "working", "going", "running", "learning", "eating", "sleeping",
+      "writing", "reading", "typing", "coding", "testing", "fixing", "creating",
+      "making", "talking", "helping", "asking", "telling", "playing", "sitting",
+      "standing", "using", "living", "kal", "aaj", "theek", "accha", "bura"
     ]);
-    if (!stopwords.has(candidate)) {
+
+    // Reject verbs ending in "ing" or words matching stopword set
+    if (!stopwords.has(candidateLower) && !candidateLower.endsWith("ing")) {
       return { right: candidate, type: "direct" };
     }
   }
@@ -575,6 +584,7 @@ export function parseNameIntent(text: string): { wrong?: string; right: string; 
 
 /**
  * Silently extracts implicit facts, preferences, or projects from conversation messages in the background.
+ * Requires complete, intent-specific phrases in English and Hindi/Hinglish to prevent false inferences.
  *
  * @param text - Incoming user utterance.
  */
@@ -588,29 +598,43 @@ export function extractImplicitFacts(text: string): void {
 
   const lower = text.toLowerCase().trim();
 
-  // Location detection: "I live in X", "mai X me rehta hu", "I am based in X"
-  const locationMatch = /(?:i live in|i am based in|i reside in|mai|main)\s+([a-zA-Z\s]{3,20})(?:\s+me rehta hu|\s+me rehta hoon|\s+city)?/i.exec(lower);
-  if (locationMatch && !/\b(here|now|house|car|room)\b/.test(locationMatch[1])) {
+  // Location detection: requires explicit residence framing in English or Hinglish.
+  // "I live in Delhi", "I am based in Mumbai", "mai Delhi me rehta hu"
+  // NEVER match "main" alone (e.g. "Main kal office jaunga" must NOT extract location).
+  const locationMatch =
+    /(?:i live in|i am based in|i reside in)\s+([a-zA-Z\s]{2,20})(?:\s+city)?[.!?]?$/i.exec(lower) ||
+    /(?:mai|main)\s+([a-zA-Z\s]{2,20})\s+(?:me|mein)\s+rehta\s+(?:hu|hoon|hun)[.!?]?$/i.exec(lower);
+
+  if (locationMatch && !/\b(here|now|house|car|room|office|home)\b/i.test(locationMatch[1])) {
     const loc = locationMatch[1].trim();
-    if (loc.length > 2 && loc.length < 25) {
+    if (loc.length > 2 && loc.length < 25 && !/\b(kal|aaj|parso|jaldi)\b/i.test(loc)) {
       saveMemory("user_location", `User is located in ${loc}`, "profile", 3, "inferred");
     }
   }
 
-  // Project detection: "I am building X", "mai X bana raha hu", "my project is X"
-  const projectMatch = /(?:i am building|i am working on|my project is|mai|main)\s+([a-zA-Z0-9\s_-]{3,30})(?:\s+project|\s+bana raha hu|\s+par kaam kar raha hu)?/i.exec(lower);
-  if (projectMatch && !/\b(something|it|this|that|code)\b/.test(projectMatch[1])) {
+  // Project detection: requires explicit project declaration.
+  // "I am building an assistant", "I am working on Ultron", "my project is Ultron", "mai Ultron par kaam kar raha hu"
+  // NEVER match "main" alone.
+  const projectMatch =
+    /(?:i am building|i am working on|my project is)\s+([a-zA-Z0-9\s_-]{2,30})[.!?]?$/i.exec(lower) ||
+    /(?:mai|main)\s+([a-zA-Z0-9\s_-]{2,30})\s+(?:bana raha hu|bana raha hoon|par kaam kar raha hu|par kaam kar raha hoon)[.!?]?$/i.exec(lower);
+
+  if (projectMatch && !/\b(something|it|this|that|code|kal|office)\b/i.test(projectMatch[1])) {
     const proj = projectMatch[1].trim();
-    if (proj.length > 3) {
+    if (proj.length > 2) {
       saveMemory("user_project", `User is working on project: ${proj}`, "project", 4, "inferred");
     }
   }
 
-  // Preference detection: "I prefer X", "mujhe X pasand hai", "my favorite X is Y"
-  const prefMatch = /(?:i prefer|i like using|mujhe)\s+([a-zA-Z0-9\s#+.-]{3,25})(?:\s+pasand hai|\s+over)?/i.exec(lower);
-  if (prefMatch && !/\b(it|that|this|you)\b/.test(prefMatch[1])) {
+  // Preference detection: requires complete preference phrases.
+  // "I prefer Next.js", "I like using TypeScript", "mujhe Python pasand hai"
+  const prefMatch =
+    /(?:i prefer|i like using)\s+([a-zA-Z0-9\s#+.-]{2,25})[.!?]?$/i.exec(lower) ||
+    /(?:mujhe)\s+([a-zA-Z0-9\s#+.-]{2,25})\s+pasand\s+hai[.!?]?$/i.exec(lower);
+
+  if (prefMatch && !/\b(it|that|this|you)\b/i.test(prefMatch[1])) {
     const pref = prefMatch[1].trim();
-    if (pref.length > 2) {
+    if (pref.length > 1) {
       const key = "pref_" + pref.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase().slice(0, 15);
       saveMemory(key, `User prefers: ${pref}`, "preference", 3, "inferred");
     }
