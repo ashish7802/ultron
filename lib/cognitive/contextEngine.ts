@@ -30,6 +30,7 @@ import type {
   AmbiguityFacet,
   InstructionPriority,
 } from "./types.ts";
+import { normalizeConversationText } from "./conversationIntelligence.ts";
 
 export interface ConversationTurn {
   role: "user" | "assistant" | "system";
@@ -88,7 +89,7 @@ function determineIntentCategory(query: string, hasCode: boolean): CognitiveInte
 
   // 5. Critical thinking & Devil's Advocate inquiries
   if (
-    /\b(challenge|devil'?s advocate|critique|flaws?|what'?s wrong with|risks?|weakness|pitfalls?|counter-?argument|blind spots?)\b/i.test(lower)
+    /\b(challenge|devil\s+s advocate|devils advocate|critique|flaws?|what\s+s wrong with|whats wrong with|risks?|weakness|pitfalls?|counter argument|counterargument|blind spots?)\b/i.test(lower)
   ) {
     return "CRITICAL_INQUIRY";
   }
@@ -248,13 +249,13 @@ function resolveConversationContinuity(
 ): { resolvedReferences: Record<string, string>; expandedQuery: string; isFollowUp: boolean } {
   const resolvedReferences: Record<string, string> = {};
   let expanded = query;
-  const lower = query.toLowerCase().trim();
+  const lower = normalizeConversationText(query);
 
   // Detect elliptical or follow-up patterns
   const isFollowUp =
-    /^(?:and\s+why|why\s+so|how\s+come|what\s+about|and\s+the\s+other\s+one|what\s+else|explain\s+further|continue|what\s+next)\b/i.test(lower) ||
+    /^(?:and why|why so|how come|what about|and the other one|what else|explain further|continue|what next|what is next|whats next)\b/i.test(lower) ||
     (history.length > 0 && (
-      /\b(it|this|that|these|those|the former|the latter|the second option|the previous)\b/i.test(lower) ||
+      /\b(it|this|that|these|those|former|latter|second option|previous)\b/i.test(lower) ||
       (lower.length < 60 && /^(?:why|how|what|and|but|so)\b/i.test(lower))
     ));
 
@@ -262,17 +263,21 @@ function resolveConversationContinuity(
     const lastUserTurn = [...history].reverse().find((t) => t.role === "user");
     const lastAssistantTurn = [...history].reverse().find((t) => t.role === "assistant");
 
-    // Look for anaphoric pronouns ("it", "this approach", "that tool")
-    if (/\b(it|this approach|that approach|the second option|the previous error)\b/i.test(lower)) {
-      if (lastUserTurn) {
-        resolvedReferences["target_context"] = lastUserTurn.content.slice(0, 150);
-      } else if (lastAssistantTurn) {
-        resolvedReferences["target_context"] = lastAssistantTurn.content.slice(0, 150);
+    // Keep the adjacent user/assistant exchange together so references resolve to the answer's subject.
+    const needsReference =
+      isFollowUp ||
+      /\b(it|this|that|these|those|former|latter|second option|previous error|game|project)\b/i.test(lower);
+    if (needsReference) {
+      const recentContext = [lastUserTurn?.content, lastAssistantTurn?.content]
+        .filter((entry): entry is string => Boolean(entry))
+        .map((entry) => entry.replace(/\s+/g, " ").trim().slice(0, 350));
+      if (recentContext.length > 0) {
+        resolvedReferences["target_context"] = recentContext.join("\n");
       }
     }
 
     if (isFollowUp && lastUserTurn) {
-      expanded = `Context: Previous turn asked "${lastUserTurn.content.slice(0, 200)}". Current follow-up: "${query}"`;
+      expanded = query;
     }
   }
 
@@ -330,23 +335,24 @@ export function analyzeContext(
   history: ConversationTurn[] = []
 ): ParsedContext {
   const cleaned = cleanQueryText(rawQuery);
-  const hasCode = /```|function\b|class\b|const\s+\w+\s*=|import\s+.*from|def\s+\w+\(/.test(cleaned);
-  const intent = determineIntentCategory(cleaned, hasCode);
+  const normalized = normalizeConversationText(cleaned);
+  const hasCode = /```|function\b|class\b|const\s+\w+\s*=|import\s+.*from|def\s+\w+\(/i.test(cleaned);
+  const intent = determineIntentCategory(normalized, hasCode);
   const instructions = extractInstructions(cleaned);
 
   // Check for multi-step conjunctions (e.g. "First ..., then ..., and finally ...")
   const isMultiStep =
-    /\b(first|then|next|after that|finally|step 1|step 2|secondly|furthermore)\b/i.test(cleaned) ||
+    /\b(first|then|next|after that|finally|step 1|step 2|secondly|furthermore)\b/i.test(normalized) ||
     instructions.length > 2;
 
   const { resolvedReferences, expandedQuery, isFollowUp } = resolveConversationContinuity(cleaned, history);
-  const [ambiguityScore, ambiguityFacets, statedAssumptions] = evaluateAmbiguity(cleaned, intent, history);
-  const complexityScore = calculateComplexityScore(cleaned, intent, instructions.length, isMultiStep);
+  const [ambiguityScore, ambiguityFacets, statedAssumptions] = evaluateAmbiguity(normalized, intent, history);
+  const complexityScore = calculateComplexityScore(normalized, intent, instructions.length, isMultiStep);
 
   // Language script heuristics
   let detectedLanguage = "English";
   if (/[\u0900-\u097F]/.test(cleaned)) detectedLanguage = "Hindi";
-  else if (/\b(kya|kaise|karo|bhai|yaar|nahi|hain|hum|meri|tumhe)\b/i.test(cleaned)) detectedLanguage = "Hinglish";
+  else if (/\b(kya|kaise|karo|bhai|yaar|nahi|hain|hum|meri|tumhe)\b/i.test(normalized)) detectedLanguage = "Hinglish";
 
   return {
     originalQuery: rawQuery,

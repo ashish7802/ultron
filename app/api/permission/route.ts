@@ -30,7 +30,6 @@ import {
   executeApprovedAction,
   getGatewayAuditHistory,
 } from "@/lib/permissionGateway";
-import { launchAppByName } from "@/lib/appLauncher";
 import { controlAudioVolume, openUrlInBrowser } from "@/lib/systemController";
 import { defaultComputerToolRegistry } from "@/lib/computer/toolRegistry";
 import { validateDesktopSession, createAuthErrorResponse } from "@/lib/sessionGate";
@@ -156,50 +155,34 @@ export async function POST(req: NextRequest) {
 
       const grantToken = approvalResult.executionGrantToken;
 
-      // Define concrete executor depending on the action type
-      let executionOutcome;
+      // Registry-backed tools own their single-use grant validation; wrapping them here would
+      // consume the same approval plan twice and fail after the outer gateway marks it executing.
+      let executionOutcome: { success: boolean; result?: unknown; error?: string };
+      const executeRegistryTool = async (
+        toolName: "launch_application" | "write_file" | "delete_file" | "run_shell_command",
+        params: Record<string, unknown>
+      ) => {
+        const result = await defaultComputerToolRegistry.executeTool(toolName, params, {
+          planId,
+          executionGrantToken: grantToken,
+        });
+        return { success: result.success, result, error: result.error };
+      };
+
       if (plan.actionType === "app_launch") {
-        // App launch dispatcher: route through tool registry or fallback launcher
-        executionOutcome = await executeApprovedAction(planId, grantToken, async () => {
-          const appName = String(plan.params.appName || plan.target);
-          return await defaultComputerToolRegistry.executeTool("launch_application", { appName }, {
-            planId,
-            executionGrantToken: grantToken,
-            approvalGranted: true,
-          });
-        });
+        const appName = String(plan.params.appName || plan.target);
+        executionOutcome = await executeRegistryTool("launch_application", { appName });
       } else if (plan.actionType === "file_write") {
-        // File write / overwrite dispatcher
-        executionOutcome = await executeApprovedAction(planId, grantToken, async () => {
-          const filePath = String(plan.params.path || plan.target);
-          const content = String(plan.params.content || "");
-          const overwrite = plan.params.overwrite !== false;
-          return await defaultComputerToolRegistry.executeTool("write_file", { path: filePath, content, overwrite }, {
-            planId,
-            executionGrantToken: grantToken,
-            approvalGranted: true,
-          });
-        });
+        const filePath = String(plan.params.path || plan.target);
+        const content = String(plan.params.content || "");
+        const overwrite = plan.params.overwrite !== false;
+        executionOutcome = await executeRegistryTool("write_file", { path: filePath, content, overwrite });
       } else if (plan.actionType === "file_delete") {
-        // File deletion dispatcher
-        executionOutcome = await executeApprovedAction(planId, grantToken, async () => {
-          const filePath = String(plan.params.path || plan.target);
-          return await defaultComputerToolRegistry.executeTool("delete_file", { path: filePath }, {
-            planId,
-            executionGrantToken: grantToken,
-            approvalGranted: true,
-          });
-        });
+        const filePath = String(plan.params.path || plan.target);
+        executionOutcome = await executeRegistryTool("delete_file", { path: filePath });
       } else if (plan.actionType === "shell_exec") {
-        // Terminal command execution dispatcher
-        executionOutcome = await executeApprovedAction(planId, grantToken, async () => {
-          const cmd = String(plan.params.command || plan.target);
-          return await defaultComputerToolRegistry.executeTool("execute_command", { command: cmd }, {
-            planId,
-            executionGrantToken: grantToken,
-            approvalGranted: true,
-          });
-        });
+        const cmd = String(plan.params.command || plan.target);
+        executionOutcome = await executeRegistryTool("run_shell_command", { command: cmd });
       } else if (plan.actionType === "volume_change") {
         const volAction = plan.params.volumeAction as "up" | "down" | "mute";
         executionOutcome = await executeApprovedAction(planId, grantToken, async () => {

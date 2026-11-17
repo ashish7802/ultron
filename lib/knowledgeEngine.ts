@@ -7,13 +7,12 @@
  * 
  * Key Responsibilities:
  * - Generates high-entropy, well-structured, production-grade technical explanations and code.
- * - Serves as an intelligent fallback layer when local small-parameter models (e.g., 0.5b)
- *   are offline or struggling with complex structural topics.
+ * - Supplies curated reference material for a small set of known technical topics when the
+ *   local model is unavailable.
  * - Formats output with clean Markdown: headers, key bullet points, and syntax-highlighted code blocks.
  * 
  * Architectural Role & Interactions:
- * - Used by `app/api/chat/route.ts` whenever the local Ollama LLM is unavailable or when
- *   an instant high-credibility deep answer is required.
+ * - Used by `app/api/chat/route.ts` only as a clearly labeled local reference fallback.
  * 
  * Safety / Security Guarantees:
  * - Deterministic, stateless synthesis with zero external cloud dependencies.
@@ -158,8 +157,7 @@ function executeAction<T>(action: AgentAction): Result<T> {
 };
 
 /**
- * Generates an intelligent, comprehensive explanation for topics and inquiries
- * when external LLMs are disconnected.
+ * Generates a curated explanation for a known technical topic.
  *
  * @param query - User query.
  * @returns Structured Markdown response, or null if query does not match knowledge patterns.
@@ -193,23 +191,6 @@ export function generateAutonomousKnowledge(query: string): string | null {
 
       return md;
     }
-  }
-
-  // General explanatory intent (e.g., "explain ... in detail", "what is ...", "how does ... work")
-  const explainMatch = lower.match(/(?:explain|what is|how does|tell me about|guide on)\s+([a-z0-9\s_-]+)/i);
-  if (explainMatch) {
-    const topic = explainMatch[1].trim();
-    return (
-      `## Overview: ${topic.charAt(0).toUpperCase() + topic.slice(1)}\n\n` +
-      `Here is a structured analysis of **${topic}**:\n\n` +
-      `### 1. Conceptual Foundation\n` +
-      `- **Core Purpose**: Designed to solve targeted problems through structured methodologies and scalable patterns.\n` +
-      `- **Architecture**: Operates through modular components that separate concerns, ensuring reliability and maintainability.\n\n` +
-      `### 2. Practical Execution\n` +
-      `- **Integration**: Connects with modern toolchains, local operating system environments, and automated pipelines.\n` +
-      `- **Optimization**: Requires careful resource management, clear typing/contracts, and rigorous testing.\n\n` +
-      `*Would you like me to run a deep live web research dossier on this topic or write a specific code implementation?*`
-    );
   }
 
   return null;

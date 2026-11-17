@@ -67,11 +67,19 @@ export interface MemoryVaultStorageData {
   memories: AnyMemoryRecord[];
 }
 
+export type MemoryLoadStatus =
+  | "NOT_LOADED"
+  | "READY"
+  | "EMPTY"
+  | "RECOVERED"
+  | "UNAVAILABLE";
+
 export class MemoryCoordinator {
   private readonly _vaultPath: string;
   private readonly _backupPath: string;
   private _cachedRecords: AnyMemoryRecord[] | null = null;
   private _isLoaded: boolean = false;
+  private _loadStatus: MemoryLoadStatus = "NOT_LOADED";
 
   // Sub-engines
   public readonly workingMemory: WorkingMemoryEngine;
@@ -114,43 +122,61 @@ export class MemoryCoordinator {
     }
 
     let records: AnyMemoryRecord[] = [];
+    let primaryReadSucceeded = false;
+    let backupReadSucceeded = false;
+    let backupReadFailed = false;
+    const primaryExists = fs.existsSync(this._vaultPath);
+    const backupExists = fs.existsSync(this._backupPath);
 
     // Attempt 1: Read primary vault file
-    if (fs.existsSync(this._vaultPath)) {
+    if (primaryExists) {
       try {
         const raw = fs.readFileSync(this._vaultPath, "utf-8");
         const decrypted = this.security.decryptAtRest(raw);
-        if (decrypted) {
-          const parsed = JSON.parse(decrypted);
-          if (parsed && Array.isArray(parsed.memories)) {
-            records = this._normalizeLegacyRecords(parsed.memories);
-          }
+        if (!decrypted) throw new Error("Primary vault could not be decrypted.");
+        const parsed = JSON.parse(decrypted);
+        if (!parsed || !Array.isArray(parsed.memories)) {
+          throw new Error("Primary vault has an invalid memory-list shape.");
         }
+        records = this._normalizeLegacyRecords(parsed.memories);
+        primaryReadSucceeded = true;
       } catch (err) {
         console.warn("[MEMORY COORDINATOR] Primary vault read error, attempting backup recovery:", err);
       }
     }
 
     // Attempt 2: Recover from backup if primary failed or empty
-    if (records.length === 0 && fs.existsSync(this._backupPath)) {
+    if (records.length === 0 && backupExists) {
       try {
         const rawBak = fs.readFileSync(this._backupPath, "utf-8");
         const decryptedBak = this.security.decryptAtRest(rawBak);
-        if (decryptedBak) {
-          const parsedBak = JSON.parse(decryptedBak);
-          if (parsedBak && Array.isArray(parsedBak.memories)) {
-            records = this._normalizeLegacyRecords(parsedBak.memories);
-            this.security.logAuditEvent({
-              operation: "READ",
-              actor: "system_recovery",
-              details: "Recovered memory records from verified backup file.",
-            });
-          }
+        if (!decryptedBak) throw new Error("Backup vault could not be decrypted.");
+        const parsedBak = JSON.parse(decryptedBak);
+        if (!parsedBak || !Array.isArray(parsedBak.memories)) {
+          throw new Error("Backup vault has an invalid memory-list shape.");
         }
+        records = this._normalizeLegacyRecords(parsedBak.memories);
+        backupReadSucceeded = true;
+        this.security.logAuditEvent({
+          operation: "READ",
+          actor: "system_recovery",
+          details: "Recovered memory records from verified backup file.",
+        });
       } catch (bakErr) {
+        backupReadFailed = true;
         console.warn("[MEMORY COORDINATOR] Backup read error:", bakErr);
       }
     }
+
+    this._loadStatus = backupReadSucceeded
+      ? "RECOVERED"
+      : primaryReadSucceeded && records.length > 0
+        ? "READY"
+        : primaryReadSucceeded && !backupReadFailed
+          ? "EMPTY"
+          : !primaryExists && !backupExists
+            ? "EMPTY"
+            : "UNAVAILABLE";
 
     // Index relationships into knowledge graph
     this.temporalRelational.buildGraphIndex(records);
@@ -159,6 +185,15 @@ export class MemoryCoordinator {
     this._isLoaded = true;
 
     return [...records];
+  }
+
+  /**
+   * Reports whether the latest vault read produced usable data or failed recovery.
+   *
+   * @returns Current memory-vault load status.
+   */
+  public getLoadStatus(): MemoryLoadStatus {
+    return this._loadStatus;
   }
 
   /**
@@ -266,6 +301,7 @@ export class MemoryCoordinator {
 
       // Update cache and graph index
       this._cachedRecords = [...records];
+      this._loadStatus = records.length > 0 ? "READY" : "EMPTY";
       this.temporalRelational.buildGraphIndex(records);
 
       this.security.logAuditEvent({
