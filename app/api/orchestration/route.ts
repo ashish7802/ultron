@@ -18,6 +18,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { validateSessionToken } from "@/lib/security/identityEngine";
+import { validateDesktopSession } from "@/lib/sessionGate";
 import {
   defaultTaskOrchestrationEngine,
   defaultPersistentStateEngine,
@@ -40,11 +41,16 @@ function extractAuthSession(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  const { validation } = extractAuthSession(request);
-  if (!validation.isValid || !validation.session) {
+  // Read-only workflow inspection uses the authenticated desktop boundary; mutating POST actions
+  // continue to require an identity-engine session and retain their existing role checks.
+  const validation = validateDesktopSession(request);
+  if (!validation.valid || !validation.session) {
     return NextResponse.json(
-      { success: false, error: "Unauthorized: Valid session required to access Task Orchestration." },
-      { status: 401 }
+      {
+        success: false,
+        error: validation.error || "Unauthorized: Valid desktop session required to read Task Orchestration.",
+      },
+      { status: validation.status || 401 }
     );
   }
 

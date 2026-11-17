@@ -69,6 +69,9 @@ export default function TaskOrchestrationModal({
       // 1. Fetch workflows list
       const wfRes = await fetch("/api/orchestration");
       const wfData = await wfRes.json();
+      if (!wfRes.ok || !wfData.success) {
+        throw new Error(wfData.error || `Workflow request failed (HTTP ${wfRes.status}).`);
+      }
       if (wfData.success) {
         setWorkflows(wfData.workflows || []);
         if (wfData.workflows?.length > 0 && !selectedWorkflow) {
@@ -80,6 +83,9 @@ export default function TaskOrchestrationModal({
       // 2. Fetch pending approvals
       const apprRes = await fetch("/api/orchestration?action=pending_approvals");
       const apprData = await apprRes.json();
+      if (!apprRes.ok || !apprData.success) {
+        throw new Error(apprData.error || `Approval request failed (HTTP ${apprRes.status}).`);
+      }
       if (apprData.success) {
         setPendingApprovals(apprData.pending || []);
       }

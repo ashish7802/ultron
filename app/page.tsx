@@ -1,6 +1,6 @@
 /**
  * @file app/page.tsx
- * @description Main application page for ULTRON ChatGPT-style AI interface.
+ * @description Main application page for ULTRON's command center and chat interface.
  * 
  * Subsystem:
  * User Interface & Navigation.
@@ -11,7 +11,7 @@
  *   with browser `localStorage` and client APIs.
  * 
  * Architectural Role & Interactions:
- * - Replaces the legacy 3D orb HUD with the new high-throughput chat & conversation history workspace.
+ * - Mounts the command center and existing conversation history workspace.
  * - Serves as the primary viewport for both browser access (http://localhost:3000) and the
  *   standalone Electron desktop shell.
  * 

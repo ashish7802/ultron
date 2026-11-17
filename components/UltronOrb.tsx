@@ -26,6 +26,21 @@ import { ConversationManager } from "@/lib/conversationManager";
 
 type CameraState = "off" | "starting" | "on" | "error";
 type ChatMessage = { role: "user" | "assistant"; content: string };
+/** Voice state reported to the dashboard without exposing the internal audio graph. */
+type VoiceStatus = {
+  active: boolean;
+  label: string;
+  assistantState: AssistantVisualState;
+  error: string | null;
+};
+
+/** Optional embedding controls; standalone mode preserves the original full HUD behavior. */
+interface UltronOrbProps {
+  compact?: boolean;
+  wakeWordEnabled?: boolean;
+  voiceToggleRequest?: number;
+  onVoiceStateChange?: (status: VoiceStatus) => void;
+}
 
 function limitConversation(messages: ChatMessage[]): ChatMessage[] {
   const recentMessages = messages.slice(-MAX_CONVERSATION_MESSAGES);
@@ -55,7 +70,19 @@ const MODE_LABEL: Record<TrackerStatus["mode"], string> = {
   zoom: "ZOOM",
 };
 
-export default function UltronOrb() {
+/**
+ * Hosts the existing voice engine and optional Three.js HUD.
+ *
+ * @param props - Embedding mode, wake-word policy, and dashboard state callbacks.
+ * @returns Full HUD or a visually hidden voice-engine bridge.
+ * @throws No microphone or filesystem work occurs during render; permission errors are reported in component state.
+ */
+export default function UltronOrb({
+  compact = false,
+  wakeWordEnabled = !compact,
+  voiceToggleRequest = 0,
+  onVoiceStateChange,
+}: UltronOrbProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
@@ -89,6 +116,7 @@ export default function UltronOrb() {
   // cancelled (STOP, barge-in, voice off, unmount) so callbacks belonging to a
   // cancelled utterance can never restart the speech queue.
   const speechGenerationRef = useRef(0);
+  const lastVoiceToggleRequestRef = useRef(0);
 
 
   // Autonomous Quantum Web & Browser Research State
@@ -146,9 +174,16 @@ export default function UltronOrb() {
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) return;
-    const scene = createOrbScene(container);
-    sceneRef.current = scene;
+    let scene: OrbSceneApi | null = null;
+    if (!compact && container) {
+      try {
+        scene = createOrbScene(container);
+        sceneRef.current = scene;
+      } catch (sceneError) {
+        const message = sceneError instanceof Error ? sceneError.message : String(sceneError);
+        setError(`HOLOGRAPHIC VISUALIZER UNAVAILABLE: ${message}`);
+      }
+    }
     return () => {
       voiceActiveRef.current = false;
       voiceSessionRef.current += 1;
@@ -174,10 +209,10 @@ export default function UltronOrb() {
       fsmRef.current.dispose();
       trackerRef.current?.stop();
       trackerRef.current = null;
-      scene.dispose();
+      scene?.dispose();
       sceneRef.current = null;
     };
-  }, []);
+  }, [compact]);
 
   // Direct Access: No biometric check or background auth polling required
 
@@ -1114,6 +1149,7 @@ export default function UltronOrb() {
 
   // Hands-free offline wake-word listener (ULTRON)
   useEffect(() => {
+    if (!wakeWordEnabled) return;
     startVoiceSystemRef.current = startVoiceSystem;
     let unmounted = false;
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1155,7 +1191,7 @@ export default function UltronOrb() {
       unmounted = true;
       if (pollTimer) clearTimeout(pollTimer);
     };
-  }, [updateVisualState]);
+  }, [updateVisualState, wakeWordEnabled]);
 
   const toggleVoice = () => {
     setError(null);
@@ -1195,6 +1231,21 @@ export default function UltronOrb() {
       startVoiceSystem();
     }
   };
+
+  useEffect(() => {
+    if (voiceToggleRequest <= lastVoiceToggleRequestRef.current) return;
+    lastVoiceToggleRequestRef.current = voiceToggleRequest;
+    toggleVoice();
+  }, [voiceToggleRequest, toggleVoice]);
+
+  useEffect(() => {
+    onVoiceStateChange?.({
+      active: voiceActive,
+      label: voiceLabel,
+      assistantState,
+      error,
+    });
+  }, [assistantState, error, onVoiceStateChange, voiceActive, voiceLabel]);
 
   const submitTextPrompt = () => {
     const prompt = textInput.trim();
@@ -1325,6 +1376,10 @@ export default function UltronOrb() {
   }, [toggleGestures, voiceActive]);
 
   const cameraOn = camera === "on";
+
+  if (compact) {
+    return <div className="cc-orb-voice-bridge" aria-hidden="true" />;
+  }
 
   return (
     <>

@@ -1,6 +1,6 @@
 /**
  * @file components/UltronChat.tsx
- * @description Primary client-side ChatGPT-style UI for ULTRON with conversation history,
+ * @description Primary client-side command center and chat UI with conversation history,
  * local desktop app execution, autonomous quantum web research, and rich markdown rendering.
  * 
  * Subsystem:
@@ -16,9 +16,9 @@
  * - Features rich code block rendering, 1-click clipboard copying, and Markdown/JSON export.
  * 
  * Architectural Role & Interactions:
- * - Replaces the legacy 3D orb HUD and voice recording with an ultra-clean, high-throughput text interface.
- * - Connects directly to `app/api/chat/route.ts` using fetch with `activationMode: "PUSH_TO_TALK"`
- *   to ensure deterministic execution without requiring wake-words.
+ * - Owns the persistent conversation state shared by the command-center mini-chat and full chat view.
+ * - Keeps the existing voice engine and secure workflow, memory, and security modals available.
+ * - Connects directly to `app/api/chat/route.ts` using fetch with `activationMode: "PUSH_TO_TALK"`.
  * 
  * Safety / Security Guarantees:
  * - Encapsulates all conversation records on the local machine (no third-party cloud analytics).
@@ -33,6 +33,8 @@ import MarkdownRenderer from "./MarkdownRenderer";
 import ScreenAwarenessIndicator from "./ScreenAwarenessIndicator";
 import TaskOrchestrationModal from "./TaskOrchestrationModal";
 import LearningEvolutionModal from "./LearningEvolutionModal";
+import SecurityDashboardModal from "./SecurityDashboardModal";
+import CommandCenterDashboard from "./CommandCenterDashboard";
 
 export interface PermissionPlanData {
   planId: string;
@@ -169,6 +171,10 @@ export default function UltronChat() {
   const [isMemoryModalOpen, setIsMemoryModalOpen] = useState<boolean>(false);
   const [isOrchestrationModalOpen, setIsOrchestrationModalOpen] = useState<boolean>(false);
   const [isLearningModalOpen, setIsLearningModalOpen] = useState<boolean>(false);
+  const [isSecurityDashboardOpen, setIsSecurityDashboardOpen] = useState<boolean>(false);
+  const [isDashboardOpen, setIsDashboardOpen] = useState<boolean>(true);
+  const [isWindowMaximized, setIsWindowMaximized] = useState<boolean>(false);
+  const [windowActionError, setWindowActionError] = useState<string | null>(null);
   const [memoriesList, setMemoriesList] = useState<MemoryItem[]>([]);
   const [newMemoryInput, setNewMemoryInput] = useState<string>("");
   const [newMemoryCat, setNewMemoryCat] = useState<"profile" | "preference" | "project" | "fact" | "instruction">("fact");
@@ -210,6 +216,19 @@ export default function UltronChat() {
       isMounted = false;
     };
   }, [sessionAttempt]);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (!window.ultronAPI) return;
+    void window.ultronAPI.isWindowMaximized().then((maximized) => {
+      if (isMounted) setIsWindowMaximized(maximized);
+    }).catch((error: unknown) => {
+      console.error("Could not read desktop window state:", error);
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // ── 1. Initial Load from LocalStorage ───────────────────────────────────
   useEffect(() => {
@@ -394,6 +413,30 @@ export default function UltronChat() {
     setConversations((prev) => [newConv, ...prev]);
     setActiveId(newConv.id);
     setTimeout(() => textareaRef.current?.focus(), 50);
+  };
+
+  /**
+   * Routes native window controls through the isolated Electron preload bridge.
+   *
+   * @param control - Requested operation for ULTRON's own desktop window.
+   * @returns Resolves after the main process handles the request.
+   */
+  const handleWindowControl = async (control: "minimize" | "maximize" | "close") => {
+    const api = window.ultronAPI;
+    if (!api) return;
+    setWindowActionError(null);
+    try {
+      if (control === "minimize") {
+        await api.minimizeWindow();
+      } else if (control === "maximize") {
+        setIsWindowMaximized(await api.toggleMaximizeWindow());
+      } else {
+        await api.closeWindow();
+      }
+    } catch (error) {
+      console.error(`Desktop window ${control} failed:`, error);
+      setWindowActionError("Window control failed.");
+    }
   };
 
   // ── Memory Management Handlers ──────────────────────────────────────────
@@ -1080,6 +1123,28 @@ export default function UltronChat() {
 
   return (
     <div className="ultron-app-container">
+      {isDashboardOpen && (
+        <CommandCenterDashboard
+          activeConversation={activeConversation}
+          isGenerating={isGenerating}
+          liveStatus={liveStatus}
+          onSendMessage={handleSendMessage}
+          onOpenChat={(prefill) => {
+            if (prefill !== undefined) setInputPrompt(prefill);
+            setIsDashboardOpen(false);
+          }}
+          onNewChat={() => {
+            handleNewChat();
+            setInputPrompt("");
+            setIsDashboardOpen(false);
+          }}
+          onOpenMemory={handleOpenMemoryModal}
+          onOpenTasks={() => setIsOrchestrationModalOpen(true)}
+          onOpenSecurity={() => setIsSecurityDashboardOpen(true)}
+        />
+      )}
+      {!isDashboardOpen && (
+        <>
       {/* ── LEFT SIDEBAR (ChatGPT-style history & navigation) ─────────────── */}
       <aside className={`ultron-sidebar ${isSidebarOpen ? "open" : "collapsed"}`}>
         {/* Sidebar Brand Header */}
@@ -1292,6 +1357,16 @@ export default function UltronChat() {
         {/* Workspace Top Navigation Bar */}
         <header className="ultron-topbar">
           <div className="ultron-topbar-left">
+            <button
+              type="button"
+              className="ultron-topbar-btn"
+              onClick={() => setIsDashboardOpen(true)}
+              title="Open command center"
+              aria-label="Open command center"
+            >
+              <span>⌂</span>
+              <span className="ultron-topbar-btn-text">Command Center</span>
+            </button>
             {!isSidebarOpen && (
               <button
                 type="button"
@@ -1348,6 +1423,32 @@ export default function UltronChat() {
               </svg>
               <span className="ultron-topbar-btn-text">New</span>
             </button>
+
+            {windowActionError && <span className="ultron-window-action-error" role="status">{windowActionError}</span>}
+            <div className="ultron-window-control-group" aria-label="Window controls">
+              <button
+                type="button"
+                onClick={() => void handleWindowControl("minimize")}
+                disabled={!window.ultronAPI}
+                title={window.ultronAPI ? "Minimize" : "Available in the desktop app"}
+                aria-label="Minimize window"
+              >−</button>
+              <button
+                type="button"
+                onClick={() => void handleWindowControl("maximize")}
+                disabled={!window.ultronAPI}
+                title={window.ultronAPI ? (isWindowMaximized ? "Restore" : "Maximize") : "Available in the desktop app"}
+                aria-label={isWindowMaximized ? "Restore window" : "Maximize window"}
+              >{isWindowMaximized ? "❐" : "□"}</button>
+              <button
+                type="button"
+                className="close"
+                onClick={() => void handleWindowControl("close")}
+                disabled={!window.ultronAPI}
+                title={window.ultronAPI ? "Close ULTRON" : "Available in the desktop app"}
+                aria-label="Close window"
+              >×</button>
+            </div>
           </div>
         </header>
 
@@ -1640,6 +1741,8 @@ export default function UltronChat() {
           </div>
         </footer>
       </main>
+        </>
+      )}
 
       {/* ── NEURAL MEMORY VAULT MODAL ── */}
       {isMemoryModalOpen && (
@@ -1756,6 +1859,10 @@ export default function UltronChat() {
       <LearningEvolutionModal
         isOpen={isLearningModalOpen}
         onClose={() => setIsLearningModalOpen(false)}
+      />
+      <SecurityDashboardModal
+        isOpen={isSecurityDashboardOpen}
+        onClose={() => setIsSecurityDashboardOpen(false)}
       />
     </div>
   );

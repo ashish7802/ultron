@@ -4,10 +4,10 @@
  *
  * Responsibilities:
  * - Spawns the Next.js frontend server (standalone build) as a child process.
- * - Creates the main BrowserWindow with the ULTRON orb UI.
+ * - Creates the main BrowserWindow with the ULTRON command-center UI.
  * - Grants camera/microphone media permissions only to ULTRON's own loopback UI.
  * - Locks the privileged window to the local UI origin (no remote navigation or
- *   extra Electron windows) and exposes app metadata to the preload bridge.
+ *   extra Electron windows) and exposes validated window controls through preload.
  * - Manages application lifecycle (quit, window close, server cleanup).
  */
 
@@ -193,6 +193,7 @@ function createWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
+    frame: false,
     show: false,
     ...(fs.existsSync(iconPath) ? { icon: iconPath } : {}),
     webPreferences: {
@@ -278,10 +279,7 @@ function createWindow() {
 }
 
 /**
- * Registers IPC handlers consumed by electron/preload.js.
- *
- * The preload bridge exposes getVersion()/getPath(); without these handlers every
- * renderer call rejected with "No handler registered for 'app-get-version'".
+ * Registers validated IPC handlers consumed by electron/preload.js.
  */
 function registerIpcHandlers() {
   ipcMain.handle("app-get-version", () => app.getVersion());
@@ -291,6 +289,38 @@ function registerIpcHandlers() {
       throw new Error(`Unsupported app path: ${String(name)}`);
     }
     return app.getPath(name);
+  });
+
+  const getTrustedMainWindow = (event) => {
+    if (
+      !mainWindow ||
+      mainWindow.isDestroyed() ||
+      event.sender !== mainWindow.webContents ||
+      !isAppUrl(event.sender.getURL())
+    ) {
+      throw new Error("Window controls are restricted to ULTRON's trusted application window.");
+    }
+    return mainWindow;
+  };
+
+  ipcMain.handle("app-window-minimize", (event) => {
+    getTrustedMainWindow(event).minimize();
+  });
+
+  ipcMain.handle("app-window-toggle-maximize", (event) => {
+    const window = getTrustedMainWindow(event);
+    if (window.isMaximized()) {
+      window.unmaximize();
+    } else {
+      window.maximize();
+    }
+    return window.isMaximized();
+  });
+
+  ipcMain.handle("app-window-is-maximized", (event) => getTrustedMainWindow(event).isMaximized());
+
+  ipcMain.handle("app-window-close", (event) => {
+    getTrustedMainWindow(event).close();
   });
 }
 
