@@ -19,6 +19,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { validateDesktopSession, createAuthErrorResponse } from "@/lib/sessionGate";
 
 /** How long a one-shot wake event may be picked up by the polling HUD. */
 const WAKE_EVENT_TTL_MS = 2000;
@@ -46,7 +47,11 @@ const audioState: GlobalAudioState = {
  *
  * @returns Current mode/muted state, plus a `WAKE_WORD_DETECTED` event when fresh.
  */
-export async function GET(): Promise<NextResponse> {
+export async function GET(req: NextRequest): Promise<NextResponse> {
+  const auth = validateDesktopSession(req);
+  if (!auth.valid) {
+    return createAuthErrorResponse(auth);
+  }
   const event = audioState.lastWakeEvent;
   if (event) {
     const ageMs = Date.now() - event.timestamp;
@@ -79,6 +84,10 @@ export async function GET(): Promise<NextResponse> {
  * @returns Acknowledgement with the resulting mode/muted state.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const auth = validateDesktopSession(req);
+  if (!auth.valid) {
+    return createAuthErrorResponse(auth);
+  }
   try {
     let body: Record<string, unknown>;
     try {

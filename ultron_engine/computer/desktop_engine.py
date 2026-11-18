@@ -27,31 +27,38 @@ Safety / Security Guarantees:
 import sys
 import os
 import platform
-import winreg
 import ctypes
-from ctypes import wintypes
 from typing import Any, Dict, List, Optional, Tuple
 
-# Win32 API DLL imports
-user32 = ctypes.windll.user32
-gdi32 = ctypes.windll.gdi32
-kernel32 = ctypes.windll.kernel32
+IS_WINDOWS = sys.platform == "win32"
 
-try:
-    dwmapi = ctypes.windll.dwmapi
-except Exception:
+if IS_WINDOWS:
+    import winreg  # type: ignore[import-not-found]
+    from ctypes import wintypes
+    user32 = ctypes.windll.user32
+    gdi32 = ctypes.windll.gdi32
+    kernel32 = ctypes.windll.kernel32
+    try:
+        dwmapi = ctypes.windll.dwmapi
+    except Exception:
+        dwmapi = None
+    try:
+        shcore = ctypes.windll.shcore
+    except Exception:
+        shcore = None
+    # Enable DPI awareness to ensure coordinates match physical pixels
+    try:
+        user32.SetProcessDPIAware()
+    except Exception:
+        pass
+else:
+    winreg = None  # type: ignore[assignment]
+    wintypes = None  # type: ignore[assignment]
+    user32 = None
+    gdi32 = None
+    kernel32 = None
     dwmapi = None
-
-try:
-    shcore = ctypes.windll.shcore
-except Exception:
     shcore = None
-
-# Enable DPI awareness to ensure coordinates match physical pixels
-try:
-    user32.SetProcessDPIAware()
-except Exception:
-    pass
 
 # Win32 Constants
 SW_HIDE = 0
@@ -127,19 +134,22 @@ def get_os_metadata() -> Dict[str, Any]:
         Reads local machine registry keys (read-only).
     """
     info: Dict[str, Any] = {
-        "platform": "windows",
+        "platform": "windows" if IS_WINDOWS else platform.system().lower(),
         "system": platform.system(),
         "release": platform.release(),
         "version": platform.version(),
         "machine": platform.machine(),
         "processor": platform.processor(),
         "python_version": platform.python_version(),
-        "product_name": "Windows",
+        "product_name": "Windows" if IS_WINDOWS else platform.system(),
         "display_version": "",
         "current_build": "",
         "ubr": 0,
         "edition_id": "",
     }
+
+    if not IS_WINDOWS or winreg is None:
+        return info
 
     try:
         key_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion"

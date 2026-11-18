@@ -33,7 +33,7 @@ async function runBattery() {
   // 1. F-04 Verification: Permission Gateway physical execution outcome inspection
   // ─────────────────────────────────────────────────────────────────────────────
   console.log("\n--- [Suite 1: F-04 Permission Gateway Execution Invariants] ---");
-  const { planAction, approveActionPlan, executeApprovedAction, getActionPlan } = require("../lib/permissionGateway.ts");
+  const { planAction, approveActionPlan, executeApprovedAction } = require("../lib/permissionGateway.ts");
 
   // Subtest 1.1: Executor resolves with success: false -> Must return success: false and mark plan 'failed'
   {

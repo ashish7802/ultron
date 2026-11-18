@@ -34,7 +34,6 @@ async function runAdversarialBattery() {
     approveActionPlan,
     executeApprovedAction,
     generateSubprocessExecutionGrant,
-    computeActionHash,
   } = require("../lib/permissionGateway.ts");
 
   const { defaultComputerToolRegistry } = require("../lib/computer/toolRegistry.ts");

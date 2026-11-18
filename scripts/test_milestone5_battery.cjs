@@ -15,7 +15,7 @@ const { validateDesktopSession } = require('../lib/sessionGate.ts');
 
 // 2. Computer Execution & Tool Registry
 const { defaultComputerToolRegistry } = require('../lib/computer/toolRegistry.ts');
-const { approveActionPlan, planAction } = require('../lib/permissionGateway.ts');
+const { approveActionPlan } = require('../lib/permissionGateway.ts');
 const { defaultPythonBridge } = require('../lib/computer/pythonBridge.ts');
 const { defaultSafetyControls } = require('../lib/computer/safetyControls.ts');
 

@@ -26,6 +26,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCryptoStatus } from "@/lib/crypto";
 import { AudioPayloadTooLargeError, MAX_AUDIO_BYTES, readBoundedAudio } from "@/lib/audioUpload";
 import { resolvePythonExecutable } from "@/lib/pythonRuntime";
+import { validateDesktopSession, createAuthErrorResponse } from "@/lib/sessionGate";
 
 const execFileAsync = promisify(execFile);
 const MAX_JSON_TEXT_CHARS = 8000;
@@ -118,6 +119,10 @@ function describeWorkerFailure(error: unknown): { code: string; message: string;
  * @returns A non-empty transcript on success, otherwise a specific error response.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const auth = validateDesktopSession(req);
+  if (!auth.valid) {
+    return createAuthErrorResponse(auth);
+  }
   const requestId = randomUUID();
   const contentType = (req.headers.get("content-type") || "").toLowerCase();
   const rawLength = req.headers.get("content-length");

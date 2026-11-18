@@ -30,6 +30,7 @@ import path from "path";
 import crypto from "crypto";
 import fs from "fs";
 import os from "os";
+import { resolvePythonExecutable } from "../pythonRuntime.ts";
 import type {
   CaptureMode,
   CaptureOptions,
@@ -47,10 +48,10 @@ export class ScreenCaptureEngine {
   private _sequenceNumber: number = 0;
 
   /**
-   * Resolves the Python executable path portably.
+   * Resolves the Python executable path portably across Windows and POSIX hosts.
    */
   private _resolvePython(): string {
-    return process.env.PYTHON_PATH || "python";
+    return process.env.PYTHON_PATH || resolvePythonExecutable();
   }
 
   /**

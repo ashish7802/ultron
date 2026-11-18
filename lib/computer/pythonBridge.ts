@@ -140,7 +140,7 @@ export class PythonComputerBridge {
             parsed.exitCode = exitCode;
           }
           resolve(parsed);
-        } catch (jsonErr: unknown) {
+        } catch {
           resolve({
             success: false,
             exitCode: exitCode ?? -1,

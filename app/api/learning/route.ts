@@ -54,7 +54,9 @@ function isLearningAuthorized(request: Request): { authorized: boolean; role?: s
       }
       const desktopVal = validateDesktopSession(nextReq);
       if (desktopVal.valid) {
-        return { authorized: true, role: "founder" };
+        // Security Fix (SEC-001): Never elevate an operator desktop session to founder.
+        // Founder-only evolution approvals and rollbacks strictly require a verified founder role.
+        return { authorized: true, role: desktopVal.session?.userRole || "operator" };
       }
     }
   } catch {}

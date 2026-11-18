@@ -1,27 +1,58 @@
 /**
  * @file app/layout.tsx
- * @description Root layout component for the ULTRON web and desktop interface.
- * 
+ * @description Root layout component for the ULTRON AI Operating Environment.
+ *
  * Subsystem:
- * Presentation Layer & Browser Shell.
- * 
- * Responsibilities:
- * - Configures global HTML structure, dark-theme viewport settings, and branding metadata.
- * - Injects global styling (`globals.css`).
- * - Includes a tamper-resistant fetch hardening script to prevent browser extensions from corrupting AI streaming responses.
- * 
+ * Presentation Layer & Typography Shell.
+ *
+ * Key Responsibilities:
+ * - Loads Plus Jakarta Sans (display), DM Sans (UI/body), and JetBrains Mono (code/telemetry)
+ *   via `next/font/google` and binds them to CSS custom properties.
+ * - Configures dark OLED viewport settings and SEO/OpenGraph metadata.
+ * - Imports Tailwind CSS v4 design tokens (`globals.css`).
+ *
+ * Architectural Role & Interactions:
+ * - Top-level Next.js App Router wrapper serving both localhost browser and Electron desktop shell.
+ *
  * Safety / Security Guarantees:
- * - Locks native Window.fetch context against prototype pollution.
- * - Disables external telemetry scripts.
+ * - Zero external telemetry scripts or third-party trackers.
  */
 
 import type { Metadata, Viewport } from "next";
+import { Plus_Jakarta_Sans, DM_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-// Application metadata displayed in browser tabs and desktop shell
+const plusJakartaSans = Plus_Jakarta_Sans({
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
+  variable: "--font-display",
+  display: "swap",
+});
+
+const dmSans = DM_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-sans",
+  display: "swap",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  variable: "--font-mono",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
-  title: "ULTRON AI - Next-Gen Desktop Intelligence",
-  description: "ChatGPT-style AI interface with local desktop app control, autonomous quantum web research, and persistent conversation history.",
+  title: "ULTRON — Desktop AI Operating Environment",
+  description:
+    "Local-first desktop AI assistant with encrypted episodic memory, local Ollama model orchestration, fail-closed security governance, and real-time system diagnostics.",
+  openGraph: {
+    title: "ULTRON — Desktop AI Operating Environment",
+    description:
+      "Local-first desktop AI assistant with encrypted episodic memory, local Ollama model orchestration, and fail-closed security governance.",
+    type: "website",
+  },
   icons: {
     icon: "/favicon.ico",
     shortcut: "/favicon.ico",
@@ -29,19 +60,14 @@ export const metadata: Metadata = {
   },
 };
 
-// Viewport configuration ensuring OLED deep dark background and responsive scaling
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#080c14",
+  themeColor: "#06090f",
 };
 
 /**
- * RootLayout
- * The top-level layout wrapper required by Next.js App Router.
- * Wraps all pages in an HTML5 shell and applies hydration-warning suppressions for client-only dynamic elements.
- * 
- * @param {Readonly<{ children: React.ReactNode }>} props - Child elements rendered inside the body.
+ * RootLayout wraps the entire Next.js App Router tree with dark-mode typography variables.
  */
 export default function RootLayout({
   children,
@@ -49,8 +75,17 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body suppressHydrationWarning>{children}</body>
+    <html
+      lang="en"
+      className={`${plusJakartaSans.variable} ${dmSans.variable} ${jetbrainsMono.variable} dark`}
+      suppressHydrationWarning
+    >
+      <body
+        className="bg-[#06090f] text-slate-100 antialiased selection:bg-blue-500/30 selection:text-cyan-100"
+        suppressHydrationWarning
+      >
+        {children}
+      </body>
     </html>
   );
 }

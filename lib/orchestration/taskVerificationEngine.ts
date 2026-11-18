@@ -236,10 +236,11 @@ export class TaskVerificationEngine {
         if (typeof output === "string") {
           outStr = output;
         } else if (typeof output === "object" && output !== null) {
-          if ("stdout" in output && typeof (output as any).stdout === "string") {
-            outStr = (output as any).stdout;
-          } else if ("output" in output && typeof (output as any).output === "string") {
-            outStr = (output as any).output;
+          const outObj = output as Record<string, unknown>;
+          if ("stdout" in outObj && typeof outObj.stdout === "string") {
+            outStr = outObj.stdout;
+          } else if ("output" in outObj && typeof outObj.output === "string") {
+            outStr = outObj.output;
           } else {
             outStr = JSON.stringify(output);
           }
@@ -278,7 +279,7 @@ export class TaskVerificationEngine {
           }
 
           // Strictly reject prototype pollution, constructor access, function calls, computed indexing, and quotes
-          if (/[()\[\]{};`]|constructor|prototype|__proto__|import|require|process|global|window|Function|eval/i.test(expr)) {
+          if (/[()[\]{};`]|constructor|prototype|__proto__|import|require|process|global|window|Function|eval/i.test(expr)) {
             return {
               passed: false,
               actualValue: "FORBIDDEN_SYNTAX",
@@ -313,7 +314,7 @@ export class TaskVerificationEngine {
             }
 
             // Extract property from output safely with prototype pollution defense
-            let cur: any = output;
+            let cur: unknown = output;
             for (const seg of propPath.split(".")) {
               if (seg === "__proto__" || seg === "constructor" || seg === "prototype") {
                 return {
@@ -323,7 +324,7 @@ export class TaskVerificationEngine {
                 };
               }
               if (cur && typeof cur === "object" && Object.prototype.hasOwnProperty.call(cur, seg)) {
-                cur = cur[seg];
+                cur = (cur as Record<string, unknown>)[seg];
               } else {
                 cur = undefined;
                 break;
@@ -367,7 +368,7 @@ export class TaskVerificationEngine {
           const boolPathRegex = /^output(?:\.([a-zA-Z0-9_$]+))+$/;
           if (boolPathRegex.test(expr)) {
             const propPath = expr.replace(/^output\./, "");
-            let cur: any = output;
+            let cur: unknown = output;
             for (const seg of propPath.split(".")) {
               if (seg === "__proto__" || seg === "constructor" || seg === "prototype") {
                 return {
@@ -377,7 +378,7 @@ export class TaskVerificationEngine {
                 };
               }
               if (cur && typeof cur === "object" && Object.prototype.hasOwnProperty.call(cur, seg)) {
-                cur = cur[seg];
+                cur = (cur as Record<string, unknown>)[seg];
               } else {
                 cur = undefined;
                 break;

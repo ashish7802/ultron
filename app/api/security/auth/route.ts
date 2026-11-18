@@ -59,6 +59,8 @@ export async function GET(req: NextRequest) {
   const windowsHello = await getWindowsHelloStatus();
   const lockedDown = isSystemLockedDown();
 
+  const activeSessions = listActiveSessions();
+
   return NextResponse.json({
     ok: true,
     authenticated: sessionCheck.isValid,
@@ -66,13 +68,15 @@ export async function GET(req: NextRequest) {
       sessionId: sessionCheck.session.sessionId,
       userId: sessionCheck.session.userId,
       userRole: sessionCheck.session.userRole,
+      authenticationLevel: sessionCheck.session.authenticationLevel,
       expiresAt: sessionCheck.session.expiresAt,
     } : null,
     founder: FOUNDER_IDENTITY,
     windowsHello,
     isEmergencyLocked: lockedDown,
-    activeSessionsCount: listActiveSessions().length,
-    activeSessions: listActiveSessions(),
+    activeSessionsCount: activeSessions.length,
+    // Security Fix (SEC-004): Only expose session inventory details to authenticated sessions.
+    activeSessions: sessionCheck.isValid ? activeSessions : [],
   });
 }
 
@@ -102,9 +106,7 @@ export async function POST(req: NextRequest) {
           );
         }
 
-        let verifiedBiometrics = false;
-
-        let bioResult: any = undefined;
+        let bioResult: Awaited<ReturnType<typeof verifyWindowsHelloConsent>> | undefined = undefined;
 
         if (authMethod === "recovery_key") {
           // Cryptographic founder recovery passphrase verification
@@ -131,7 +133,6 @@ export async function POST(req: NextRequest) {
             );
           }
 
-          verifiedBiometrics = true;
           resetAuthFailure(clientIp);
         }
 

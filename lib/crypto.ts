@@ -22,7 +22,6 @@
  */
 
 import fs from "fs";
-import path from "path";
 import { defaultAppPathService } from "./security/appPathService.ts";
 import { defaultDpapiBridge } from "./security/dpapiBridge.ts";
 
@@ -425,11 +424,49 @@ export async function generateHandshakeToken(
 /**
  * Returns the active cryptographic status and telemetry for the HUD.
  *
- * NOTE: values describe only what this module actually does.
- * The active transport key is generated via CSPRNG and rotated in memory.
+ * NOTE: values describe only what this module actually verifies.
+ * Performs a strictly read-only inspection of the on-disk memory vault JSON
+ * envelope to confirm whether AES-256-GCM fields (`encrypted`, `iv`, `tag`, `ciphertext`)
+ * are present before reporting `encrypted: true`.
  */
 export function getCryptoStatus() {
+  let vaultEncryptedOnDisk = false;
+  let envelopeVersion: number | null = null;
+  let statusMessage = "AES-256-GCM cipher configured (vault file not yet created)";
+
+  if (typeof process !== "undefined" && process.versions?.node) {
+    try {
+      const vaultPath = defaultAppPathService.getMemoryVaultPath();
+      if (fs.existsSync(vaultPath)) {
+        const raw = fs.readFileSync(vaultPath, "utf-8");
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        const hasEnvelope =
+          parsed &&
+          parsed.encrypted === true &&
+          typeof parsed.iv === "string" &&
+          parsed.iv.length >= 16 &&
+          typeof parsed.tag === "string" &&
+          parsed.tag.length >= 16 &&
+          typeof parsed.ciphertext === "string" &&
+          parsed.ciphertext.length > 0;
+
+        if (hasEnvelope) {
+          vaultEncryptedOnDisk = true;
+          envelopeVersion = typeof parsed.version === "number" ? parsed.version : 2;
+          statusMessage = `Verified on-disk AES-256-GCM envelope (v${envelopeVersion})`;
+        } else {
+          statusMessage = "Unencrypted or legacy vault envelope on disk";
+        }
+      }
+    } catch {
+      statusMessage = "Unable to inspect vault envelope on disk";
+    }
+  }
+
   return {
+    encrypted: vaultEncryptedOnDisk,
+    envelopeVersion,
+    status: statusMessage,
     cipher: "AES-256-GCM (Web Crypto; 96-bit nonce, 128-bit auth tag)",
     key_protection: "CSPRNG 256-bit Ephemeral Master Key with Platform Isolation",
     tamper_proof: true,

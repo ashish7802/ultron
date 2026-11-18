@@ -32,11 +32,15 @@ import {
   getMemoryStats,
   MemoryCategory,
 } from "@/lib/memoryManager";
+import fs from "node:fs";
+import path from "node:path";
 import {
   validateDesktopSession,
   createAuthErrorResponse,
   consumeSingleUseActionToken,
 } from "@/lib/sessionGate";
+import { getCryptoStatus } from "@/lib/crypto";
+import { defaultAppPathService } from "@/lib/security/appPathService";
 
 const MAX_PAYLOAD_BYTES = 64 * 1024; // 64 KB limit
 const VALID_CATEGORIES: Set<string> = new Set(["profile", "preference", "project", "fact", "instruction"]);
@@ -56,11 +60,31 @@ export async function GET(req: NextRequest) {
   try {
     const memories = loadAllMemories();
     const stats = getMemoryStats();
+    const vaultPath = defaultAppPathService.getMemoryVaultPath();
+    const backupPath = path.join(process.cwd(), "backups", "pre_migration_safe_snapshot", "ultron_memory_vault.json");
+    let sizeBytes = 0;
+    let exists = false;
+    let updatedAt: string | null = null;
+    try {
+      if (fs.existsSync(vaultPath)) {
+        const st = fs.statSync(vaultPath);
+        exists = true;
+        sizeBytes = st.size;
+        updatedAt = st.mtime.toISOString();
+      }
+    } catch {}
 
     return NextResponse.json({
       ok: true,
       memories,
       stats,
+      vault: {
+        exists,
+        sizeBytes,
+        updatedAt,
+        backupPresent: fs.existsSync(backupPath),
+        encryption: getCryptoStatus(),
+      },
     });
   } catch (err) {
     console.error("[API MEMORY GET] Error fetching memories:", err);

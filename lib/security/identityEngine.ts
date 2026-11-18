@@ -210,7 +210,7 @@ export function createAuthenticatedSession(
   }
 
   let effectiveRole = role;
-  let authenticationLevel: AuthenticationLevel = "CHAT_AUTHENTICATED";
+  let authenticationLevel: AuthenticationLevel;
 
   // Strict invariant: FOUNDER_AUTHORIZED requires verified biometric verification
   if (isBiometricVerified && role === "founder") {

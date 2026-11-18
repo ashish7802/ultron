@@ -458,12 +458,14 @@ export class TaskOrchestrationEngine {
 
     // Check if task specifies an explicit shell command in metadata or criteria
     let commandToRun: string | null = null;
-    if (typeof (task as any).command === "string") {
-      commandToRun = (task as any).command;
+    const taskRecord = task as unknown as Record<string, unknown>;
+    if (typeof taskRecord.command === "string") {
+      commandToRun = taskRecord.command;
     } else {
       for (const crit of task.acceptanceCriteria || []) {
-        if (crit.evaluator === "EXIT_CODE" && typeof (crit as any).command === "string") {
-          commandToRun = (crit as any).command;
+        const critRecord = crit as unknown as Record<string, unknown>;
+        if (crit.evaluator === "EXIT_CODE" && typeof critRecord.command === "string") {
+          commandToRun = critRecord.command;
           break;
         }
       }

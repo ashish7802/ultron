@@ -322,3 +322,11 @@
 {"auditId": "audit_8398e9eeb13b", "timestamp": 1794884241.719206, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Authorized battery reset", "status": "RESUMED"}
 {"auditId": "audit_01cd2c53e7e4", "timestamp": 1794886284.3536425, "emergencyStop": true, "action": "EMERGENCY_STOP_TRIGGERED", "reason": "Milestone 5 battery test", "jobsKilled": 0, "status": "HALTED"}
 {"auditId": "audit_3b2b157df4d0", "timestamp": 1794886285.3161943, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Authorized battery reset", "status": "RESUMED"}
+{"auditId": "audit_3921bcc5a334", "timestamp": 1795042831.938322, "emergencyStop": true, "action": "EMERGENCY_STOP_TRIGGERED", "reason": "Milestone 5 battery test", "jobsKilled": 0, "status": "HALTED"}
+{"auditId": "audit_516039cb1c93", "timestamp": 1795042832.0352514, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Authorized battery reset", "status": "RESUMED"}
+{"auditId": "audit_ac9201d98b46", "timestamp": 1795044457.1856928, "emergencyStop": true, "action": "EMERGENCY_STOP_TRIGGERED", "reason": "Milestone 5 battery test", "jobsKilled": 0, "status": "HALTED"}
+{"auditId": "audit_ad9dd1af66a6", "timestamp": 1795044457.2954187, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Authorized battery reset", "status": "RESUMED"}
+{"auditId": "audit_388d52b76142", "timestamp": 1795045198.2865841, "emergencyStop": true, "action": "EMERGENCY_STOP_TRIGGERED", "reason": "Milestone 5 battery test", "jobsKilled": 0, "status": "HALTED"}
+{"auditId": "audit_60cd7133d43d", "timestamp": 1795045198.3662937, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Authorized battery reset", "status": "RESUMED"}
+{"auditId": "audit_314242b6d64b", "timestamp": 1795045316.7313597, "emergencyStop": true, "action": "EMERGENCY_STOP_TRIGGERED", "reason": "Milestone 5 battery test", "jobsKilled": 0, "status": "HALTED"}
+{"auditId": "audit_59284ade5e79", "timestamp": 1795045316.8329482, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Authorized battery reset", "status": "RESUMED"}

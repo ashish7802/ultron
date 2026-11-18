@@ -80,11 +80,9 @@ import {
 } from "@/lib/cognitive/conversationIntelligence";
 import { inferLocalModel, type LocalModelResult } from "@/lib/cognitive/localModelClient";
 import type { AnyMemoryRecord } from "@/lib/memory/types";
+import { getActiveAiConfig } from "@/lib/runtimeConfig";
+import { recordDiagnosticLog } from "@/lib/diagnosticsLog";
 
-const OLLAMA_HOST = process.env.OLLAMA_HOST || "http://127.0.0.1:11434";
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen2.5:0.5b";
-/** LLM request budget; allows rich discussion, code generation, and multi-turn reasoning. */
-const OLLAMA_TIMEOUT_MS = 30000;
 /** Request-shape limits (the HUD sends a trimmed conversation, but the API is public on loopback). */
 const MAX_MESSAGES = 100;
 const MAX_MESSAGE_CHARS = 8000;
@@ -97,8 +95,9 @@ let isSpawningOllama = false;
  * @returns Boolean indicating whether Ollama server is responsive.
  */
 async function ensureOllamaService(): Promise<boolean> {
+  const { ollamaEndpoint } = getActiveAiConfig();
   try {
-    const res = await fetch(`${OLLAMA_HOST}/api/tags`, { signal: AbortSignal.timeout(1500) });
+    const res = await fetch(`${ollamaEndpoint}/api/tags`, { signal: AbortSignal.timeout(1500) });
     if (res.ok) return true;
   } catch {
     // Offline, attempt background spawn
@@ -122,7 +121,7 @@ async function ensureOllamaService(): Promise<boolean> {
     for (let i = 0; i < 6; i++) {
       await new Promise((r) => setTimeout(r, 500));
       try {
-        const check = await fetch(`${OLLAMA_HOST}/api/tags`, { signal: AbortSignal.timeout(1000) });
+        const check = await fetch(`${ollamaEndpoint}/api/tags`, { signal: AbortSignal.timeout(1000) });
         if (check.ok) {
           isSpawningOllama = false;
           return true;
@@ -565,20 +564,34 @@ async function queryOllama(
     }
 
     chatTurns.push({ role: "user", content: prompt });
+    const aiConfig = getActiveAiConfig();
+    const resolvedModel = targetModel || aiConfig.activeModel;
 
-    return await inferLocalModel({
-      endpoint: OLLAMA_HOST,
-      model: targetModel || OLLAMA_MODEL,
+    const result = await inferLocalModel({
+      endpoint: aiConfig.ollamaEndpoint,
+      model: resolvedModel,
       messages: chatTurns,
-      timeoutMs: OLLAMA_TIMEOUT_MS,
+      timeoutMs: aiConfig.timeoutMs,
       signal,
     });
+    if (!result.ok) {
+      recordDiagnosticLog("warn", "chat", `Local model inference failed (${result.reason}).`, {
+        model: resolvedModel,
+        endpoint: aiConfig.ollamaEndpoint,
+      });
+    }
+    return result;
   } catch (error) {
     if (signal?.aborted) return { ok: false, reason: "cancelled" };
+    const aiConfig = getActiveAiConfig();
+    recordDiagnosticLog("error", "chat", "Local model inference threw an unexpected error.", {
+      model: targetModel || aiConfig.activeModel,
+      errorType: error instanceof Error ? error.name : "UnknownError",
+    });
     console.warn("[OLLAMA INFERENCE] Local model request failed:", {
       errorType: error instanceof Error ? error.name : "UnknownError",
       projectId: projectId || "global",
-      model: targetModel || OLLAMA_MODEL,
+      model: targetModel || aiConfig.activeModel,
     });
     return { ok: false, reason: "unavailable" };
   }
@@ -1021,7 +1034,8 @@ async function buildResponse(
         ? `Co-Founder Brain (${cog.context.intentCategory} · ${cog.modelSelection?.selectedModel?.name || 'Local'}): Formulating analytical assessment...`
         : "Host Agent: Analyzing & formulating response...",
     });
-    const targetModel = cog.modelSelection?.selectedModel?.modelId || OLLAMA_MODEL;
+    const aiConfig = getActiveAiConfig();
+    const targetModel = aiConfig.activeModel || cog.modelSelection?.selectedModel?.modelId;
     const inference = await queryOllama(
       query,
       messages,

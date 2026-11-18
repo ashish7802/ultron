@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "lastUpdated": 1794898406181,
+  "lastUpdated": 1795045320126,
   "vision": {
     "id": "vision_prime",
     "title": "Project Metropolis: Open-World Urban Sandbox",
@@ -743,6 +743,54 @@
           "action": "archived",
           "reason": "Character concept approved and signed off",
           "actor": "Founder"
+        },
+        {
+          "timestamp": 1795042196165,
+          "action": "activated",
+          "reason": "Character concept brief assigned",
+          "actor": "NEXUS-01"
+        },
+        {
+          "timestamp": 1795042196166,
+          "action": "archived",
+          "reason": "Character concept approved and signed off",
+          "actor": "Founder"
+        },
+        {
+          "timestamp": 1795044561088,
+          "action": "activated",
+          "reason": "Character concept brief assigned",
+          "actor": "NEXUS-01"
+        },
+        {
+          "timestamp": 1795044561089,
+          "action": "archived",
+          "reason": "Character concept approved and signed off",
+          "actor": "Founder"
+        },
+        {
+          "timestamp": 1795045200933,
+          "action": "activated",
+          "reason": "Character concept brief assigned",
+          "actor": "NEXUS-01"
+        },
+        {
+          "timestamp": 1795045200935,
+          "action": "archived",
+          "reason": "Character concept approved and signed off",
+          "actor": "Founder"
+        },
+        {
+          "timestamp": 1795045319930,
+          "action": "activated",
+          "reason": "Character concept brief assigned",
+          "actor": "NEXUS-01"
+        },
+        {
+          "timestamp": 1795045319930,
+          "action": "archived",
+          "reason": "Character concept approved and signed off",
+          "actor": "Founder"
         }
       ]
     },
@@ -881,8 +929,8 @@
   "tasks": {},
   "bugs": {},
   "marketingDrafts": {
-    "mkt_1794898406153_xbp4": {
-      "id": "mkt_1794898406153_xbp4",
+    "mkt_1795045320124_ae3d": {
+      "id": "mkt_1795045320124_ae3d",
       "title": "Teaser: High-Speed Driving Mechanics Verified",
       "targetPlatforms": [
         "youtube",
@@ -906,12 +954,12 @@
         "complianceChecked": true
       },
       "approvalStatus": "published",
-      "createdAt": 1794898406153,
-      "updatedAt": 1794898406180,
+      "createdAt": 1795045320124,
+      "updatedAt": 1795045320126,
       "editedVideoPath": "exports/teaser_1080p_60fps.mp4",
       "thumbnailPath": "exports/teaser_thumbnail.png",
       "ownerApprovalToken": "FOUNDER_AUTH_TOKEN_77921",
-      "publishedAt": 1794898406179
+      "publishedAt": 1795045320126
     }
   },
   "jobs": {}

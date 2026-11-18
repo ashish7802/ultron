@@ -1,0 +1,39 @@
+# ULTRON Feature Implementation Audit (Phase 1 Baseline)
+
+Every feature in the ULTRON repository has been audited against its actual source code and runtime behavior—not merely UI presence.
+
+### Classification Legend
+- **Fully implemented and verified**: Real backend + frontend implementation verified in this environment with passing evidence.
+- **Implemented but unverified**: Real implementation exists in code, but requires hardware/OS/local services unavailable in Linux cloud container (e.g., Windows 11, local Ollama, physical microphone, Windows Hello).
+- **Partially implemented**: Real logic exists, but key capabilities, UI controls, or cross-platform/error paths are incomplete.
+- **Mocked or simulated**: Relies on synthetic/hardcoded fallback values presented as real state.
+- **Broken**: Fails at runtime or violates core security/functional invariants.
+- **Missing**: Required by product architecture but does not exist in baseline code.
+
+---
+
+## Feature Audit Matrix
+
+| Subsystem / Feature | Status | Code Evidence | Notes & Gaps |
+| :--- | :--- | :--- | :--- |
+| **Desktop Session Bootstrap (`GET /api/auth/session`)** | **Fully implemented and verified** | `/app/api/auth/session/route.ts`, `/lib/sessionGate.ts` | Issues loopback-scoped HttpOnly `ultron_session` cookie and unprivileged `operator` (`CHAT_AUTHENTICATED`) role. |
+| **Main Command Center** | **Partially implemented** | `/components/CommandCenterDashboard.tsx`, `/app/api/dashboard/route.ts` | Exists as an overlay tab inside `UltronChat` rather than a unified workspace shell; missing model status, recent activity timeline, and contextual command launcher. |
+| **AI Chat Interface (English & Hinglish)** | **Partially implemented** | `/components/UltronChat.tsx`, `/app/api/chat/route.ts` | Supports history, markdown, copy, and Ollama streaming/fallback. **Missing**: message editing, response regeneration, active model/provider badge, inline model selector, and non-blocking error recovery (uses `window.alert`/`confirm`). |
+| **Local Ollama Integration** | **Implemented but unverified** | `/lib/cognitive/localModelClient.ts`, `/lib/cognitive/multiModelEngine.ts`, `/app/api/chat/route.ts` | Real HTTP `fetch` to `http://127.0.0.1:11434`. Local Ollama daemon is not running in cloud (`NOT VERIFIED IN CLOUD`). Static `OLLAMA_MODEL` prevents runtime model switching. |
+| **AI Model Manager (UI + API)** | **Missing** | N/A | No `/api/models` endpoint and no UI screen to inspect provider, list installed Ollama models, test connection latency, switch active model, or configure timeout/temperature. |
+| **Voice Interface (Mic / STT / TTS / Wakeword)** | **Partially implemented** | `/components/UltronChat.tsx`, `/app/api/transcribe/route.ts`, `/app/api/tts/route.ts`, `/app/api/wakeword/route.ts` | Real MediaRecorder + Web Speech API + backend routes exist, but mic permission state is not clearly surfaced, no dedicated Voice workspace view exists, and all 3 voice API routes lack session/origin gates. Hardware mic/TTS is `NOT VERIFIED IN CLOUD`. |
+| **Memory Center (CRUD + Search + Encryption)** | **Partially implemented** | `/app/api/memory/route.ts`, `/lib/memoryManager.ts`, `/lib/crypto.ts`, `/components/CommandCenterDashboard.tsx` | Real AES-256-GCM encrypted CRUD & search exist (`ultron_memory_vault.json`). **Missing**: honest encryption/integrity metadata readout in UI, inline edit/delete without `window.confirm`, and dedicated Memory Center view. |
+| **System Control Center (CPU / RAM / Storage / Services)** | **Partially implemented** | `/app/api/dashboard/route.ts`, `/components/CommandCenterDashboard.tsx`, `/app/api/computer/route.ts` | Real Node.js `os` CPU/RAM/disk/process metrics work on Linux/Windows. GPU/hardware-specific fields need explicit `Unavailable` labeling. Task orchestration controls are detached in a separate modal. |
+| **Security Center — Core Cryptography & Vaults** | **Fully implemented and verified** | `/lib/crypto.ts`, `/lib/security/vaultStorage.ts`, `/lib/security/auditChain.ts`, `/lib/security/emergencyEngine.ts` | AES-256-GCM, HMAC-SHA256 audit chain, atomic lockfile persistence, emergency lockdown, and constant-time recovery key checks verified in unit tests (`test_final_security_invariants.cjs`, `tests_memory_self_healing_security.test.mjs`). |
+| **Security Center — Windows Hello & DPAPI** | **Mocked or simulated** (UI) / **Implemented but unverified** (Backend) | `/components/SecurityDashboardModal.tsx:820-833`, `/lib/security/windowsHelloBridge.ts`, `/lib/security/dpapiBridge.ts` | Backend bridges fail closed properly on non-Windows (`NOT VERIFIED IN CLOUD`). **Critical UI defect**: `SecurityDashboardModal.tsx` hardcodes fake `"Synaptics VFS7552 Touch Sensor"`, `"Available"`, and `1 fingerprint(s)` when backend reports unavailable! |
+| **Security Center — Learning RBAC Authorization** | **Broken** | `/app/api/learning/route.ts:55-58` | Privilege escalation vulnerability: any `operator` session cookie is hardcoded to `role: "founder"`, bypassing founder-only evolution approval/rollback gates. |
+| **Settings Center** | **Missing** | `/components/CommandCenterDashboard.tsx:523,642` | Placeholder text literally reads `"Settings are not available in this build."` No `/api/settings` persistence route exists. |
+| **Developer / Diagnostic Center** | **Missing** | N/A | No `/api/diagnostics` route and no UI screen for server/client logs, runtime metrics, API health matrix, vault integrity diagnostics, or exportable diagnostic reports. |
+| **Computer Intelligence Python Bridge** | **Broken** (on Linux) / **Implemented but unverified** (on Windows) | `/lib/computer/pythonBridge.ts`, `/ultron_engine/computer/computer_intelligence_cli.py`, `/ultron_engine/computer/desktop_engine.py:30` | Top-level unguarded `import winreg` and `ctypes.windll` crash the entire CLI on non-Windows, causing `safetyControls.isEmergencyStopActive()` to fail closed and breaking `scripts/test_milestone5_battery.cjs`. |
+| **Screen Awareness & Capture** | **Implemented but unverified** (Windows) / **Partially implemented** (Cross-platform) | `/lib/screen/screenCaptureEngine.ts`, `/app/api/screen/*` | Uses native Python Win32/GDI driver; `screenCaptureEngine.ts:53` hardcodes `"python"` instead of `resolvePythonExecutable()`. Synthetic BMP frame generator exists for isolated tests only (`allowSyntheticFallback = false` by default). |
+| **Task Orchestration Engine** | **Partially implemented** | `/app/api/orchestration/route.ts`, `/components/TaskOrchestrationModal.tsx`, `/lib/orchestration/*` | Full planner/verifier/approval backend exists; UI modal uses `window.alert`/`confirm` and is detached from System Control Center. |
+| **Learning & Evolution Engine** | **Broken** (Auth) / **Partially implemented** (UI) | `/app/api/learning/route.ts`, `/components/LearningEvolutionModal.tsx` | Backend experience/lesson/skill proposal engine works, but API has founder privilege escalation bug and UI uses `window.confirm`. |
+| **Research Engine (v2 & Quantum)** | **Implemented but unverified** | `/app/api/research/*`, `/lib/research/*`, `/ultron_engine/quantum_research_agent.py` | Comprehensive multi-stage research API exists; requires live outbound web scraping & Python dependencies. |
+| **Game Dev Lifecycle Engine** | **Fully implemented and verified** | `/app/api/gamedev/route.ts`, `/lib/gameDev/*` | Verified via `scripts/test_gamedev_battery.cjs` (17/17 tests passed). |
+| **Electron Desktop Packaging & Startup** | **Implemented but unverified** | `/electron/main.js`, `/electron/preload.js`, `/app/api/desktop-ready/route.ts` | Electron runtime cannot launch GUI windows in headless cloud container (`NOT VERIFIED IN CLOUD`). |
+| **3D Holographic Orb & Hand Gestures** | **Implemented but unverified** | `/components/UltronOrb.tsx` | Large standalone Three.js + MediaPipe component (1,876 lines), currently unused by `/app/page.tsx`. |

@@ -21,10 +21,10 @@ import { validateDesktopSession, createAuthErrorResponse } from "@/lib/sessionGa
 import { defaultPersistentStateEngine } from "@/lib/orchestration/persistentStateEngine";
 import { defaultPythonBridge } from "@/lib/computer/pythonBridge";
 import { listSecurityEvents, listSecurityIncidents } from "@/lib/security/monitoringEngine";
-import {
-  DEFAULT_FALLBACK_MODEL_ID,
-  DEFAULT_OLLAMA_ENDPOINT,
-} from "@/lib/cognitive/multiModelEngine";
+import { getActiveAiConfig } from "@/lib/runtimeConfig";
+import { getMemoryStats } from "@/lib/memoryManager";
+import { getCryptoStatus } from "@/lib/crypto";
+import { getLockdownStatus } from "@/lib/security/emergencyEngine";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -101,15 +101,18 @@ function readStorage(): { totalBytes: number; freeBytes: number; usedPercent: nu
 async function checkConfiguredModel(): Promise<{
   status: "ready" | "unavailable";
   model: string | null;
+  endpoint: string;
 }> {
-  const preferredModel = process.env.OLLAMA_MODEL?.trim() || DEFAULT_FALLBACK_MODEL_ID;
+  const aiConfig = getActiveAiConfig();
+  const preferredModel = aiConfig.activeModel;
+  const endpoint = aiConfig.ollamaEndpoint;
 
   try {
-    const response = await fetch(`${DEFAULT_OLLAMA_ENDPOINT}/api/tags`, {
+    const response = await fetch(`${endpoint}/api/tags`, {
       cache: "no-store",
       signal: AbortSignal.timeout(1200),
     });
-    if (!response.ok) return { status: "unavailable", model: preferredModel };
+    if (!response.ok) return { status: "unavailable", model: preferredModel, endpoint };
 
     const payload: unknown = await response.json();
     if (
@@ -118,21 +121,21 @@ async function checkConfiguredModel(): Promise<{
       !("models" in payload) ||
       !Array.isArray(payload.models)
     ) {
-      return { status: "unavailable", model: preferredModel };
+      return { status: "unavailable", model: preferredModel, endpoint };
     }
 
     const models = payload.models.filter(
       (entry): entry is { name: string } =>
         Boolean(entry && typeof entry === "object" && "name" in entry && typeof entry.name === "string"),
     );
-    if (models.length === 0) return { status: "unavailable", model: preferredModel };
+    if (models.length === 0) return { status: "unavailable", model: preferredModel, endpoint };
 
     const selectedModel = models.find(
       (entry) => entry.name === preferredModel || entry.name.startsWith(preferredModel),
     );
-    return { status: "ready", model: selectedModel?.name ?? models[0].name };
+    return { status: "ready", model: selectedModel?.name ?? models[0].name, endpoint };
   } catch {
-    return { status: "unavailable", model: preferredModel };
+    return { status: "unavailable", model: preferredModel, endpoint };
   }
 }
 
@@ -181,6 +184,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const tasks = activeWorkflows.flatMap((workflow) => Object.values(workflow.tasks));
   const openTaskStatuses = new Set(["PENDING", "READY", "BLOCKED", "AWAITING_APPROVAL", "RUNNING"]);
   const storage = readStorage();
+  const memoryStats = (() => {
+    try {
+      return getMemoryStats();
+    } catch {
+      return null;
+    }
+  })();
+  const cryptoStatus = getCryptoStatus();
+  const lockdown = getLockdownStatus();
 
   return NextResponse.json(
     {
@@ -191,6 +203,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         release: os.release(),
         cpuModel: os.cpus()[0]?.model ?? null,
         cpuCores: os.cpus().length || null,
+        uptimeSeconds: Math.round(os.uptime()),
       },
       metrics: {
         cpuPercent,
@@ -202,6 +215,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         gpuPercent: null,
       },
       model,
+      memory: {
+        totalRecords: memoryStats?.total ?? null,
+        encryption: cryptoStatus,
+      },
       workflows: workflows
         ? {
             total: workflows.length,
@@ -213,6 +230,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       security: {
         recentEventCount: listSecurityEvents(50).length,
         activeIncidentCount: listSecurityIncidents().filter((incident) => incident.status !== "RESOLVED").length,
+        lockdownActive: Boolean(lockdown.isLockedDown),
       },
       diagnostics: {
         cpuAvailable: cpuPercent !== null,

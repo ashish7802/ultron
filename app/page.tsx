@@ -1,57 +1,37 @@
 /**
  * @file app/page.tsx
- * @description Main application page for ULTRON's command center and chat interface.
- * 
+ * @description Root entrypoint mounting the unified ULTRON AI Operating Environment.
+ *
  * Subsystem:
- * User Interface & Navigation.
- * 
+ * Presentation Layer & Workspace Bootstrap.
+ *
  * Key Responsibilities:
- * - Mounts the client-side `UltronChat` interface dynamically.
- * - Disables Server-Side Rendering (SSR) for `UltronChat` to ensure smooth hydration
- *   with browser `localStorage` and client APIs.
- * 
+ * - Dynamically mounts `UltronWorkspace` with `ssr: false` so browser storage, Web Audio,
+ *   and client-side session bootstrapping hydrate cleanly without mismatch warnings.
+ *
  * Architectural Role & Interactions:
- * - Mounts the command center and existing conversation history workspace.
- * - Serves as the primary viewport for both browser access (http://localhost:3000) and the
- *   standalone Electron desktop shell.
- * 
+ * - Primary viewport served on `http://localhost:3000` and inside the Electron shell.
+ *
  * Safety / Security Guarantees:
- * - Runs fully sandboxed in client mode without exposing sensitive environment keys to the DOM.
+ * - Contains zero secrets or privileged server logic.
  */
 
 "use client";
 
 import dynamic from "next/dynamic";
 
-// Dynamically import UltronChat with ssr: false to avoid hydration mismatches with localStorage
-const UltronChat = dynamic(() => import("@/components/UltronChat"), {
+const UltronWorkspace = dynamic(() => import("@/components/UltronWorkspace"), {
   ssr: false,
   loading: () => (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        height: "100vh",
-        width: "100vw",
-        backgroundColor: "#080c14",
-        color: "#00f0ff",
-        fontFamily: "monospace",
-        fontSize: "14px",
-        letterSpacing: "0.1em",
-      }}
-    >
-      INITIALIZING ULTRON INTELLIGENCE...
+    <div className="flex h-screen w-screen flex-col items-center justify-center gap-3 bg-[#06090f] text-slate-200">
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-700 border-t-blue-500" />
+      <div className="font-mono text-xs tracking-wider text-slate-400">
+        INITIALIZING ULTRON OPERATING ENVIRONMENT...
+      </div>
     </div>
   ),
 });
 
-/**
- * Home component
- * Renders the primary full-screen ULTRON chat & conversation history interface.
- *
- * @returns React.JSX.Element
- */
 export default function Home() {
-  return <UltronChat />;
+  return <UltronWorkspace />;
 }

@@ -22,7 +22,16 @@ import {
 } from "@/lib/security/policyEngine";
 import { validateSessionToken } from "@/lib/security/identityEngine";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const origin = req.headers.get("origin") || "";
+  const isLoopback = !origin || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin);
+  const secFetchSite = req.headers.get("sec-fetch-site");
+  if (!isLoopback || secFetchSite === "cross-site") {
+    return NextResponse.json(
+      { ok: false, error: "Cross-origin security policy requests are prohibited." },
+      { status: 403 }
+    );
+  }
   const policies = listSecurityPolicies();
   return NextResponse.json({ ok: true, policies });
 }

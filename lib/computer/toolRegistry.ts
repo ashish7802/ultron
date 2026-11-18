@@ -26,7 +26,6 @@
 import fs from "fs";
 import {
   planAction,
-  approveActionPlan,
   executeApprovedAction,
   generateSubprocessExecutionGrant,
   type ActionPlan,

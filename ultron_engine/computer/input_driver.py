@@ -27,14 +27,21 @@ Safety / Security Guarantees:
 ===============================================================================
 """
 
+import sys
 import time
 import math
 import ctypes
-from ctypes import wintypes
 from typing import Any, Dict, List, Optional, Tuple
 
-user32 = ctypes.windll.user32
-kernel32 = ctypes.windll.kernel32
+IS_WINDOWS = sys.platform == "win32"
+if IS_WINDOWS:
+    from ctypes import wintypes
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+else:
+    wintypes = None  # type: ignore[assignment]
+    user32 = None
+    kernel32 = None
 
 # Input type constants
 INPUT_MOUSE = 0
@@ -121,36 +128,41 @@ NAMED_KEYS: Dict[str, int] = {
 for i in range(1, 13):
     NAMED_KEYS[f"f{i}"] = 0x6F + i
 
-# Structures for SendInput
-ULONG_PTR = wintypes.WPARAM
+# Structures for SendInput (portable ctypes aliases when wintypes is unavailable on POSIX)
+_WPARAM = wintypes.WPARAM if wintypes is not None else ctypes.c_size_t
+_LONG = wintypes.LONG if wintypes is not None else ctypes.c_long
+_DWORD = wintypes.DWORD if wintypes is not None else ctypes.c_uint32
+_WORD = wintypes.WORD if wintypes is not None else ctypes.c_uint16
+
+ULONG_PTR = _WPARAM
 
 
 class MOUSEINPUT(ctypes.Structure):
     _fields_ = [
-        ("dx", wintypes.LONG),
-        ("dy", wintypes.LONG),
-        ("mouseData", wintypes.DWORD),
-        ("dwFlags", wintypes.DWORD),
-        ("time", wintypes.DWORD),
+        ("dx", _LONG),
+        ("dy", _LONG),
+        ("mouseData", _DWORD),
+        ("dwFlags", _DWORD),
+        ("time", _DWORD),
         ("dwExtraInfo", ULONG_PTR),
     ]
 
 
 class KEYBDINPUT(ctypes.Structure):
     _fields_ = [
-        ("wVk", wintypes.WORD),
-        ("wScan", wintypes.WORD),
-        ("dwFlags", wintypes.DWORD),
-        ("time", wintypes.DWORD),
+        ("wVk", _WORD),
+        ("wScan", _WORD),
+        ("dwFlags", _DWORD),
+        ("time", _DWORD),
         ("dwExtraInfo", ULONG_PTR),
     ]
 
 
 class HARDWAREINPUT(ctypes.Structure):
     _fields_ = [
-        ("uMsg", wintypes.DWORD),
-        ("wParamL", wintypes.WORD),
-        ("wParamH", wintypes.WORD),
+        ("uMsg", _DWORD),
+        ("wParamL", _WORD),
+        ("wParamH", _WORD),
     ]
 
 
@@ -164,7 +176,7 @@ class _INPUTunion(ctypes.Union):
 
 class INPUT(ctypes.Structure):
     _fields_ = [
-        ("type", wintypes.DWORD),
+        ("type", _DWORD),
         ("u", _INPUTunion),
     ]
 

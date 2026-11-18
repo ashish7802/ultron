@@ -19,9 +19,6 @@
  */
 
 const assert = require("assert");
-const fs = require("fs");
-const path = require("path");
-const http = require("http");
 
 let totalTests = 0;
 let passedTests = 0;
@@ -62,15 +59,12 @@ async function main() {
     getOrCreatePrimarySessionToken,
     createDesktopSession,
     getDesktopSession,
-    revokeSessionToken,
   } = await import("../lib/sessionGate.ts");
 
   const {
     createAuthenticatedSession,
-    validateSessionToken,
     createSensitiveActionChallenge,
     verifySensitiveActionChallenge,
-    FOUNDER_IDENTITY,
   } = await import("../lib/security/identityEngine.ts");
 
   const {
@@ -81,7 +75,7 @@ async function main() {
     getActionPlan,
   } = await import("../lib/permissionGateway.ts");
 
-  const { getEffectiveRecoveryKey, verifyRecoveryKey } = await import(
+  const { getEffectiveRecoveryKey } = await import(
     "../lib/security/recoveryKey.ts"
   );
 

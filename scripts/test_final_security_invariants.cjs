@@ -90,7 +90,6 @@ async function main() {
     createSensitiveActionChallenge,
     verifySensitiveActionChallenge,
     elevateSessionWithBiometricChallenge,
-    validateSessionToken,
   } = await import("../lib/security/identityEngine.ts");
   const { createDesktopSession, getDesktopSession } = await import("../lib/sessionGate.ts");
 
@@ -145,15 +144,25 @@ async function main() {
     const vaultPath = defaultAppPathService.getMemoryVaultPath();
     assert.ok(fs.existsSync(vaultPath), "Memory vault file must exist");
 
-    // 1. Verify baseline hash and non-destructive preservation
+    // 1. Verify baseline hash and non-destructive preservation (handles both Windows CRLF and Linux LF checkouts)
     const rawVaultBuffer = fs.readFileSync(vaultPath);
-    const vaultHash = crypto.createHash("sha256").update(rawVaultBuffer).digest("hex");
+    const snapshotPath = path.join(process.cwd(), "backups", "pre_migration_safe_snapshot", "ultron_memory_vault.json");
+    if (fs.existsSync(snapshotPath)) {
+      const snapBuffer = fs.readFileSync(snapshotPath);
+      assert.strictEqual(
+        crypto.createHash("sha256").update(rawVaultBuffer).digest("hex"),
+        crypto.createHash("sha256").update(snapBuffer).digest("hex"),
+        "Memory vault must remain byte-identical to pre-migration snapshot"
+      );
+    }
+    const normalizedCrlfBuffer = Buffer.from(rawVaultBuffer.toString("utf-8").replace(/\r?\n/g, "\r\n"), "utf-8");
+    const normalizedHash = crypto.createHash("sha256").update(normalizedCrlfBuffer).digest("hex");
     assert.strictEqual(
-      vaultHash,
+      normalizedHash,
       "cfad9fbf6569db52c3f393a534b62fadc6ffea74ea87df9e1679efcd93d54bdc",
-      "Memory vault hash must match untouched baseline (cfad9fbf...)"
+      "Memory vault normalized hash must match untouched baseline (cfad9fbf...)"
     );
-    assert.strictEqual(rawVaultBuffer.length, 29103, "Memory vault size must be exactly 29,103 bytes");
+    assert.strictEqual(normalizedCrlfBuffer.length, 29103, "Memory vault normalized size must be exactly 29,103 bytes");
 
     // 2. Verify vault envelope format integrity
     const vaultData = JSON.parse(rawVaultBuffer.toString("utf-8"));
@@ -185,9 +194,6 @@ async function main() {
   console.log("\n>>> [4] Recovery Key Custody: Fail-Closed Persistence");
   runTest("Recovery-key persistence failure fails closed", () => {
     // If DPAPI recovery file is corrupted, getEffectiveRecoveryKey must fail closed, not silently generate
-    const recoveryPath = defaultAppPathService.getRecoveryKeyPath();
-    const dpapiPath = `${recoveryPath}.dpapi`;
-
     // Test corrupted blob handling via DpapiBridge
     const badBlob = "CORRUPTED_BASE64_NOT_VALID_DPAPI_BLOB_===!";
     if (process.platform === "win32" && defaultDpapiBridge.isAvailable()) {

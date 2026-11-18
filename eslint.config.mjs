@@ -32,7 +32,7 @@ export default tseslint.config(
     rules: {
       "@typescript-eslint/no-explicit-any": "warn",
       "@typescript-eslint/no-require-imports": "warn",
-      "@typescript-eslint/no-unused-vars": "warn",
+      "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
       "no-empty": ["warn", { allowEmptyCatch: true }],
       "no-useless-assignment": "warn",
       "no-useless-escape": "warn",
@@ -40,7 +40,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["electron/**/*.js"],
+    files: ["electron/**/*.js", "scripts/**/*.cjs"],
     rules: {
       "@typescript-eslint/no-require-imports": "off",
     },

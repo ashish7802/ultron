@@ -27,6 +27,7 @@ import { execFile, type ChildProcess } from "child_process";
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { validateDesktopSession, createAuthErrorResponse } from "@/lib/sessionGate";
 
 /** Hard cap on synthesized characters: SAPI streams to disk, so longer text is truncated. */
 const MAX_SPEECH_CHARS = 500;
@@ -170,6 +171,10 @@ async function synthesizeSpeechToWav(text: string, rate: number, volume: number)
  * @returns WAV audio response, or a silent WAV fallback when local synthesis is unavailable.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const auth = validateDesktopSession(req);
+  if (!auth.valid) {
+    return createAuthErrorResponse(auth);
+  }
   try {
     let body: { text?: unknown; rate?: unknown; volume?: unknown };
     try {
@@ -238,7 +243,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
  *
  * @returns Acknowledgement JSON with the number of terminated renderers.
  */
-export async function DELETE(): Promise<NextResponse> {
+export async function DELETE(req: NextRequest): Promise<NextResponse> {
+  const auth = validateDesktopSession(req);
+  if (!auth.valid) {
+    return createAuthErrorResponse(auth);
+  }
   let cancelledProcesses = 0;
   for (const child of activeSynthesisProcesses) {
     try {

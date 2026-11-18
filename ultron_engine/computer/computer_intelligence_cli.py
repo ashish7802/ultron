@@ -37,15 +37,33 @@ import time
 from typing import Any, Dict
 
 from . import desktop_engine
-from . import app_manager
 from . import input_driver
-from . import uia_engine
-from . import visual_recognizer
 from . import filesystem_driver
 from . import terminal_driver
-from . import browser_driver
 from . import dev_driver
 from . import safety_controller
+
+# Windows-only automation drivers are loaded defensively so cross-platform safety
+# and introspection commands (emergency_stop_status, os_info, filesystem) never crash on Linux/macOS.
+try:
+    from . import app_manager
+except Exception:
+    app_manager = None  # type: ignore[assignment]
+
+try:
+    from . import uia_engine
+except Exception:
+    uia_engine = None  # type: ignore[assignment]
+
+try:
+    from . import visual_recognizer
+except Exception:
+    visual_recognizer = None  # type: ignore[assignment]
+
+try:
+    from . import browser_driver
+except Exception:
+    browser_driver = None  # type: ignore[assignment]
 
 
 def dispatch(command: str, payload: Dict[str, Any]) -> Dict[str, Any]:

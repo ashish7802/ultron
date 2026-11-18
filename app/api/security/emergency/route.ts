@@ -23,7 +23,16 @@ import {
 import { validateSessionToken } from "@/lib/security/identityEngine";
 import { verifyRecoveryKey } from "@/lib/security/recoveryKey";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const origin = req.headers.get("origin") || "";
+  const isLoopback = !origin || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin);
+  const secFetchSite = req.headers.get("sec-fetch-site");
+  if (!isLoopback || secFetchSite === "cross-site") {
+    return NextResponse.json(
+      { ok: false, error: "Cross-origin emergency status requests are prohibited." },
+      { status: 403 }
+    );
+  }
   const status = getLockdownStatus();
   return NextResponse.json({ ok: true, lockdownStatus: status });
 }
