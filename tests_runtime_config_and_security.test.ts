@@ -117,3 +117,79 @@ test("Vault Preservation: ultron_memory_vault.json remains byte-identical to pre
   assert.equal(vaultBuf.length, snapBuf.length);
   assert.equal(vaultHash, snapHash);
 });
+
+test("Direct Landing & Preview Assets: no blocking loading screen and recursive allowedDevOrigins configured", () => {
+  const pageSrc = fs.readFileSync(path.join(process.cwd(), "app", "page.tsx"), "utf8");
+  assert.equal(pageSrc.includes("INITIALIZING ULTRON OPERATING ENVIRONMENT"), false);
+  assert.equal(pageSrc.includes("ssr: false"), false);
+  assert.equal(pageSrc.includes("UltronWorkspace"), true);
+
+  const nextCfgSrc = fs.readFileSync(path.join(process.cwd(), "next.config.ts"), "utf8");
+  assert.equal(nextCfgSrc.includes("**.run.app"), true);
+});
+
+test("Origin Boundary: permits loopback and exact same-origin AI Studio preview, rejects foreign and mismatched hosts", async () => {
+  const { isAllowedRequestOrigin } = await import("./lib/sessionGate.ts");
+  const makeReq = (headersObj: Record<string, string>) => {
+    const map = new Map(Object.entries(headersObj).map(([k, v]) => [k.toLowerCase(), v]));
+    return {
+      headers: { get: (k: string) => map.get(k.toLowerCase()) || null },
+      cookies: { get: () => undefined },
+    } as unknown as import("next/server").NextRequest;
+  };
+
+  // Loopback succeeds
+  assert.equal(
+    isAllowedRequestOrigin(
+      makeReq({ host: "localhost:3000", origin: "http://localhost:3000", "sec-fetch-site": "same-origin" }),
+    ).allowed,
+    true,
+  );
+
+  // Same-origin AI Studio Cloud Run preview succeeds
+  const previewHost = "ais-dev-nf6tkmpecc3chs57y6amfm-248047956769.asia-east1.run.app";
+  assert.equal(
+    isAllowedRequestOrigin(
+      makeReq({
+        host: previewHost,
+        origin: `https://${previewHost}`,
+        referer: `https://${previewHost}/`,
+        "sec-fetch-site": "same-origin",
+      }),
+    ).allowed,
+    true,
+  );
+
+  // Mismatched preview Origin vs Host MUST be rejected (403)
+  const mismatched = isAllowedRequestOrigin(
+    makeReq({
+      host: previewHost,
+      origin: "https://ais-dev-other-host.asia-east1.run.app",
+      "sec-fetch-site": "same-origin",
+    }),
+  );
+  assert.equal(mismatched.allowed, false);
+  assert.equal(mismatched.status, 403);
+
+  // Arbitrary third-party Cloud Run app MUST be rejected (403)
+  const arbitraryRunApp = isAllowedRequestOrigin(
+    makeReq({
+      host: "attacker-app.asia-east1.run.app",
+      origin: "https://attacker-app.asia-east1.run.app",
+      "sec-fetch-site": "same-origin",
+    }),
+  );
+  assert.equal(arbitraryRunApp.allowed, false);
+  assert.equal(arbitraryRunApp.status, 403);
+
+  // Foreign origin + cross-site MUST be rejected (403)
+  const foreign = isAllowedRequestOrigin(
+    makeReq({
+      host: "localhost:3000",
+      origin: "https://evil.com",
+      "sec-fetch-site": "cross-site",
+    }),
+  );
+  assert.equal(foreign.allowed, false);
+  assert.equal(foreign.status, 403);
+});

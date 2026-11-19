@@ -64,7 +64,133 @@ const rateLimitBuckets = new Map<string, RateLimitBucket>();
 export const SERVER_EPHEMERAL_SECRET = process.env.ULTRON_SESSION_SECRET || crypto.randomBytes(32).toString("hex");
 
 /** Permitted origins for local desktop interface. */
-const ALLOWED_ORIGIN_REGEX = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d{1,5})?$/;
+const ALLOWED_ORIGIN_REGEX = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d{1,5})?$/i;
+
+/**
+ * Strictly scoped Cloud Run preview host pattern for non-packaged AI Studio preview sessions.
+ * Only permitted when the request's Origin/Referer hostname matches the request's own Host header.
+ */
+const ALLOWED_PREVIEW_HOST_REGEX = /^ais-(dev|pre)-[a-z0-9-]+\.[a-z0-9-]+\.run\.app$/i;
+
+/**
+ * Extracts a normalized lowercase hostname (without port) from a Host / X-Forwarded-Host header.
+ *
+ * @param rawHost - Raw header value (may contain comma-separated proxy entries or `:port`).
+ * @returns Normalized hostname or empty string.
+ */
+function extractHostname(rawHost: string | null): string {
+  if (!rawHost) return "";
+  const first = rawHost.split(",")[0]?.trim() || "";
+  return first.replace(/:\d+$/, "").toLowerCase();
+}
+
+/**
+ * Evaluates whether a URL origin string is permitted for the given incoming request.
+ *
+ * WHY: Desktop deployments run on loopback (`localhost`/`127.0.0.1`), while hosted AI Studio
+ * previews run on an HTTPS Cloud Run preview host (`ais-dev-*.<region>.run.app`). Requiring
+ * exact hostname parity with the server's own `Host`/`X-Forwarded-Host` header preserves
+ * strict same-origin isolation while allowing the preview UI to talk to its own API routes.
+ *
+ * @param originStr - Origin string (`protocol//host[:port]`).
+ * @param req - Incoming NextRequest.
+ * @returns True if loopback or exact same-origin AI Studio preview host.
+ */
+function isOriginPermittedForRequest(originStr: string, req: NextRequest): boolean {
+  if (ALLOWED_ORIGIN_REGEX.test(originStr)) {
+    return true;
+  }
+
+  // Packaged Electron desktop builds enforce loopback strictly and never trust hosted preview domains.
+  if (process.env.ULTRON_PACKAGED_DESKTOP === "true") {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(originStr);
+    if (parsed.protocol !== "https:") return false;
+    const originHost = parsed.hostname.toLowerCase();
+    if (!ALLOWED_PREVIEW_HOST_REGEX.test(originHost)) return false;
+
+    const effectiveHost = extractHostname(
+      req.headers.get("x-forwarded-host") || req.headers.get("host")
+    );
+    return effectiveHost.length > 0 && effectiveHost === originHost;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Validates Origin, Referer, Host, and Sec-Fetch-Site headers for API routes.
+ *
+ * @param req - Incoming NextRequest object.
+ * @returns Validation result with HTTP status and error message on rejection.
+ */
+export function isAllowedRequestOrigin(req: NextRequest): {
+  allowed: boolean;
+  error?: string;
+  status?: number;
+} {
+  const origin = req.headers.get("origin");
+  const referer = req.headers.get("referer");
+  const hostHeader = req.headers.get("x-forwarded-host") || req.headers.get("host");
+  const effectiveHost = extractHostname(hostHeader);
+
+  // If a Host header is explicitly present, ensure it is either loopback or a valid preview host
+  if (effectiveHost) {
+    const isLoopbackHost = effectiveHost === "localhost" || effectiveHost === "127.0.0.1";
+    const isPreviewHost =
+      process.env.ULTRON_PACKAGED_DESKTOP !== "true" &&
+      ALLOWED_PREVIEW_HOST_REGEX.test(effectiveHost);
+    if (!isLoopbackHost && !isPreviewHost) {
+      return {
+        allowed: false,
+        error: `Access Denied: Untrusted Host "${effectiveHost}" is not permitted to access ULTRON APIs.`,
+        status: 403,
+      };
+    }
+  }
+
+  if (origin && !isOriginPermittedForRequest(origin, req)) {
+    return {
+      allowed: false,
+      error: `Access Denied: Untrusted Origin "${origin}" is not permitted to access ULTRON desktop APIs.`,
+      status: 403,
+    };
+  }
+
+  if (referer) {
+    try {
+      const refUrl = new URL(referer);
+      const refOrigin = `${refUrl.protocol}//${refUrl.host}`;
+      if (!isOriginPermittedForRequest(refOrigin, req)) {
+        return {
+          allowed: false,
+          error: `Access Denied: Untrusted Referer "${referer}" is not permitted.`,
+          status: 403,
+        };
+      }
+    } catch {
+      return {
+        allowed: false,
+        error: "Access Denied: Malformed Referer header.",
+        status: 400,
+      };
+    }
+  }
+
+  const secFetchSite = req.headers.get("sec-fetch-site");
+  if (secFetchSite && secFetchSite === "cross-site") {
+    return {
+      allowed: false,
+      error: "Access Denied: Cross-site requests are strictly prohibited.",
+      status: 403,
+    };
+  }
+
+  return { allowed: true };
+}
 
 /** Session Time-To-Live: 24 hours. */
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -295,45 +421,13 @@ export function validateDesktopSession(
   req: NextRequest,
   options: { allowBootstrap?: boolean } = {}
 ): SessionValidationResult {
-  // 1. Origin & Referer Validation
-  const origin = req.headers.get("origin");
-  const referer = req.headers.get("referer");
-
-  if (origin && !ALLOWED_ORIGIN_REGEX.test(origin)) {
+  // 1 & 2. Origin, Referer, Host, and Anti-CSRF Sec-Fetch-Site Validation
+  const originCheck = isAllowedRequestOrigin(req);
+  if (!originCheck.allowed) {
     return {
       valid: false,
-      error: `Access Denied: Untrusted Origin "${origin}" is not permitted to access ULTRON desktop APIs.`,
-      status: 403,
-    };
-  }
-
-  if (referer) {
-    try {
-      const refUrl = new URL(referer);
-      const refOrigin = `${refUrl.protocol}//${refUrl.host}`;
-      if (!ALLOWED_ORIGIN_REGEX.test(refOrigin)) {
-        return {
-          valid: false,
-          error: `Access Denied: Untrusted Referer "${referer}" is not permitted.`,
-          status: 403,
-        };
-      }
-    } catch {
-      return {
-        valid: false,
-        error: "Access Denied: Malformed Referer header.",
-        status: 400,
-      };
-    }
-  }
-
-  // 2. Anti-CSRF Sec-Fetch-Site Check
-  const secFetchSite = req.headers.get("sec-fetch-site");
-  if (secFetchSite && secFetchSite === "cross-site") {
-    return {
-      valid: false,
-      error: "Access Denied: Cross-site requests are strictly prohibited.",
-      status: 403,
+      error: originCheck.error || "Access Denied: Untrusted origin.",
+      status: originCheck.status || 403,
     };
   }
 

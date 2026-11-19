@@ -6,32 +6,22 @@
  * Presentation Layer & Workspace Bootstrap.
  *
  * Key Responsibilities:
- * - Dynamically mounts `UltronWorkspace` with `ssr: false` so browser storage, Web Audio,
- *   and client-side session bootstrapping hydrate cleanly without mismatch warnings.
+ * - Directly renders `UltronWorkspace` on initial SSR and client hydration so the user
+ *   lands immediately on the ULTRON Command Center UI/UX with zero blocking loading screen.
  *
  * Architectural Role & Interactions:
- * - Primary viewport served on `http://localhost:3000` and inside the Electron shell.
+ * - Primary viewport served on `http://localhost:3000`, the AI Studio preview host,
+ *   and inside the Electron desktop shell.
  *
  * Safety / Security Guarantees:
  * - Contains zero secrets or privileged server logic.
  */
 
-"use client";
+import UltronWorkspace from "@/components/UltronWorkspace";
 
-import dynamic from "next/dynamic";
-
-const UltronWorkspace = dynamic(() => import("@/components/UltronWorkspace"), {
-  ssr: false,
-  loading: () => (
-    <div className="flex h-screen w-screen flex-col items-center justify-center gap-3 bg-[#06090f] text-slate-200">
-      <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-700 border-t-blue-500" />
-      <div className="font-mono text-xs tracking-wider text-slate-400">
-        INITIALIZING ULTRON OPERATING ENVIRONMENT...
-      </div>
-    </div>
-  ),
-});
-
+/**
+ * Root page component rendering the ULTRON operating environment directly.
+ */
 export default function Home() {
   return <UltronWorkspace />;
 }

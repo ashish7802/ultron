@@ -35,15 +35,13 @@ import {
 } from "@/lib/security/windowsHelloBridge";
 import { isSystemLockedDown } from "@/lib/security/emergencyEngine";
 import { verifyRecoveryKey } from "@/lib/security/recoveryKey";
+import { isAllowedRequestOrigin } from "@/lib/sessionGate";
 
 /**
- * Validates loopback origin to prevent CSRF / DNS rebinding.
+ * Validates same-origin loopback (or hosted AI Studio preview same-origin) to prevent CSRF / DNS rebinding.
  */
 function isLoopbackRequest(req: NextRequest): boolean {
-  const host = req.headers.get("host") || "";
-  const origin = req.headers.get("origin") || "";
-  return /^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(host) &&
-    (!origin || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin));
+  return isAllowedRequestOrigin(req).allowed;
 }
 
 /**
