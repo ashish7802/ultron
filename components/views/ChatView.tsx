@@ -261,8 +261,9 @@ export default function ChatView({
                 const evt = JSON.parse(rawJson);
                 if (evt.type === "status" && typeof evt.message === "string") {
                   setStatusMessage(evt.message);
-                } else if (evt.type === "token" && typeof evt.token === "string") {
-                  finalReply += evt.token;
+                } else if (evt.type === "token" && (typeof evt.token === "string" || typeof evt.content === "string")) {
+                  const tokenChunk = typeof evt.token === "string" ? evt.token : evt.content;
+                  finalReply += tokenChunk;
                   updateActiveMessages((msgs) =>
                     msgs.map((m) =>
                       m.id === assistantTurnId ? { ...m, content: finalReply } : m,

@@ -37,6 +37,7 @@
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
+import { defaultAppPathService } from "../security/appPathService.ts";
 import type {
   AnyMemoryRecord,
   BaseMemoryRecord,
@@ -92,8 +93,11 @@ export class MemoryCoordinator {
   public readonly security: MemorySecurityEngine;
 
   constructor(
-    vaultPath: string = path.join(/*turbopackIgnore: true*/ process.cwd(), "ultron_memory_vault.json"),
-    backupPath: string = path.join(/*turbopackIgnore: true*/ process.cwd(), "ultron_memory_vault.json.bak")
+    // BUG-002 FIX: Use the centralized AppPathService for vault path resolution instead of
+    // process.cwd(), ensuring both memoryManager.ts and memoryCoordinator.ts read/write
+    // the same vault file regardless of the working directory at startup.
+    vaultPath: string = defaultAppPathService.getMemoryVaultPath(),
+    backupPath: string = defaultAppPathService.getMemoryVaultPath() + ".bak"
   ) {
     this._vaultPath = vaultPath;
     this._backupPath = backupPath;
@@ -168,47 +172,19 @@ export class MemoryCoordinator {
       }
     }
 
-    // Attempt 3: Guaranteed zero data loss founder baseline if disk decryption was unavailable
-    if (records.length === 0) {
-      const DEFAULT_FOUNDER_SEEDS = [
-        {
-          id: "mem_0758f7efb687",
-          key: "user_name",
-          category: "profile",
-          content: "User's name is Ashish",
-          importance: 5,
-          confidence: 1,
-          createdAt: 1794105280814,
-          updatedAt: 1794197500000,
-          source: "explicit",
-          provenance: { origin: "bootstrap_seed", timestamp: 1794197500000 },
-        },
-        {
-          id: "mem_5c30f77289b9",
-          key: "custom_9d0d98",
-          category: "fact",
-          content: "I am building an autonomous AI assistant",
-          importance: 5,
-          confidence: 1,
-          createdAt: 1794105280907,
-          updatedAt: 1794105280907,
-          source: "explicit",
-          provenance: { origin: "bootstrap_seed", timestamp: 1794105280907 },
-        },
-      ];
-      records = this._normalizeLegacyRecords(DEFAULT_FOUNDER_SEEDS as any);
-      primaryReadSucceeded = true;
-    }
-
+    // Determine load status based on actual vault read outcomes.
+    // BUG-001 FIX: Never inject seed records or fake a successful read.
+    // If the vault file exists but cannot be decrypted, that is UNAVAILABLE — not READY.
+    // EMPTY is only returned when this is a genuine first run (no vault and no backup on disk).
     this._loadStatus = backupReadSucceeded
       ? "RECOVERED"
       : primaryReadSucceeded && records.length > 0
         ? "READY"
-        : primaryReadSucceeded && !backupReadFailed
+        : this._isFirstRun(primaryExists, backupExists)
           ? "EMPTY"
-          : !primaryExists && !backupExists
-            ? "EMPTY"
-            : "UNAVAILABLE";
+          : primaryExists || backupExists
+            ? "UNAVAILABLE"
+            : "EMPTY";
 
     // Index relationships into knowledge graph
     this.temporalRelational.buildGraphIndex(records);
@@ -226,6 +202,28 @@ export class MemoryCoordinator {
    */
   public getLoadStatus(): MemoryLoadStatus {
     return this._loadStatus;
+  }
+
+  /**
+   * Invalidates the in-memory record cache so the next loadAll() re-reads from disk.
+   * Used to guarantee synchronization whenever memory mutations occur.
+   */
+  public invalidateCache(): void {
+    this._isLoaded = false;
+    this._cachedRecords = null;
+  }
+
+  /**
+   * Determines whether this is a genuine first-run scenario (no vault or backup on disk).
+   * BUG-001 FIX: Used to distinguish EMPTY (no vault ever created) from UNAVAILABLE
+   * (vault exists but cannot be decrypted), preventing false READY status from seed injection.
+   *
+   * @param primaryExists - Whether the primary vault file exists on disk.
+   * @param backupExists - Whether the backup vault file exists on disk.
+   * @returns True if neither vault file nor backup file exist, indicating a first run.
+   */
+  private _isFirstRun(primaryExists: boolean, backupExists: boolean): boolean {
+    return !primaryExists && !backupExists;
   }
 
   /**

@@ -91,7 +91,7 @@ def wait_for_server(timeout_seconds=25.0):
     last_error = "no attempt made"
     while time.time() < deadline:
         try:
-            status, _, _, _ = http_json(f"{BASE_URL}/api/wakeword", timeout=4)
+            status, _, _, _ = http_json(f"{BASE_URL}/api/auth/session", timeout=4)
             if status == 200:
                 return
             last_error = f"HTTP {status}"
@@ -196,11 +196,10 @@ def test_live_web_harvesting():
               f"rate-limiting); retrying...")
         time.sleep(2)
 
-    assert res.get("status") == "success", f"Dossier status must be success: {res.get('status')}"
-    assert bool(res.get("executive_summary")), "Dossier must contain a synthesized executive summary"
-    assert "telemetry" in res, "Dossier must include synthesis telemetry"
-
     if source_count > 0:
+        assert res.get("status") == "success", f"Dossier status must be success when sources are harvested: {res.get('status')}"
+        assert bool(res.get("executive_summary")), "Dossier must contain a synthesized executive summary"
+        assert "telemetry" in res, "Dossier must include synthesis telemetry"
         log_test_result(
             "Live Web Harvesting & Quantum Synthesis",
             True,
@@ -208,15 +207,17 @@ def test_live_web_harvesting():
             f"Summary: {res.get('executive_summary')[:100]}...",
         )
     else:
+        assert res.get("status") == "degraded", f"Zero-source dossier must report degraded status honestly, got: {res.get('status')}"
+        assert bool(res.get("executive_summary")), "Degraded dossier must contain an honest degradation summary"
         skip(
             "environment",
             "live search engines returned 0 results across 3 attempts (rate limiting / "
-            "restricted network); synthesis structure verified",
+            "restricted network); honest degraded status verified",
         )
         log_test_result(
             "Live Web Harvesting & Quantum Synthesis",
             True,
-            f"Dossier synthesized in {elapsed}s with 0 live sources; live-harvest assertion skipped (environment)",
+            f"Dossier synthesized in {elapsed}s with 0 live sources; honest degraded status verified (environment)",
         )
 
 

@@ -201,6 +201,7 @@ export async function inferLocalModel(request: LocalModelRequest): Promise<Local
   } catch (error) {
     if (request.signal?.aborted) return { ok: false, reason: "cancelled" };
     if (timedOut) return { ok: false, reason: "timeout" };
+    console.error("[LOCAL MODEL INFERENCE ERROR]", error);
     return { ok: false, reason: "unavailable" };
   } finally {
     clearTimeout(timeout);

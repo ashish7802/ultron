@@ -77,11 +77,9 @@ export class MemorySecurityEngine {
     });
   }
 
-  /** Legacy migration key retained strictly for one-time decryption of historical vaults. */
-  private readonly _legacySecret = "STARK_VAULT_E2EE_KEY_STATIC_DERIVATION_2026";
-
   /**
-   * Decrypts AES-256-GCM encrypted vault data.
+   * Decrypts AES-256-GCM encrypted vault data using the active device-bound master key.
+   * Fails closed if the key does not authenticate or the ciphertext is corrupted.
    *
    * @param raw - Serialized JSON string from disk.
    * @returns Decrypted plaintext string or null if decryption fails / integrity check fails.
@@ -99,7 +97,7 @@ export class MemorySecurityEngine {
         const tag = Buffer.from(parsed.tag, "hex");
         const ciphertext = Buffer.from(parsed.ciphertext, "hex");
 
-        // Attempt 1: Active dynamic CSPRNG master key
+        // Primary: Active dynamic CSPRNG/DPAPI master key
         try {
           const key = this.getVaultKey();
           const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
@@ -107,16 +105,8 @@ export class MemorySecurityEngine {
           const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
           return decrypted.toString("utf-8");
         } catch {
-          // Attempt 2: Legacy historical vault migration key
-          try {
-            const legacyKey = crypto.createHash("sha256").update(this._legacySecret).digest();
-            const fallbackDecipher = crypto.createDecipheriv("aes-256-gcm", legacyKey, iv);
-            fallbackDecipher.setAuthTag(tag);
-            const migratedDecrypted = Buffer.concat([fallbackDecipher.update(ciphertext), fallbackDecipher.final()]);
-            return migratedDecrypted.toString("utf-8");
-          } catch {
-            /* both keys failed or ciphertext corrupted */
-          }
+          // Cryptographic failure: wrong key, tamper detected, or corrupt ciphertext -> fail closed
+          return null;
         }
       }
     } catch (err) {

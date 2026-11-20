@@ -182,36 +182,12 @@ export class LiveWebSearchAdapter implements SearchProviderAdapter {
           }
         }
       }
-    } catch {
-      // Graceful fallback to synthetic high-relevance search references
+    } catch (fetchErr) {
+      // Remote probe failed or offline
     }
 
-    // If external call had no direct hits or was blocked by offline mode, construct grounded domain seeds
-    if (results.length === 0 && input.officialDomains && input.officialDomains.length > 0) {
-      for (const domain of input.officialDomains.slice(0, 2)) {
-        const docUrl = `https://${domain}`;
-        const { canonicalUrl } = normalizeUrl(docUrl);
-        results.push({
-          discovery_id: crypto.randomUUID(),
-          research_id: input.researchId,
-          query_id: input.queryId,
-          title: `Official Documentation: ${domain}`,
-          original_url: docUrl,
-          canonical_url: canonicalUrl,
-          snippet: `Authoritative documentation and specifications for ${query} hosted on ${domain}.`,
-          source_type: "official_documentation",
-          publisher: domain,
-          discovered_at: new Date().toISOString(),
-          provider: this.providerName,
-          provider_metadata: { isDomainSeed: true },
-          content_availability: "unfetched",
-          retrieval_status: "discovered",
-          priority_tier: SOURCE_PRIORITY_MAP["official_documentation"],
-          relevance_score: 0.95,
-        });
-      }
-    }
-
+    // BUG-008 FIX: Never fabricate synthetic documentation sources with fake snippets
+    // when zero external search hits are found. Return honest empty results.
     return results;
   }
 

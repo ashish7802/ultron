@@ -645,9 +645,11 @@ class QuantumResearchAgent:
                     cleaned = re.sub(r"\s*```$", "", cleaned)
                     parsed = json.loads(cleaned)
                     if isinstance(parsed, dict) and "executive_summary" in parsed:
+                        parsed["synthesis_mode"] = "ollama_neural"
+                        parsed["degraded"] = False
                         return parsed
-        except Exception:
-            pass
+        except Exception as llm_err:
+            llm_error_msg = f"{type(llm_err).__name__}: {str(llm_err)}"
 
         if not context_chunks:
             return {
@@ -655,6 +657,8 @@ class QuantumResearchAgent:
                 "key_findings": [],
                 "deep_analysis": "Live crawl yielded no accessible search results or verifiable source passages.",
                 "degraded": True,
+                "status": "degraded",
+                "synthesis_mode": "none",
             }
 
         # High-Speed Algorithmic Synthesis Fallback (guarantees instantaneous response)
@@ -766,10 +770,12 @@ class QuantumResearchAgent:
         synthesis = await self.synthesize_with_llm(query, top_sources)
 
         elapsed_ms = round((time.time() - start_time) * 1000, 2)
+        is_degraded = bool(synthesis.get("degraded", False) or synthesis.get("status") == "degraded" or len(top_sources) == 0)
 
         # Build final structured dossier
         dossier = {
-            "status": "success",
+            "status": "degraded" if is_degraded else "success",
+            "degraded": is_degraded,
             "query": query,
             "vectors_evaluated": vectors,
             "sources_harvested_count": len(enriched_sources),

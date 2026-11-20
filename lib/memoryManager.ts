@@ -105,8 +105,6 @@ const DEFAULT_FOUNDER_MEMORIES: MemoryRecord[] = [
   },
 ];
 
-/** Legacy migration key retained strictly for one-time decryption of historical vaults. */
-const LEGACY_VAULT_MIGRATION_SECRET = "STARK_VAULT_E2EE_KEY_STATIC_DERIVATION_2026";
 
 /**
  * Derives a dynamic 256-bit AES key for persistent vault encryption at rest.
@@ -183,7 +181,7 @@ function decryptVaultData(raw: string): MemoryVaultData | null {
       const tag = Buffer.from(parsed.tag, "hex");
       const ciphertext = Buffer.from(parsed.ciphertext, "hex");
 
-      // Attempt 1: Decrypt with active dynamic CSPRNG master key
+      // Decrypt with active dynamic CSPRNG/DPAPI master key
       try {
         const primaryKey = getVaultKey();
         const decipher = crypto.createDecipheriv("aes-256-gcm", primaryKey, iv);
@@ -191,22 +189,8 @@ function decryptVaultData(raw: string): MemoryVaultData | null {
         const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
         return JSON.parse(decrypted.toString("utf-8"));
       } catch {
-        // Attempt 2: Fallback migration key for historical vaults
-        try {
-          const legacyKey = crypto.createHash("sha256").update(LEGACY_VAULT_MIGRATION_SECRET).digest();
-          const fallbackDecipher = crypto.createDecipheriv("aes-256-gcm", legacyKey, iv);
-          fallbackDecipher.setAuthTag(tag);
-          const migratedDecrypted = Buffer.concat([fallbackDecipher.update(ciphertext), fallbackDecipher.final()]);
-          const migratedData: MemoryVaultData = JSON.parse(migratedDecrypted.toString("utf-8"));
-          // Asynchronously re-encrypt with the active key to complete migration
-          setImmediate(() => {
-            persistMemories(migratedData.memories);
-          });
-          return migratedData;
-        } catch {
-          // Historical vault key mismatch: preserve file on disk safely without noise
-          return null;
-        }
+        // Vault key mismatch or corrupted ciphertext: fail closed safely
+        return null;
       }
     }
   } catch (err) {
@@ -216,71 +200,41 @@ function decryptVaultData(raw: string): MemoryVaultData | null {
 }
 
 /**
- * Loads all stored memories from disk with automatic backup recovery and backward compatibility.
+ * Loads all stored memories from disk.
+ * BUG-002 FIX: Delegates to defaultMemoryCoordinator.loadAll() instead of maintaining
+ * a separate read/decrypt path. This ensures both subsystems always read/write the same
+ * vault file resolved by AppPathService, eliminating the divergent storage path bug.
+ *
+ * The coordinator's records are down-cast to the legacy MemoryRecord shape for backward
+ * compatibility with consumers that import this function directly.
  *
  * @returns Array of persistent memory records.
  */
 export function loadAllMemories(): MemoryRecord[] {
-  let loadedMemories: MemoryRecord[] = [];
   try {
-    if (fs.existsSync(VAULT_FILE_PATH)) {
-      const raw = fs.readFileSync(VAULT_FILE_PATH, "utf-8");
-      const parsed = decryptVaultData(raw);
-      if (parsed && Array.isArray(parsed.memories)) {
-        loadedMemories = parsed.memories.map((m: LegacyMemoryRecord) => ({
-          ...m,
-          category: m.category || m.memoryType || "fact",
-          content: typeof m.content === "string" ? m.content : (m.workflowName || JSON.stringify(m)),
-          provenance: m.provenance || {
-            origin: "user_conversation",
-            timestamp: m.updatedAt || m.createdAt || Date.now(),
-          },
-        }));
-      }
-    }
-    // Attempt recovery from backup if primary read failed or produced empty list
-    if (loadedMemories.length === 0 && fs.existsSync(VAULT_BACKUP_PATH)) {
-      console.warn("[MEMORY MANAGER] Attempting recovery from vault backup...");
-      const rawBak = fs.readFileSync(VAULT_BACKUP_PATH, "utf-8");
-      const parsedBak = decryptVaultData(rawBak);
-      if (parsedBak && Array.isArray(parsedBak.memories)) {
-        loadedMemories = parsedBak.memories.map((m: LegacyMemoryRecord) => ({
-          ...m,
-          category: m.category || m.memoryType || "fact",
-          content: typeof m.content === "string" ? m.content : (m.workflowName || JSON.stringify(m)),
-          provenance: m.provenance || {
-            origin: "vault_backup",
-            timestamp: m.updatedAt || m.createdAt || Date.now(),
-          },
-        }));
-      }
+    const coordinatorRecords = defaultMemoryCoordinator.loadAll();
+    if (coordinatorRecords.length > 0) {
+      // Down-cast coordinator's typed records to the legacy flat MemoryRecord interface
+      return coordinatorRecords.map((m: any) => ({
+        id: m.id,
+        key: m.key,
+        category: m.category || m.memoryType || "fact",
+        content: typeof m.content === "string" ? m.content : JSON.stringify(m),
+        importance: typeof m.importance === "number" ? m.importance : 3,
+        confidence: typeof m.confidence === "number" ? m.confidence : 1.0,
+        createdAt: m.createdAt || Date.now(),
+        updatedAt: m.updatedAt || Date.now(),
+        source: m.source || "explicit",
+        projectId: m.projectId,
+        provenance: m.provenance,
+      })) as MemoryRecord[];
     }
   } catch (err) {
-    console.warn("[MEMORY MANAGER] Error loading memory vault:", err);
+    console.warn("[MEMORY MANAGER] Error delegating to memory coordinator:", err);
   }
 
-  // Guarantee Zero Data Loss: founder identity and core project facts must never be dropped
-  for (const seed of DEFAULT_FOUNDER_MEMORIES) {
-    if (!loadedMemories.some((m) => m.key === seed.key)) {
-      loadedMemories.unshift(seed);
-    }
-  }
-
-  // Safety Gate: NEVER overwrite disk vault if decryption returned empty but a non-empty vault exists on disk
-  if (fs.existsSync(VAULT_FILE_PATH)) {
-    try {
-      const stats = fs.statSync(VAULT_FILE_PATH);
-      if (stats.size > 200 && loadedMemories.length <= DEFAULT_FOUNDER_MEMORIES.length) {
-        // Vault file exists and has substantial size, but only default seeds are loaded;
-        // Avoid overwriting existing encrypted user data with default seeds!
-        console.warn("[MEMORY MANAGER] Preserving existing encrypted vault on disk from accidental empty overwrite.");
-        return loadedMemories;
-      }
-    } catch {}
-  }
-
-  // Pure read: loadAllMemories never writes back to disk during read operations.
-  return loadedMemories;
+  // Fallback: return empty array if coordinator returned nothing (EMPTY or UNAVAILABLE status)
+  return [];
 }
 
 /**
@@ -312,6 +266,8 @@ export function persistMemories(memories: MemoryRecord[]): void {
     }
     // 3. Atomic rename
     fs.renameSync(tempPath, VAULT_FILE_PATH);
+    // 4. Invalidate memory coordinator in-memory cache to maintain immediate cross-subsystem consistency
+    defaultMemoryCoordinator.invalidateCache();
   } catch (err) {
     console.error("[MEMORY MANAGER] Error persisting encrypted memory vault:", err);
     if (fs.existsSync(tempPath)) {
