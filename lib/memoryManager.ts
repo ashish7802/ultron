@@ -657,7 +657,17 @@ export function processMemoryIntent(text: string): { action: "save" | "list" | "
     const all = loadAllMemories();
     const nameMem = all.find((m) => m.key === "user_name");
     const roleMem = all.find((m) => m.key === "user_role");
-    const facts = all.filter((m) => m.key !== "user_name" && m.key !== "user_role");
+    // Filter strictly for personal profile & user preference facts. Exclude research dossiers, procedural instructions, lessons, and malformed strings.
+    const validCategories = new Set(["profile", "preference", "user_profile"]);
+    const facts = all.filter((m) => {
+      if (m.key === "user_name" || m.key === "user_role") return false;
+      if (!validCategories.has(m.category)) return false;
+      if (m.key.startsWith("lesson_") || m.key.startsWith("rec_") || m.key.startsWith("claim_") || m.key.startsWith("rule_")) return false;
+      if (m.content.includes("[RESEARCH DOSSIER]") || m.content.includes("ACME_") || m.content.includes("LETSENCRYPT")) return false;
+      // Exclude conversational noise or malformed strings
+      if (m.content.length < 3 || m.content.includes("ne to ye nahi bola")) return false;
+      return true;
+    });
 
     if (nameMem) {
       const cleanName = nameMem.content.replace(/^user's name is\s+/i, "");

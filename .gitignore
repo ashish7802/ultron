@@ -63,5 +63,6 @@ docs/audit/GATEWAY_AUDIT_LOG.json
 .vscode/
 .security_vault/
 .tasks/
+.ultron_config/
 
 desktop.ini

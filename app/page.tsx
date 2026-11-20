@@ -17,11 +17,11 @@
  * - Contains zero secrets or privileged server logic.
  */
 
-import UltronWorkspace from "@/components/UltronWorkspace";
+import UltronHudView from "@/components/UltronHudView";
 
 /**
- * Root page component rendering the ULTRON operating environment directly.
+ * Root page component rendering the ULTRON Stark Industries Sci-Fi HUD Operating Environment directly.
  */
 export default function Home() {
-  return <UltronWorkspace />;
+  return <UltronHudView />;
 }
