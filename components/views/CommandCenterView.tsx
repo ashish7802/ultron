@@ -154,7 +154,7 @@ export default function CommandCenterView({
                 <Terminal className="h-4 w-4" />
               </span>
               <h1 className="font-display text-2xl font-semibold tracking-tight text-white">
-                {settings?.general.assistantName || "ULTRON"} Command Center
+                {settings?.general.assistantName || "ULTRON"} Dashboard
               </h1>
             </div>
             <p className="max-w-2xl text-sm text-slate-400">

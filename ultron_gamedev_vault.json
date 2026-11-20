@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "lastUpdated": 1795135954054,
+  "lastUpdated": 1795140496091,
   "vision": {
     "id": "vision_prime",
     "title": "Project Metropolis: Open-World Urban Sandbox",
@@ -815,6 +815,18 @@
           "action": "archived",
           "reason": "Character concept approved and signed off",
           "actor": "Founder"
+        },
+        {
+          "timestamp": 1795140495787,
+          "action": "activated",
+          "reason": "Character concept brief assigned",
+          "actor": "NEXUS-01"
+        },
+        {
+          "timestamp": 1795140495797,
+          "action": "archived",
+          "reason": "Character concept approved and signed off",
+          "actor": "Founder"
         }
       ]
     },
@@ -953,8 +965,8 @@
   "tasks": {},
   "bugs": {},
   "marketingDrafts": {
-    "mkt_1795135954045_z9iq": {
-      "id": "mkt_1795135954045_z9iq",
+    "mkt_1795140496065_3heo": {
+      "id": "mkt_1795140496065_3heo",
       "title": "Teaser: High-Speed Driving Mechanics Verified",
       "targetPlatforms": [
         "youtube",
@@ -978,12 +990,12 @@
         "complianceChecked": true
       },
       "approvalStatus": "published",
-      "createdAt": 1795135954045,
-      "updatedAt": 1795135954054,
+      "createdAt": 1795140496065,
+      "updatedAt": 1795140496091,
       "editedVideoPath": "exports/teaser_1080p_60fps.mp4",
       "thumbnailPath": "exports/teaser_thumbnail.png",
       "ownerApprovalToken": "FOUNDER_AUTH_TOKEN_77921",
-      "publishedAt": 1795135954054
+      "publishedAt": 1795140496090
     }
   },
   "jobs": {}

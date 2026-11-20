@@ -70,13 +70,13 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: "command", label: "Command Center", group: "core", icon: LayoutDashboard },
+  { id: "command", label: "Dashboard", group: "core", icon: LayoutDashboard },
   { id: "chat", label: "AI Chat", group: "core", icon: MessageSquare },
-  { id: "voice", label: "Voice Studio", group: "core", icon: Mic },
-  { id: "memory", label: "Memory Center", group: "core", icon: Database },
+  { id: "voice", label: "Voice", group: "core", icon: Mic },
+  { id: "memory", label: "Memory", group: "core", icon: Database },
   { id: "system", label: "System Control", group: "system", icon: Cpu },
   { id: "models", label: "AI Models", group: "system", icon: Server },
-  { id: "security", label: "Security Center", group: "governance", icon: ShieldCheck },
+  { id: "security", label: "Security", group: "governance", icon: ShieldCheck },
   { id: "settings", label: "Settings", group: "governance", icon: Sliders },
   { id: "diagnostics", label: "Diagnostics", group: "governance", icon: Activity },
 ];

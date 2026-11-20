@@ -334,3 +334,5 @@
 {"auditId": "audit_f66c99e5da4f", "timestamp": 1795046186.5831504, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Authorized battery reset", "status": "RESUMED"}
 {"auditId": "audit_df29700b9d46", "timestamp": 1795135945.487728, "emergencyStop": true, "action": "EMERGENCY_STOP_TRIGGERED", "reason": "Milestone 5 battery test", "jobsKilled": 0, "status": "HALTED"}
 {"auditId": "audit_0d2cad92ba6c", "timestamp": 1795135945.7383423, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Authorized battery reset", "status": "RESUMED"}
+{"auditId": "audit_5f912cf7711a", "timestamp": 1795140474.7065003, "emergencyStop": true, "action": "EMERGENCY_STOP_TRIGGERED", "reason": "Milestone 5 battery test", "jobsKilled": 0, "status": "HALTED"}
+{"auditId": "audit_600a6a4e14b4", "timestamp": 1795140475.4969025, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Authorized battery reset", "status": "RESUMED"}

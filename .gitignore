@@ -64,5 +64,6 @@ docs/audit/GATEWAY_AUDIT_LOG.json
 .security_vault/
 .tasks/
 .ultron_config/
+backups/pre_cleanup_snapshot/
 
 desktop.ini
