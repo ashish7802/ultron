@@ -30,6 +30,7 @@ import path from "path";
 import { getCryptoStatus } from "@/lib/crypto";
 import { resolvePythonExecutable } from "@/lib/pythonRuntime";
 import { validateDesktopSession, createAuthErrorResponse } from "@/lib/sessionGate";
+import { getActiveAiConfig } from "@/lib/runtimeConfig";
 import { researchPipelineOrchestrator } from "@/lib/research/orchestrator";
 import type { ResearchDepth } from "@/lib/research/types";
 
@@ -112,6 +113,7 @@ export async function runQuantumResearchAgent(
   maxSources: number = DEFAULT_MAX_SOURCES,
   signal?: AbortSignal
 ) {
+  const aiConfig = getActiveAiConfig();
   const { stdout } = await execFileAsync(
     resolvePythonExecutable(),
     [RESEARCH_SCRIPT, query],
@@ -125,6 +127,8 @@ export async function runQuantumResearchAgent(
         ...process.env,
         // Force UTF-8 so Hinglish/Devanagari queries and scraped text survive the pipe.
         PYTHONIOENCODING: "utf-8",
+        ULTRON_OLLAMA_ENDPOINT: aiConfig.ollamaEndpoint,
+        ULTRON_OLLAMA_MODEL: aiConfig.activeModel,
       },
     }
   );
@@ -208,6 +212,70 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const isV2Pipeline = body.engine === "v2" || body.pipeline === true || Boolean(body.depth);
 
     if (isV2Pipeline) {
+      if (stream) {
+        const encoder = new TextEncoder();
+        let cancelled = false;
+
+        const sseStream = new ReadableStream({
+          async start(controller) {
+            const push = (event: Record<string, unknown>) => {
+              if (cancelled || req.signal.aborted) return;
+              try {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+              } catch {
+                // Stream controller closed
+              }
+            };
+
+            try {
+              const pipelineResult = await researchPipelineOrchestrator.executeResearch(
+                {
+                  query: sanitizedQuery,
+                  depth: body.depth,
+                  constraints: body.constraints,
+                  exclusions: body.exclusions,
+                },
+                push
+              );
+
+              push({
+                stage: "COMPLETE",
+                message: "Research & Verification pipeline (Modules 01–11) completed successfully.",
+                progress: 100,
+                result: pipelineResult,
+              });
+
+              if (!cancelled) {
+                try { controller.close(); } catch {}
+              }
+            } catch (streamErr) {
+              console.warn("[RESEARCH SSE V2] Stream terminated with error:", streamErr);
+              const failure = describeResearchFailure(streamErr);
+              push({
+                stage: "ERROR",
+                message: failure.message,
+                code: failure.code,
+                progress: 100,
+              });
+              try { controller.close(); } catch {}
+            }
+          },
+          cancel() {
+            cancelled = true;
+          },
+        });
+
+        return new NextResponse(sseStream, {
+          headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
+            "X-Ultron-Security": "AES-256-GCM",
+            "X-Ultron-Engine-Version": "V2_PIPELINE",
+          },
+        });
+      }
+
       try {
         const pipelineResult = await researchPipelineOrchestrator.executeResearch({
           query: sanitizedQuery,
@@ -215,117 +283,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           constraints: body.constraints,
           exclusions: body.exclusions,
         });
-
-        if (stream) {
-          const encoder = new TextEncoder();
-          const stages = [
-            {
-              stage: "MODULE_01_PLANNING",
-              message: `Formulated research plan: ${pipelineResult.plan.title}`,
-              progress: 10,
-              plan: pipelineResult.plan,
-            },
-            {
-              stage: "MODULE_02_DISCOVERY",
-              message: `Discovered ${pipelineResult.discoveryCount} multi-source references across web, github, and academic repositories`,
-              progress: 20,
-              sourcesCount: pipelineResult.discoveryCount,
-            },
-            {
-              stage: "MODULE_03_EXTRACTION",
-              message: `Extracted ${pipelineResult.extractedClaimsCount} atomic claims and ${pipelineResult.extractedPassagesCount} verbatim evidence passages`,
-              progress: 35,
-              claimsCount: pipelineResult.extractedClaimsCount,
-            },
-            {
-              stage: "MODULE_04_RELIABILITY",
-              message: `Evaluated 6-dimensional reliability across ${pipelineResult.qualityAssessments.length} sources and tracked syndication lineage`,
-              progress: 50,
-              qualityAssessmentsCount: pipelineResult.qualityAssessments.length,
-            },
-            {
-              stage: "MODULE_05_VERIFICATION",
-              message: `Verified ${pipelineResult.verifications.length} individual claims (${pipelineResult.verifiedClaimsCount} verified, ${pipelineResult.verifications.filter((v) => v.verification_status === "conflicting").length} conflicting)`,
-              progress: 65,
-              verificationsCount: pipelineResult.verifications.length,
-            },
-            {
-              stage: "MODULE_06_CONTRADICTIONS",
-              message: `Analyzed cross-source contradictions (${pipelineResult.contradictionsCount} disagreements investigated)`,
-              progress: 75,
-              contradictionsCount: pipelineResult.contradictionsCount,
-            },
-            {
-              stage: "MODULE_07_ANALYSIS",
-              message: `Synthesized intelligence: ${pipelineResult.findingsCount} findings, ${pipelineResult.recommendationsCount} recommendations, ${pipelineResult.gapsCount} knowledge gaps`,
-              progress: 85,
-              analysisSummary: pipelineResult.analysis?.executiveSummary,
-            },
-            {
-              stage: "MODULE_08_FRESHNESS",
-              message: `Assessed freshness decay (${pipelineResult.freshness?.overallProjectFreshness.toUpperCase()}) & scheduled ${pipelineResult.freshness?.scheduledJobs.length || 0} revalidation jobs`,
-              progress: 92,
-              freshness: pipelineResult.freshness?.overallProjectFreshness,
-            },
-            {
-              stage: "MODULE_09_REPORT_GENERATION",
-              message: `Generated ${pipelineResult.reports?.length || 0} verifiable research reports with exact passage citations`,
-              progress: 90,
-              reportsCount: pipelineResult.reports?.length || 0,
-            },
-            {
-              stage: "MODULE_10_MEMORY_INGESTION",
-              message: `Deeply ingested ${pipelineResult.memoryIngestion?.ingestedMemoriesCount || 0} research memories and updated knowledge graph (${pipelineResult.memoryIngestion?.knowledgeNodesCreated || 0} nodes, ${pipelineResult.memoryIngestion?.knowledgeEdgesCreated || 0} edges)`,
-              progress: 95,
-              memoriesIngestedCount: pipelineResult.memoryIngestion?.ingestedMemoriesCount || 0,
-            },
-            {
-              stage: "MODULE_11_SAFETY_AUDIT",
-              message: `Completed active security audit (${pipelineResult.safetyAudit?.securityEventsCount || 0} events monitored, citation integrity: ${pipelineResult.safetyAudit?.citationIntegrityPassed ? "PASSED" : "FLAGGED"})`,
-              progress: 98,
-              securitySummary: pipelineResult.safetyAudit,
-            },
-            {
-              stage: "COMPLETE",
-              message: "Research & Verification pipeline (Modules 01–11) completed successfully.",
-              progress: 100,
-              result: pipelineResult,
-            },
-          ];
-
-          let cancelled = false;
-          const sseStream = new ReadableStream({
-            start(controller) {
-              try {
-                for (const event of stages) {
-                  if (cancelled || req.signal.aborted) break;
-                  controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-                }
-                if (!cancelled) controller.close();
-              } catch (streamErr) {
-                console.warn("[RESEARCH SSE V2] Stream terminated early:", streamErr);
-                try {
-                  controller.close();
-                } catch {
-                  // Controller already closed
-                }
-              }
-            },
-            cancel() {
-              cancelled = true;
-            },
-          });
-
-          return new NextResponse(sseStream, {
-            headers: {
-              "Content-Type": "text/event-stream",
-              "Cache-Control": "no-cache",
-              Connection: "keep-alive",
-              "X-Ultron-Security": "AES-256-GCM",
-              "X-Ultron-Engine-Version": "V2_PIPELINE",
-            },
-          });
-        }
 
         return NextResponse.json(
           {

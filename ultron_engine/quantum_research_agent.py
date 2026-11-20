@@ -288,8 +288,8 @@ class QuantumResearchAgent:
             ollama_host (str): Endpoint URL for the local Ollama LLM service.
             ollama_model (str): Target model identifier for deep synthesis.
         """
-        self.ollama_host = ollama_host
-        self.ollama_model = ollama_model
+        self.ollama_host = os.environ.get("ULTRON_OLLAMA_ENDPOINT", ollama_host)
+        self.ollama_model = os.environ.get("ULTRON_OLLAMA_MODEL", ollama_model)
         self.user_agent = (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -464,29 +464,29 @@ class QuantumResearchAgent:
             return results
 
         try:
-            # Run blocking DDGS in a thread pool to preserve async responsiveness.
-            # `get_running_loop` is the supported accessor inside a coroutine
-            # (`get_event_loop` is deprecated for this use in modern Python).
+            # Run blocking DDGS in a thread pool with resilient timeout (12.0s)
             loop = asyncio.get_running_loop()
             def _sync_search():
                 harvested = []
-                with DDGS() as ddgs:
-                    for r in ddgs.text(vector, max_results=max_results):
-                        url = r.get("href") or r.get("url") or ""
-                        if url and self.is_safe_url(url):
-                            harvested.append({
-                                "title": (r.get("title") or "").strip(),
-                                "url": url,
-                                "snippet": (r.get("body") or r.get("snippet") or "").strip(),
-                                "source_engine": "DuckDuckGo",
-                                "query_vector": vector,
-                            })
+                try:
+                    with DDGS() as ddgs:
+                        for r in ddgs.text(vector, max_results=max_results):
+                            url = r.get("href") or r.get("url") or ""
+                            if url and self.is_safe_url(url):
+                                harvested.append({
+                                    "title": (r.get("title") or "").strip(),
+                                    "url": url,
+                                    "snippet": (r.get("body") or r.get("snippet") or "").strip(),
+                                    "source_engine": "DuckDuckGo",
+                                    "query_vector": vector,
+                                })
+                except Exception as sync_err:
+                    print(f"[DDGS SEARCH EXCEPTION] {vector}: {sync_err}", file=sys.stderr)
                 return harvested
 
-            results = await asyncio.wait_for(loop.run_in_executor(None, _sync_search), timeout=6.0)
+            results = await asyncio.wait_for(loop.run_in_executor(None, _sync_search), timeout=12.0)
         except Exception as err:
-            # Graceful non-blocking degradation if a search vector times out
-            pass
+            print(f"[DDGS TIMEOUT/ERROR] {vector}: {err}", file=sys.stderr)
 
         return results
 
@@ -649,6 +649,14 @@ class QuantumResearchAgent:
         except Exception:
             pass
 
+        if not context_chunks:
+            return {
+                "executive_summary": f"No accessible web sources or evidence could be retrieved for '{query}'. Research degraded.",
+                "key_findings": [],
+                "deep_analysis": "Live crawl yielded no accessible search results or verifiable source passages.",
+                "degraded": True,
+            }
+
         # High-Speed Algorithmic Synthesis Fallback (guarantees instantaneous response)
         top_snippet = ""
         if context_chunks:
@@ -663,11 +671,12 @@ class QuantumResearchAgent:
             elif t:
                 findings.append(t)
 
-        summary_text = f"Based on live multi-source research for '{query}': {top_snippet[:220]}." if top_snippet else f"Synthesized research analysis for '{query}' completed."
+        summary_text = f"Extracted from verified live sources for '{query}': {top_snippet[:220]}." if top_snippet else f"No verifiable facts retrieved for '{query}'."
         return {
             "executive_summary": summary_text,
-            "key_findings": findings[:4] if findings else ["Multi-source consensus verified across primary web indices."],
-            "deep_analysis": "Data synthesized from live crawl across high-authority indices. Multi-vector cross-correlation confirmed factual alignment.",
+            "key_findings": findings[:4],
+            "deep_analysis": "Factual extraction from live web search snippets (algorithmic fallback; model synthesis unavailable).",
+            "degraded": len(findings) == 0,
         }
 
     async def conduct_research(self, query: str, max_sources: int = 6) -> Dict[str, Any]:
@@ -688,19 +697,18 @@ class QuantumResearchAgent:
         # Step 1: Multi-vector decomposition
         vectors = self.decompose_query(query)
 
-        # Step 2: Concurrent search probes across all vectors
-        search_tasks = [self.execute_web_search(v, max_results=3) for v in vectors]
-        search_results_nested = await asyncio.gather(*search_tasks, return_exceptions=True)
-
+        # Step 2: Sequential search probes across vectors to avoid DDGS rate limits
         raw_sources: List[Dict[str, Any]] = []
         seen_urls = set()
-        for res in search_results_nested:
-            if isinstance(res, list):
-                for item in res:
-                    url = item.get("url", "")
-                    if url and url not in seen_urls:
-                        seen_urls.add(url)
-                        raw_sources.append(item)
+        for v in vectors:
+            v_results = await self.execute_web_search(v, max_results=3)
+            for item in v_results:
+                url = item.get("url", "")
+                if url and url not in seen_urls:
+                    seen_urls.add(url)
+                    raw_sources.append(item)
+            if len(raw_sources) >= max_sources:
+                break
 
         # Step 3: Deep live page scraping for top sources (up to 4 pages concurrently)
         scraped_data_map: Dict[str, Any] = {}
@@ -732,6 +740,27 @@ class QuantumResearchAgent:
         # Sort sources by credibility score in descending order
         enriched_sources.sort(key=lambda x: x["credibility"], reverse=True)
         top_sources = enriched_sources[:max_sources]
+
+        # Fail-closed check: if zero sources found, do NOT claim success or fabricate consensus
+        if len(top_sources) == 0:
+            elapsed_ms = round((time.time() - start_time) * 1000, 2)
+            return {
+                "status": "degraded",
+                "query": query,
+                "vectors_evaluated": vectors,
+                "sources_harvested_count": 0,
+                "sources_analyzed_count": 0,
+                "sources": [],
+                "executive_summary": f"No verifiable web sources could be retrieved for '{query}'. Research degraded.",
+                "key_findings": [],
+                "deep_analysis": "Web probe yielded zero accessible sources or search requests timed out.",
+                "telemetry": {
+                    "elapsed_ms": elapsed_ms,
+                    "quantum_vectors": len(vectors),
+                    "live_crawled_pages": 0,
+                    "timestamp": time.time(),
+                },
+            }
 
         # Step 5: Quantum Synthesis
         synthesis = await self.synthesize_with_llm(query, top_sources)

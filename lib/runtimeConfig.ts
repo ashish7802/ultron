@@ -131,7 +131,7 @@ export function validateLoopbackEndpoint(rawUrl: string): string | null {
 export function getDefaultSettings(): UltronSettings {
   const envEndpoint =
     validateLoopbackEndpoint(process.env.OLLAMA_HOST || "") || "http://127.0.0.1:11434";
-  const envModel = (process.env.OLLAMA_MODEL || "").trim() || "qwen2.5:7b-instruct-q4_K_M";
+  const envModel = (process.env.OLLAMA_MODEL || "").trim() || "qwen2.5:0.5b";
 
   return {
     general: {

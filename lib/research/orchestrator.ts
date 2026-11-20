@@ -137,7 +137,10 @@ export class ResearchPipelineOrchestrator {
    * @param request - User research request payload.
    * @returns Complete, structured research dossier.
    */
-  public async executeResearch(request: ResearchPlanRequest): Promise<ResearchPipelineResult> {
+  public async executeResearch(
+    request: ResearchPlanRequest,
+    onProgress?: (event: Record<string, unknown>) => void
+  ): Promise<ResearchPipelineResult> {
     const startTime = Date.now();
 
     // ==========================================================================
@@ -155,6 +158,12 @@ export class ResearchPipelineOrchestrator {
     if (priorInferredAssumptions.length > 0) {
       plan.inferred_assumptions.push(...priorInferredAssumptions);
     }
+    onProgress?.({
+      stage: "MODULE_01_PLANNING",
+      message: `Formulated research plan: ${plan.title}`,
+      progress: 10,
+      plan,
+    });
 
     // Save project entity into repository
     const projectRecord: ResearchProjectRecord = {
@@ -244,6 +253,13 @@ export class ResearchPipelineOrchestrator {
     }));
     const savedSources = await researchRepository.saveSources(sourceRecords);
 
+    onProgress?.({
+      stage: "MODULE_02_DISCOVERY",
+      message: `Discovered ${discoveredItems.length} multi-source references across web and repositories`,
+      progress: 20,
+      sourcesCount: discoveredItems.length,
+    });
+
     await researchRepository.updateProjectStatus(plan.research_id, "extracting");
 
     // ==========================================================================
@@ -326,6 +342,13 @@ export class ResearchPipelineOrchestrator {
     const savedClaims = await researchRepository.saveClaims(allClaimsToSave);
     const savedLinks = await researchRepository.saveClaimEvidenceLinks(allLinksToSave);
 
+    onProgress?.({
+      stage: "MODULE_03_EXTRACTION",
+      message: `Extracted ${allClaimsToSave.length} atomic claims and ${allEvidenceToSave.length} verbatim evidence passages`,
+      progress: 35,
+      claimsCount: allClaimsToSave.length,
+    });
+
     // ==========================================================================
     // PHASE 4: MODULE 04 — SOURCE RELIABILITY & QUALITY ENGINE
     // ==========================================================================
@@ -365,6 +388,13 @@ export class ResearchPipelineOrchestrator {
     }));
     const savedDependencies = await researchRepository.saveSourceDependencies(dependencyRecords);
 
+    onProgress?.({
+      stage: "MODULE_04_RELIABILITY",
+      message: `Evaluated 6-dimensional reliability across ${sourceQualityAssessments.length} sources and tracked syndication lineage`,
+      progress: 50,
+      qualityAssessmentsCount: sourceQualityAssessments.length,
+    });
+
     // ==========================================================================
     // PHASE 5: MODULE 05 — CLAIM VERIFICATION ENGINE
     // ==========================================================================
@@ -398,6 +428,13 @@ export class ResearchPipelineOrchestrator {
     }));
     const savedVerifications = await researchRepository.saveClaimVerifications(verificationRecords);
 
+    onProgress?.({
+      stage: "MODULE_05_VERIFICATION",
+      message: `Verified ${verificationResults.length} individual claims (${verificationResults.filter((v) => v.verificationStatus === "verified").length} verified)`,
+      progress: 65,
+      verificationsCount: verificationResults.length,
+    });
+
     // ==========================================================================
     // PHASE 6: MODULE 06 — CROSS-SOURCE COMPARISON & CONTRADICTION ENGINE
     // ==========================================================================
@@ -427,6 +464,13 @@ export class ResearchPipelineOrchestrator {
       updated_at: cr.detectedAt,
     }));
     const savedContradictions = await researchRepository.saveContradictions(contradictionRecords);
+
+    onProgress?.({
+      stage: "MODULE_06_CONTRADICTIONS",
+      message: `Analyzed cross-source contradictions (${contradictionResults.length} disagreements investigated)`,
+      progress: 75,
+      contradictionsCount: contradictionResults.length,
+    });
 
     // ==========================================================================
     // PHASE 7: MODULE 07 — RESEARCH ANALYSIS & INTELLIGENCE ENGINE
@@ -517,6 +561,13 @@ export class ResearchPipelineOrchestrator {
     }));
     await researchRepository.saveAlternatives(alternativeRecords);
 
+    onProgress?.({
+      stage: "MODULE_07_ANALYSIS",
+      message: `Synthesized intelligence: ${analysisResult.findings.length} findings, ${analysisResult.recommendations.length} recommendations`,
+      progress: 85,
+      analysisSummary: analysisResult.executiveSummary,
+    });
+
     // ==========================================================================
     // PHASE 8: MODULE 08 — FRESHNESS & REVALIDATION ENGINE
     // ==========================================================================
@@ -572,6 +623,13 @@ export class ResearchPipelineOrchestrator {
       detected_at: l.detectedAt,
     }));
     await researchRepository.saveRevalidationLogs(logRecords);
+
+    onProgress?.({
+      stage: "MODULE_08_FRESHNESS",
+      message: `Assessed freshness decay (${freshnessResult.overallProjectFreshness.toUpperCase()}) & scheduled ${freshnessResult.scheduledJobs.length} revalidation jobs`,
+      progress: 92,
+      freshness: freshnessResult.overallProjectFreshness,
+    });
 
     // ==========================================================================
     // PHASE 9: MODULE 09 — RESEARCH REPORT GENERATION & CITATION FIREWALL (MODULE 11)
@@ -652,6 +710,13 @@ export class ResearchPipelineOrchestrator {
       await researchRepository.saveReportCitations(citRecords);
     }
 
+    onProgress?.({
+      stage: "MODULE_09_REPORT_GENERATION",
+      message: `Generated ${reportsToSave.length} verifiable research reports with exact citations`,
+      progress: 95,
+      reportsCount: reportsToSave.length,
+    });
+
     // ==========================================================================
     // PHASE 10: MODULE 10 — ADVANCED MEMORY DEEP INGESTION ENGINE
     // ==========================================================================
@@ -666,6 +731,13 @@ export class ResearchPipelineOrchestrator {
       reports: reportsToSave,
     });
 
+    onProgress?.({
+      stage: "MODULE_10_MEMORY_INGESTION",
+      message: `Ingested ${memoryIngestionResult.ingestedMemoriesCount} research memories into knowledge graph`,
+      progress: 98,
+      memoriesIngestedCount: memoryIngestionResult.ingestedMemoriesCount,
+    });
+
     // ==========================================================================
     // PHASE 11: MODULE 11 — RESEARCH SAFETY & INTEGRITY AUDIT SUMMARY
     // ==========================================================================
@@ -676,6 +748,13 @@ export class ResearchPipelineOrchestrator {
       citationIntegrityPassed: allCitationsValid,
       auditedAt: new Date().toISOString(),
     };
+
+    onProgress?.({
+      stage: "MODULE_11_SAFETY_AUDIT",
+      message: `Completed safety audit (${safetyAuditSummary.securityEventsCount} events monitored, citation integrity: ${safetyAuditSummary.citationIntegrityPassed ? "PASSED" : "FLAGGED"})`,
+      progress: 100,
+      securitySummary: safetyAuditSummary,
+    });
 
     await researchRepository.updateProjectStatus(plan.research_id, "completed");
 

@@ -45,6 +45,7 @@ client_secret*.json
 
 # local scratch space for verification scripts/build probes
 .tmp/
+backups/
 
 # typescript
 *.tsbuildinfo

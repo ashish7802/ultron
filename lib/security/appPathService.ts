@@ -127,9 +127,9 @@ export class AppPathService {
    */
   public getVaultKeyPath(): string {
     const primaryPath = path.join(this._userDataDir, ".vault_key");
-    if (!this._isPackaged && !fs.existsSync(primaryPath)) {
+    if (!this._isPackaged && !fs.existsSync(primaryPath) && !fs.existsSync(`${primaryPath}.dpapi`)) {
       const devPath = path.join(process.cwd(), ".vault_key");
-      if (fs.existsSync(devPath)) {
+      if (fs.existsSync(devPath) || fs.existsSync(`${devPath}.dpapi`)) {
         return devPath;
       }
     }
