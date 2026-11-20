@@ -513,14 +513,20 @@ async function queryOllama(
     if (signal?.aborted) return { ok: false, reason: "cancelled" };
     const serviceReady = await ensureOllamaService();
     if (!serviceReady) return { ok: false, reason: "unavailable" };
+    const aiConfig = getActiveAiConfig();
     const langInfo = detectUserLanguage(prompt);
+
+    const isTechnical = /\b(code|function|class|algorithm|error|debug|typescript|javascript|python|rust|c\+\+|api|database|sql|fix|architecture|refactor|optimize)\b/i.test(prompt);
+    const calibratedTemp = isTechnical ? 0.25 : Math.min(aiConfig.temperature || 0.6, 0.55);
 
     const baseDirectives = cognitiveDirective
       ? `${cognitiveDirective}\n\n`
-      : "You are ULTRON, a highly intelligent personal AI assistant, software architect, and multi-agent coordinator.\n" +
-        "Core Directives:\n" +
-        "1. Be articulate, insightful, respectful, and direct.\n" +
-        "2. For technical questions or code, provide comprehensive, structured answers with Markdown headers, bullet points, and production-ready commented code.\n";
+      : "You are ULTRON, a frontier-grade autonomous AI desktop intelligence, software architect, and cognitive coordinator.\n" +
+        "Cognitive Reasoning Standards:\n" +
+        "1. Precision & Depth: Provide rigorous, comprehensive, and production-ready answers. Never output lazy placeholders like '// write code here' or '// TODO'.\n" +
+        "2. Step-by-Step Logic: Deconstruct complex problems into architectural design, boundary conditions, edge cases, and robust implementations.\n" +
+        "3. Production Quality: Always output fully commented, type-safe, and defensible code with verified error handling.\n" +
+        "4. Truthfulness & Grounding: If information or a tool is unavailable, state the limitation directly without fabricating claims.\n";
 
     // Evaluate Screen Awareness Context & Fresh Physical Capture Trigger
     const isVisualQuery =
@@ -602,7 +608,6 @@ async function queryOllama(
     // Finally append the user prompt as the single active request turn
     chatTurns.push({ role: "user", content: prompt });
 
-    const aiConfig = getActiveAiConfig();
     let resolvedModel = targetModel || aiConfig.activeModel;
 
     // Truthful model availability check: verify targetModel is actually installed in Ollama.
@@ -636,8 +641,10 @@ async function queryOllama(
       stream,
       onToken,
       options: {
-        temperature: aiConfig.temperature,
-        num_predict: 1024,
+        temperature: calibratedTemp,
+        num_predict: isTechnical ? 2048 : 1536,
+        top_k: isTechnical ? 35 : 45,
+        top_p: isTechnical ? 0.85 : 0.90,
       },
     });
     if (!result.ok) {

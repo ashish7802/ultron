@@ -106,6 +106,26 @@ export interface PendingPermissionPlan {
   status?: "pending" | "approved" | "rejected" | "executed" | "failed";
 }
 
+/**
+ * Metadata and payload representation for files and images attached to a chat turn.
+ */
+export interface ChatAttachment {
+  /** Unique identifier for the client attachment */
+  id: string;
+  /** Original file name (e.g. screenshot.png, data.csv) */
+  name: string;
+  /** Attachment category */
+  type: "image" | "file";
+  /** MIME type string (e.g. image/png, text/typescript) */
+  mimeType: string;
+  /** File size in bytes */
+  size: number;
+  /** Base64 data URL for images (for display and multimodal transport) */
+  dataUrl?: string;
+  /** Text content for readable text, code, config, and document files */
+  textContent?: string;
+}
+
 export interface ChatTurn {
   id: string;
   role: "user" | "assistant";
@@ -117,6 +137,8 @@ export interface ChatTurn {
   error?: boolean;
   permissionPlan?: PendingPermissionPlan | null;
   sources?: Array<{ title: string; url: string; domain?: string }>;
+  /** Optional file and image attachments provided with this turn */
+  attachments?: ChatAttachment[];
 }
 
 export interface ChatConversation {
