@@ -75,10 +75,16 @@ export function normalizeConversationText(text: string): string {
  */
 export function detectSystemConversationIntent(text: string): SystemConversationIntent | null {
   const normalized = normalizeConversationText(text);
-  if (/^(who are you|who is ultron|what are you|tell me who you are|tell me about yourself|introduce yourself)$/.test(normalized)) {
+  if (
+    /^(who are you|who is ultron|what are you|tell me who you are|tell me about yourself|introduce yourself)$/.test(normalized) ||
+    /\b(?:tum\s+kaun\s+ho|aap\s+kaun\s+ho|who\s+are\s+you)\b/i.test(normalized)
+  ) {
     return "identity";
   }
-  if (/^(what can you do|what do you do|what are your capabilities|what can ultron do|list your capabilities|your capabilities|help)$/.test(normalized)) {
+  if (
+    /^(what can you do|what do you do|what are your capabilities|what can ultron do|list your capabilities|your capabilities|help)$/.test(normalized) ||
+    /\b(?:tum\s+kya\s+kar\s+sakte\s+ho|kya\s+kar\s+sakte\s+ho|kya\s+kya\s+kar\s+sakte\s+ho|capabilities|what\s+can\s+you\s+do)\b/i.test(normalized)
+  ) {
     return "capabilities";
   }
   return null;

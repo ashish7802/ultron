@@ -20,6 +20,8 @@
  * - All scraped text is marked as untrusted data to protect the LLM context.
  */
 
+import dns from "dns";
+import net from "net";
 import { defaultPythonBridge } from "../computer/pythonBridge";
 import type { BrowserNavigationResult } from "../computer/types";
 
@@ -63,7 +65,49 @@ const FORBIDDEN_HOST_PATTERNS = [
   /^10\./,
   /^172\.(1[6-9]|2[0-9]|3[0-1])\./,
   /^192\.168\./,
+  /^[0-9]+$/, // Reject raw decimal integer IPs (e.g. 2130706433)
+  /^0x[0-9a-f]+$/i, // Reject raw hex IPs
 ];
+
+/**
+ * Checks whether an IPv4 or IPv6 address belongs to private, loopback, link-local,
+ * multicast, or cloud metadata ranges.
+ *
+ * @param ip - Candidate IP string.
+ * @returns True if the IP is prohibited for SSRF safety.
+ */
+export function isPrivateOrRestrictedIp(ip: string): boolean {
+  if (!ip) return true;
+  const cleanIp = ip.trim().replace(/^::ffff:/, ""); // strip IPv6 mapped prefix
+
+  // IPv4 checks
+  if (net.isIPv4(cleanIp)) {
+    const parts = cleanIp.split(".").map(Number);
+    if (parts.length !== 4 || parts.some((p) => isNaN(p) || p < 0 || p > 255)) return true;
+    const [a, b] = parts;
+    if (a === 0) return true; // 0.0.0.0/8
+    if (a === 127) return true; // 127.0.0.0/8 Loopback
+    if (a === 10) return true; // 10.0.0.0/8 Private
+    if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12 Private
+    if (a === 192 && b === 168) return true; // 192.168.0.0/16 Private
+    if (a === 169 && b === 254) return true; // 169.254.0.0/16 Link-local / Cloud Metadata
+    if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10 Carrier-grade NAT
+    if (a === 198 && (b === 18 || b === 19)) return true; // Benchmark testing
+    if (a >= 224) return true; // 224.0.0.0/4 Multicast & 240.0.0.0/4 Reserved
+    return false;
+  }
+
+  // IPv6 checks
+  if (net.isIPv6(cleanIp)) {
+    const lower = cleanIp.toLowerCase();
+    if (lower === "::" || lower === "::1") return true; // Unspecified & Loopback
+    if (lower.startsWith("fe8") || lower.startsWith("fe9") || lower.startsWith("fea") || lower.startsWith("feb")) return true; // fe80::/10 link-local
+    if (lower.startsWith("fc") || lower.startsWith("fd")) return true; // fc00::/7 unique local
+    return false;
+  }
+
+  return true;
+}
 
 /**
  * Validates that an untrusted web URL strictly uses HTTP or HTTPS and does not target
@@ -92,6 +136,14 @@ export function validateWebUrl(rawUrl: string): string {
   }
 
   const hostname = parsed.hostname.toLowerCase();
+
+  // If hostname is directly an IP literal, validate it
+  if (net.isIP(hostname)) {
+    if (isPrivateOrRestrictedIp(hostname)) {
+      throw new Error(`Access Denied: URL targets restricted IP '${hostname}'.`);
+    }
+  }
+
   for (const pattern of FORBIDDEN_HOST_PATTERNS) {
     if (pattern.test(hostname)) {
       throw new Error(`Access Denied: URL targets restricted host '${hostname}'.`);
@@ -99,6 +151,49 @@ export function validateWebUrl(rawUrl: string): string {
   }
 
   return parsed.toString();
+}
+
+/**
+ * Asynchronously validates that a URL does not resolve via DNS to an internal, loopback,
+ * or cloud metadata IP address (prevents DNS rebinding and domain aliasing attacks).
+ *
+ * @param rawUrl - Input URL string.
+ * @returns Sanitized URL string.
+ */
+export async function validateWebUrlAsync(rawUrl: string): Promise<string> {
+  const safeUrl = validateWebUrl(rawUrl);
+  const parsed = new URL(safeUrl);
+  const hostname = parsed.hostname.toLowerCase();
+
+  // If hostname is directly an IP
+  if (net.isIP(hostname)) {
+    if (isPrivateOrRestrictedIp(hostname)) {
+      throw new Error(`Access Denied: IP '${hostname}' is restricted.`);
+    }
+    return safeUrl;
+  }
+
+  // Resolve DNS to verify the domain does not rebind to internal hosts
+  try {
+    const records = await dns.promises.lookup(hostname, { all: true });
+    if (!records || records.length === 0) {
+      throw new Error(`DNS resolution failed for '${hostname}'.`);
+    }
+    for (const record of records) {
+      if (isPrivateOrRestrictedIp(record.address)) {
+        throw new Error(`Access Denied: Domain '${hostname}' resolves to restricted IP '${record.address}'.`);
+      }
+    }
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message.includes("Access Denied")) {
+      throw err;
+    }
+    throw new Error(`Could not safely resolve hostname '${hostname}': ${err instanceof Error ? err.message : String(err)}`, {
+      cause: err,
+    });
+  }
+
+  return safeUrl;
 }
 
 /**
@@ -178,28 +273,53 @@ export class BrowserAssistantEngine {
    * @returns Clean ExtractedArticle object.
    */
   public async extractArticle(url: string, maxChars: number = 8000): Promise<ExtractedArticle> {
-    const safeUrl = validateWebUrl(url);
+    let currentUrl = await validateWebUrlAsync(url);
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000); // 10s budget
+    const timeout = setTimeout(() => controller.abort(), 12000); // 12s budget
 
     try {
-      const response = await fetch(safeUrl, {
-        method: "GET",
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 ULTRON-Lite/1.0",
-          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        },
-        signal: controller.signal,
-      });
+      let hops = 0;
+      let finalHtml = "";
+      const maxHops = 3;
 
-      if (!response.ok) {
-        throw new Error(`Web server responded with HTTP ${response.status} (${response.statusText})`);
+      while (hops <= maxHops) {
+        const response = await fetch(currentUrl, {
+          method: "GET",
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 ULTRON-Lite/1.0",
+            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          },
+          signal: controller.signal,
+          redirect: "manual", // Prevent open redirect SSRF attacks
+        });
+
+        // If server returns a redirect, manually validate destination before following
+        if ([301, 302, 303, 307, 308].includes(response.status)) {
+          const locationHeader = response.headers.get("location");
+          if (!locationHeader) {
+            throw new Error(`Redirect with missing Location header from ${currentUrl}`);
+          }
+          const nextUrl = new URL(locationHeader, currentUrl).toString();
+          currentUrl = await validateWebUrlAsync(nextUrl);
+          hops += 1;
+          continue;
+        }
+
+        if (!response.ok) {
+          throw new Error(`Web server responded with HTTP ${response.status} (${response.statusText})`);
+        }
+
+        finalHtml = await response.text();
+        break;
       }
 
-      const html = await response.text();
-      return this.parseArticleFromHtml(html, safeUrl, maxChars);
+      if (hops > maxHops) {
+        throw new Error("Too many redirects (exceeded 3 hops).");
+      }
+
+      return this.parseArticleFromHtml(finalHtml, currentUrl, maxChars);
     } finally {
       clearTimeout(timeout);
     }

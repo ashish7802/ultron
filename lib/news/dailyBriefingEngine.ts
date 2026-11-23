@@ -208,11 +208,12 @@ export class DailyBriefingEngine {
   }
 
   /**
-   * Lightweight regex-based XML item extractor that avoids heavy XML DOM parser footprints.
+   * Lightweight regex-based XML item extractor that supports both standard RSS `<item>`
+   * and Atom `<entry>` schemas without heavy DOM parser dependencies.
    */
   private parseRssXml(xml: string, sourceName: string, category: NewsStory["category"]): NewsStory[] {
     const stories: NewsStory[] = [];
-    const itemRegex = /<item\b[^>]*>([\s\S]*?)<\/item>/gi;
+    const itemRegex = /<(?:item|entry)\b[^>]*>([\s\S]*?)<\/(?:item|entry)>/gi;
     let match: RegExpExecArray | null;
 
     while ((match = itemRegex.exec(xml)) !== null && stories.length < 5) {
@@ -223,16 +224,24 @@ export class DailyBriefingEngine {
       const rawTitle = titleMatch ? (titleMatch[1] || titleMatch[2] || "").trim() : "";
       const cleanTitle = rawTitle.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">");
 
-      // Extract Link
-      const linkMatch = itemContent.match(/<link\b[^>]*>(?:<!\[CDATA\[([\s\S]*?)\]\]>|([^<]+))<\/link>/i);
+      // Extract Link (handles standard <link>url</link> and Atom <link href="url"/>)
+      const linkMatch =
+        itemContent.match(/<link\b[^>]*>(?:<!\[CDATA\[([\s\S]*?)\]\]>|([^<]+))<\/link>/i) ||
+        itemContent.match(/<link\b[^>]*href=["']([^"']+)["']/i);
       const link = linkMatch ? (linkMatch[1] || linkMatch[2] || "").trim() : "";
 
-      // Extract PubDate
-      const pubDateMatch = itemContent.match(/<pubDate\b[^>]*>([^<]+)<\/pubDate>/i);
+      // Extract PubDate (handles RSS <pubDate>, Atom <updated> and <published>)
+      const pubDateMatch =
+        itemContent.match(/<pubDate\b[^>]*>([^<]+)<\/pubDate>/i) ||
+        itemContent.match(/<updated\b[^>]*>([^<]+)<\/updated>/i) ||
+        itemContent.match(/<published\b[^>]*>([^<]+)<\/published>/i);
       const pubDate = pubDateMatch ? pubDateMatch[1].trim() : new Date().toUTCString();
 
-      // Extract Description
-      const descMatch = itemContent.match(/<description\b[^>]*>(?:<!\[CDATA\[([\s\S]*?)\]\]>|([^<]+))<\/description>/i);
+      // Extract Description (handles RSS <description>, Atom <summary> and <content>)
+      const descMatch =
+        itemContent.match(/<description\b[^>]*>(?:<!\[CDATA\[([\s\S]*?)\]\]>|([^<]+))<\/description>/i) ||
+        itemContent.match(/<summary\b[^>]*>(?:<!\[CDATA\[([\s\S]*?)\]\]>|([^<]+))<\/summary>/i) ||
+        itemContent.match(/<content\b[^>]*>(?:<!\[CDATA\[([\s\S]*?)\]\]>|([^<]+))<\/content>/i);
       const rawDesc = descMatch ? (descMatch[1] || descMatch[2] || "").trim() : "";
       const cleanDesc = rawDesc.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200);
 
@@ -260,7 +269,8 @@ export class DailyBriefingEngine {
    * @returns Complete DailyBriefingPayload.
    */
   public async getDailyBriefing(forceRefresh: boolean = false): Promise<DailyBriefingPayload> {
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     const cacheFile = this.getCacheFilePath();
 
     // Check disk cache if forceRefresh is not requested

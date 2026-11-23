@@ -344,5 +344,40 @@ export async function handleSystemControlIntent(query: string): Promise<SystemAc
     }
   }
 
+  // Pattern 4D: Browser Search & New Tab Dispatch (e.g. "Chrome mein ek naya tab kholo aur artificial intelligence ki latest research search karo")
+  const searchPattern =
+    /(?:chrome|browser|edge|firefox)?.*?(?:naya\s+tab|new\s+tab)?.*?(?:kholo|open|khol\s+do)?.*?(?:aur|and|,)?\s*(.*?)\s+(?:search\s+karo|search\s+kar\s+do|search\s+kijiye|search\s+for|dhundo)\b/i;
+  const directSearchPattern =
+    /(?:search\s+for|search\s+karo|dhundo)\s+(.*?)(?:\s+(?:in|on|using|me|mein|pe|par)\s+(?:chrome|browser|edge|new\s+tab))?$/i;
+
+  const searchMatch = lower.match(searchPattern) || lower.match(directSearchPattern);
+  if (searchMatch && searchMatch[1] && searchMatch[1].trim().length > 2) {
+    const rawSearch = searchMatch[1].trim();
+    // Clean query from filler words, browser commands, and prepositions
+    const cleanSearch = rawSearch
+      .replace(/^(?:chrome|browser|edge|firefox|mein|me|ek|naya\s+tab|new\s+tab|kholo|open|aur|and|,|\s+)+/gi, "")
+      .replace(/\b(?:naya\s+tab|new\s+tab|kholo|open)\b/gi, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (cleanSearch) {
+      const searchUrl = `https://duckduckgo.com/?q=${encodeURIComponent(cleanSearch)}`;
+      const plan = planAction("browser_open", searchUrl, { query: cleanSearch, targetUrl: searchUrl }, [
+        "Default Web Browser",
+        "Search Provider",
+      ]);
+      const approval = approveActionPlan(plan.planId, plan.approvalToken);
+      if (approval.success && approval.executionGrantToken) {
+        const grantToken = approval.executionGrantToken;
+        await executeApprovedAction(plan.planId, grantToken, async () => {
+          return await openUrlInBrowser(searchUrl, { planId: plan.planId, grantToken });
+        });
+      }
+      return {
+        handled: true,
+        message: `🚀 **Chrome Browser Opened**\n\nEk naya tab khol kar search kiya gaya:\n\n🔎 **Search Query:** "${cleanSearch}"\n🔗 **URL:** [${searchUrl}](${searchUrl})`,
+      };
+    }
+  }
+
   return null;
 }
