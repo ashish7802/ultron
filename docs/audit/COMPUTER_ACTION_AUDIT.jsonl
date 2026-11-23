@@ -340,3 +340,9 @@
 {"auditId": "audit_03abc83dc3d4", "timestamp": 1795145016.683738, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Authorized battery reset", "status": "RESUMED"}
 {"auditId": "audit_4f781d2c5781", "timestamp": 1795161680.0115247, "emergencyStop": true, "action": "EMERGENCY_STOP_TRIGGERED", "reason": "Milestone 5 battery test", "jobsKilled": 0, "status": "HALTED"}
 {"auditId": "audit_34db3c47f1b6", "timestamp": 1795161680.2428508, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Authorized battery reset", "status": "RESUMED"}
+{"auditId": "audit_5b84c888e734", "timestamp": 1795393521.7979655, "emergencyStop": true, "action": "EMERGENCY_STOP_TRIGGERED", "reason": "Milestone 5 battery test", "jobsKilled": 0, "status": "HALTED"}
+{"auditId": "audit_c6b043710dd0", "timestamp": 1795393522.4895139, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Authorized battery reset", "status": "RESUMED"}
+{"auditId": "audit_5986bb4cfb7f", "timestamp": 1795395556.544794, "emergencyStop": true, "action": "EMERGENCY_STOP_TRIGGERED", "reason": "Milestone 5 battery test", "jobsKilled": 0, "status": "HALTED"}
+{"auditId": "audit_f92efdecbabf", "timestamp": 1795395557.0477073, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Authorized battery reset", "status": "RESUMED"}
+{"auditId": "audit_9d1cabb3a01a", "timestamp": 1795395658.4756906, "emergencyStop": true, "action": "EMERGENCY_STOP_TRIGGERED", "reason": "Milestone 5 battery test", "jobsKilled": 0, "status": "HALTED"}
+{"auditId": "audit_a1b3d720a653", "timestamp": 1795395658.9581912, "emergencyStop": false, "action": "EMERGENCY_STOP_CLEARED", "reason": "Authorized battery reset", "status": "RESUMED"}

@@ -34,7 +34,7 @@ export interface UltronSettings {
   general: {
     assistantName: string;
     preferredLanguage: "auto" | "en" | "hinglish";
-    startupView: "command" | "chat" | "voice" | "memory" | "system" | "models" | "security" | "settings" | "diagnostics";
+    startupView: "command" | "chat" | "briefing" | "explorer" | "voice" | "memory" | "system" | "models" | "security" | "settings" | "diagnostics";
     confirmDestructiveActions: boolean;
   };
   appearance: {
@@ -247,7 +247,7 @@ export function mergeAndValidateSettings(
     );
     next.general.startupView = pickEnum(
       patch.general.startupView,
-      ["command", "chat", "voice", "memory", "system", "models", "security", "settings", "diagnostics"] as const,
+      ["command", "chat", "briefing", "explorer", "voice", "memory", "system", "models", "security", "settings", "diagnostics"] as const,
       next.general.startupView,
     );
     if (typeof patch.general.confirmDestructiveActions === "boolean") {

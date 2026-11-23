@@ -87,7 +87,7 @@ async function testStreaming(prompt) {
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
-  let receivedTokens = [];
+  const receivedTokens = [];
   let receivedDone = false;
   let buffer = "";
 

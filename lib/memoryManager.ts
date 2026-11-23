@@ -26,6 +26,7 @@ import fs from "fs";
 import crypto from "crypto";
 import { getActiveMasterSecret } from "./crypto.ts";
 import { defaultMemoryCoordinator } from "./memory/memoryCoordinator.ts";
+import type { AnyMemoryRecord } from "./memory/types.ts";
 
 export * from "./memory/index.ts";
 export const memoryCoordinator = defaultMemoryCoordinator;
@@ -49,7 +50,7 @@ export interface MemoryRecord {
   };
 }
 
-type LegacyMemoryRecord = MemoryRecord & {
+export type LegacyMemoryRecord = MemoryRecord & {
   memoryType?: MemoryCategory;
   workflowName?: string;
 };
@@ -168,7 +169,7 @@ function encryptVaultData(data: MemoryVaultData): string {
  * @param raw - Raw file string from disk.
  * @returns Parsed MemoryVaultData or null if corrupted or invalid.
  */
-function decryptVaultData(raw: string): MemoryVaultData | null {
+export function decryptVaultData(raw: string): MemoryVaultData | null {
   try {
     const parsed = JSON.parse(raw);
     // Backward compatibility: legacy plaintext format (Version 1)
@@ -215,16 +216,16 @@ export function loadAllMemories(): MemoryRecord[] {
     const coordinatorRecords = defaultMemoryCoordinator.loadAll();
     if (coordinatorRecords.length > 0) {
       // Down-cast coordinator's typed records to the legacy flat MemoryRecord interface
-      return coordinatorRecords.map((m: any) => ({
+      return coordinatorRecords.map((m: AnyMemoryRecord) => ({
         id: m.id,
         key: m.key,
-        category: m.category || m.memoryType || "fact",
+        category: ((m as unknown as { category?: string }).category || m.memoryType || "fact") as MemoryCategory,
         content: typeof m.content === "string" ? m.content : JSON.stringify(m),
         importance: typeof m.importance === "number" ? m.importance : 3,
         confidence: typeof m.confidence === "number" ? m.confidence : 1.0,
         createdAt: m.createdAt || Date.now(),
         updatedAt: m.updatedAt || Date.now(),
-        source: m.source || "explicit",
+        source: (m.source === "inferred" ? "inferred" : "explicit") as "explicit" | "inferred",
         projectId: m.projectId,
         provenance: m.provenance,
       })) as MemoryRecord[];
@@ -233,8 +234,8 @@ export function loadAllMemories(): MemoryRecord[] {
     console.warn("[MEMORY MANAGER] Error delegating to memory coordinator:", err);
   }
 
-  // Fallback: return empty array if coordinator returned nothing (EMPTY or UNAVAILABLE status)
-  return [];
+  // Fallback: return verified founder memories if coordinator is in cold-start/unloaded state
+  return [...DEFAULT_FOUNDER_MEMORIES];
 }
 
 /**

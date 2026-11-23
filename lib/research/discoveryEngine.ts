@@ -182,7 +182,7 @@ export class LiveWebSearchAdapter implements SearchProviderAdapter {
           }
         }
       }
-    } catch (fetchErr) {
+    } catch {
       // Remote probe failed or offline
     }
 

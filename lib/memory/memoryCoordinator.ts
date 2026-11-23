@@ -35,7 +35,6 @@
  */
 
 import fs from "fs";
-import path from "path";
 import crypto from "crypto";
 import { defaultAppPathService } from "../security/appPathService.ts";
 import type {
@@ -128,7 +127,6 @@ export class MemoryCoordinator {
     let records: AnyMemoryRecord[] = [];
     let primaryReadSucceeded = false;
     let backupReadSucceeded = false;
-    let backupReadFailed = false;
     const primaryExists = fs.existsSync(this._vaultPath);
     const backupExists = fs.existsSync(this._backupPath);
 
@@ -167,7 +165,6 @@ export class MemoryCoordinator {
           details: "Recovered memory records from verified backup file.",
         });
       } catch (bakErr) {
-        backupReadFailed = true;
         console.warn("[MEMORY COORDINATOR] Backup read error:", bakErr);
       }
     }

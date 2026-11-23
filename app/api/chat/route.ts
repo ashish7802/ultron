@@ -143,9 +143,21 @@ async function ensureOllamaService(): Promise<boolean> {
 
 const decisionEngine = new ResponseDecisionEngine();
 
+/** Payload structure for files and images attached to a conversation message */
+export interface ChatAttachmentPayload {
+  id: string;
+  name: string;
+  type: "image" | "file";
+  mimeType: string;
+  size: number;
+  dataUrl?: string;
+  textContent?: string;
+}
+
 interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
+  attachments?: ChatAttachmentPayload[];
 }
 
 /** Progress narration emitted over SSE so the HUD can speak what ULTRON is doing. */
@@ -605,8 +617,34 @@ async function queryOllama(
       }
     }
 
-    // Finally append the user prompt as the single active request turn
-    chatTurns.push({ role: "user", content: prompt });
+    // Inspect attachments on the active user turn
+    const activeTurn = lastHist && lastHist.role === "user" ? lastHist : null;
+    const currentAttachments = activeTurn?.attachments || [];
+
+    let fileContentBlock = "";
+    const attachedImagesBase64: string[] = [];
+
+    if (currentAttachments.length > 0) {
+      const fileSummaries: string[] = [];
+      for (const att of currentAttachments) {
+        if (att.type === "file" && att.textContent) {
+          fileSummaries.push(
+            `### Attached File: \`${att.name}\` (${Math.round(att.size / 1024)} KB)\n\`\`\`\n${att.textContent}\n\`\`\``
+          );
+        } else if (att.type === "file") {
+          fileSummaries.push(`- Attached File: \`${att.name}\` (${att.mimeType}, ${att.size} bytes)`);
+        } else if (att.type === "image" && att.dataUrl) {
+          const base64Only = att.dataUrl.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, "");
+          if (base64Only) {
+            attachedImagesBase64.push(base64Only);
+          }
+          fileSummaries.push(`- Attached Image: \`${att.name}\` (${att.mimeType}, ${Math.round(att.size / 1024)} KB)`);
+        }
+      }
+      if (fileSummaries.length > 0) {
+        fileContentBlock = `\n\n<user_attachments>\n${fileSummaries.join("\n\n")}\n</user_attachments>`;
+      }
+    }
 
     let resolvedModel = targetModel || aiConfig.activeModel;
 
@@ -631,6 +669,18 @@ async function queryOllama(
     } catch {
       // Ignore tag probe failure; inferLocalModel handles connection error
     }
+
+    const isMultimodalModel =
+      /\b(vision|llava|bakllava|moondream|minicpm-v|cogvlm)\b/i.test(resolvedModel);
+
+    // Finally append the user prompt as the single active request turn
+    const userPromptContent = prompt + fileContentBlock;
+    chatTurns.push({
+      role: "user",
+      content: userPromptContent,
+      // Pass base64 images only when model is multimodal, avoiding 500 rejection by text-only models
+      ...(isMultimodalModel && attachedImagesBase64.length > 0 ? { images: attachedImagesBase64 } : {}),
+    });
 
     const result = await inferLocalModel({
       endpoint: aiConfig.ollamaEndpoint,
@@ -942,7 +992,7 @@ async function buildResponse(
             }
           }
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.warn("Docs scan error:", err);
       }
 
@@ -1442,10 +1492,35 @@ function validateMessages(rawMessages: unknown): ChatMessage[] | null {
   for (const entry of candidateList) {
     if (!isRecord(entry)) return null;
     const role = entry.role;
-    const content = entry.content;
+    let content = typeof entry.content === "string" ? entry.content : "";
     if (role !== "user" && role !== "assistant" && role !== "system") return null;
+
+    let attachments: ChatAttachmentPayload[] | undefined;
+    if (Array.isArray(entry.attachments) && entry.attachments.length > 0) {
+      attachments = [];
+      for (const rawAtt of entry.attachments.slice(0, 10)) {
+        if (isRecord(rawAtt) && typeof rawAtt.name === "string") {
+          attachments.push({
+            id: typeof rawAtt.id === "string" ? rawAtt.id : `att_${Date.now()}`,
+            name: String(rawAtt.name).slice(0, 200),
+            type: rawAtt.type === "image" ? "image" : "file",
+            mimeType: typeof rawAtt.mimeType === "string" ? rawAtt.mimeType.slice(0, 100) : "application/octet-stream",
+            size: typeof rawAtt.size === "number" ? rawAtt.size : 0,
+            dataUrl: typeof rawAtt.dataUrl === "string" && rawAtt.dataUrl.length < 10_000_000 ? rawAtt.dataUrl : undefined,
+            textContent: typeof rawAtt.textContent === "string" ? rawAtt.textContent.slice(0, 50_000) : undefined,
+          });
+        }
+      }
+    }
+
+    // If user provided attachments without typing any prompt, provide an intuitive default prompt
+    if (!content.trim() && attachments && attachments.length > 0) {
+      const names = attachments.map((a) => a.name).join(", ");
+      content = `Please analyze and explain the attached items (${names}).`;
+    }
+
     if (typeof content !== "string" || content.length > MAX_MESSAGE_CHARS) return null;
-    messages.push({ role, content });
+    messages.push({ role, content, attachments });
   }
 
   // The route always answers the last user turn.

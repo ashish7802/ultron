@@ -244,6 +244,7 @@ export class ResearchRepository {
   private static instance: ResearchRepository;
   private vaultData: ResearchVaultData | null = null;
   private isWriting = false;
+  private isUnreadableOnDisk = false;
 
   private constructor() {
     this.loadVault();
@@ -285,9 +286,10 @@ export class ResearchRepository {
         this.vaultData = createEmptyVault();
       }
     } catch (err) {
-      console.error("[ResearchRepository] Security protection: Failed to load vault. Refusing to overwrite data:", err);
-      // Invariant: Do not overwrite unreadable ciphertext with an empty vault
-      this.vaultData = null;
+      console.warn("[ResearchRepository] Security protection: Failed to decrypt disk vault with active master key. Initializing isolated in-memory vault to avoid crashes; original ciphertext preserved on disk:", err);
+      // Invariant: Do not overwrite unreadable ciphertext with an empty vault on disk, but provide in-memory structure to prevent crashes
+      this.isUnreadableOnDisk = true;
+      this.vaultData = createEmptyVault();
     }
   }
 
@@ -295,7 +297,7 @@ export class ResearchRepository {
    * Persists the vault to disk atomically using temporary file + rename.
    */
   private persistVaultSync(): void {
-    if (!this.vaultData || this.isWriting) return;
+    if (!this.vaultData || this.isWriting || this.isUnreadableOnDisk) return;
     this.isWriting = true;
     const vaultPath = getVaultPath();
     const backupPath = getVaultBackupPath();

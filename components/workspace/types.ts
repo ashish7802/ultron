@@ -22,6 +22,8 @@ import type { UltronSettings } from "@/lib/runtimeConfig";
 export type UltronViewId =
   | "command"
   | "chat"
+  | "briefing"
+  | "explorer"
   | "voice"
   | "memory"
   | "system"

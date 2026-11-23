@@ -24,6 +24,8 @@ import type { InferenceFailureReason } from "./conversationIntelligence";
 export interface LocalModelMessage {
   role: "system" | "user" | "assistant";
   content: string;
+  /** Optional base64-encoded images for multimodal vision models in Ollama */
+  images?: string[];
 }
 
 export type LocalModelResult =
@@ -81,12 +83,23 @@ export async function inferLocalModel(request: LocalModelRequest): Promise<Local
   try {
     if (request.signal?.aborted) return { ok: false, reason: "cancelled" };
 
+    const formattedMessages = request.messages.map((m) => {
+      const entry: { role: string; content: string; images?: string[] } = {
+        role: m.role,
+        content: m.content,
+      };
+      if (Array.isArray(m.images) && m.images.length > 0) {
+        entry.images = m.images;
+      }
+      return entry;
+    });
+
     const response = await (request.fetcher || fetch)(`${request.endpoint}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: request.model,
-        messages: request.messages,
+        messages: formattedMessages,
         stream: shouldStream,
         keep_alive: -1,
         options: inferenceOptions,

@@ -31,12 +31,14 @@ import React, { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   Activity,
+  Compass,
   Cpu,
   Database,
   LayoutDashboard,
   Menu,
   MessageSquare,
   Mic,
+  Newspaper,
   Server,
   ShieldAlert,
   ShieldCheck,
@@ -54,6 +56,8 @@ import type {
 import { ensureDesktopSession, ultronJson } from "@/components/workspace/apiClient";
 import CommandCenterView from "@/components/views/CommandCenterView";
 import ChatView from "@/components/views/ChatView";
+import DailyBriefingView from "@/components/views/DailyBriefingView";
+import WorldExplorerView from "@/components/views/WorldExplorerView";
 import VoiceView from "@/components/views/VoiceView";
 import MemoryCenterView from "@/components/views/MemoryCenterView";
 import SystemControlView from "@/components/views/SystemControlView";
@@ -72,6 +76,8 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { id: "command", label: "Dashboard", group: "core", icon: LayoutDashboard },
   { id: "chat", label: "AI Chat", group: "core", icon: MessageSquare },
+  { id: "briefing", label: "Daily Briefing", group: "core", icon: Newspaper },
+  { id: "explorer", label: "World Explorer", group: "core", icon: Compass },
   { id: "voice", label: "Voice", group: "core", icon: Mic },
   { id: "memory", label: "Memory", group: "core", icon: Database },
   { id: "system", label: "System Control", group: "system", icon: Cpu },
@@ -418,6 +424,24 @@ export default function UltronWorkspace() {
                   onNavigate={handleNavigate}
                   onNotify={pushToast}
                 />
+              )}
+
+              {activeView === "briefing" && (
+                <DailyBriefingView
+                  onNotify={pushToast}
+                  onOpenExplorerWithTopic={(topic) => {
+                    setActiveView("explorer");
+                    pushToast({
+                      tone: "info",
+                      title: "World Explorer",
+                      detail: `Exploring ${topic}`,
+                    });
+                  }}
+                />
+              )}
+
+              {activeView === "explorer" && (
+                <WorldExplorerView onNotify={pushToast} />
               )}
 
               {activeView === "voice" && (
